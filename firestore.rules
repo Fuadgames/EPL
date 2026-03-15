@@ -1,0 +1,128 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isDocOwner() {
+      return isAuthenticated() && request.auth.uid == resource.data.authorId;
+    }
+    
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+    
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+    
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+    
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+    
+    function isAdmin() {
+      return isAuthenticated() && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        (request.auth.token.email == "fufazada@gmail.com" && request.auth.token.email_verified == true)
+      );
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['uid', 'name', 'email', 'photoUrl', 'role', 'createdAt']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             data.email is string && isValidEmail(data.email) &&
+             (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() < 1000)) &&
+             data.role in ['user', 'admin'] &&
+             data.createdAt is string;
+    }
+    
+    function isValidApp(data) {
+      return hasOnlyAllowedFields(['id', 'title', 'description', 'code', 'version', 'supportedPlatforms', 'authorId', 'authorName', 'downloads', 'rating', 'createdAt', 'updatedAt']) &&
+             hasRequiredFields(['id', 'title', 'description', 'code', 'version', 'authorId', 'authorName', 'downloads', 'rating', 'updatedAt']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 128 &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
+             data.description is string && data.description.size() < 2000 &&
+             data.code is string && data.code.size() < 50000 &&
+             data.version is string && data.version.size() > 0 && data.version.size() < 20 &&
+             (!('supportedPlatforms' in data) || (data.supportedPlatforms is list && data.supportedPlatforms.size() <= 10)) &&
+             data.authorId is string && data.authorId.size() > 0 && data.authorId.size() < 128 &&
+             data.authorName is string && data.authorName.size() > 0 && data.authorName.size() < 100 &&
+             data.downloads is number && data.downloads >= 0 &&
+             data.rating is number && data.rating >= 0 && data.rating <= 5 &&
+             (!('createdAt' in data) || data.createdAt is string) &&
+             data.updatedAt is string;
+    }
+    
+    function isValidReview(data) {
+      return hasOnlyAllowedFields(['id', 'appId', 'userId', 'userName', 'rating', 'comment', 'createdAt']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 128 &&
+             data.appId is string && data.appId.size() > 0 && data.appId.size() < 128 &&
+             data.userId is string && data.userId.size() > 0 && data.userId.size() < 128 &&
+             data.userName is string && data.userName.size() > 0 && data.userName.size() < 100 &&
+             data.rating is number && data.rating >= 1 && data.rating <= 5 &&
+             data.comment is string && data.comment.size() < 1000 &&
+             data.createdAt is string;
+    }
+
+    // ===============================================================
+    // Collections
+    // ===============================================================
+    match /users/{userId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidUser(request.resource.data) && (
+        (isOwner(userId) && request.resource.data.role == 'user' && uidUnchanged()) || isAdmin()
+      );
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) && (
+        (isOwner(userId) && request.resource.data.role == resource.data.role && uidNotModified()) || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+    
+    match /apps/{appId} {
+      allow read: if true; // Publicly readable
+      allow create: if isAuthenticated() && isValidApp(request.resource.data) && request.resource.data.authorId == request.auth.uid;
+      allow update: if isAuthenticated() && isValidApp(request.resource.data) && (
+        // Author can update their app
+        (request.auth.uid == resource.data.authorId && 
+         request.resource.data.authorId == resource.data.authorId &&
+         (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+         request.resource.data.downloads == resource.data.downloads &&
+         request.resource.data.rating == resource.data.rating) ||
+        // Anyone can increment downloads
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['downloads']) &&
+         request.resource.data.downloads == resource.data.downloads + 1) ||
+        // Anyone can update rating (simplified for now, ideally handled by Cloud Function)
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating'])) ||
+        isAdmin()
+      );
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorId || isAdmin());
+    }
+    
+    match /reviews/{reviewId} {
+      allow read: if true; // Publicly readable
+      allow create: if isAuthenticated() && isValidReview(request.resource.data) && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && isValidReview(request.resource.data) && request.auth.uid == resource.data.userId && request.resource.data.userId == resource.data.userId;
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+    }
+  }
+}

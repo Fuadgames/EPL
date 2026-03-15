@@ -1,0 +1,67 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the EPL Studio platform.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The user's unique ID." },
+        "name": { "type": "string", "description": "The user's display name." },
+        "email": { "type": "string", "format": "email", "description": "The user's email address." },
+        "photoUrl": { "type": "string", "format": "uri", "description": "The user's profile picture URL." },
+        "role": { "type": "string", "enum": ["user", "admin"], "description": "The user's role." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the user was created." }
+      },
+      "required": ["uid", "name", "email", "role", "createdAt"]
+    },
+    "App": {
+      "title": "App",
+      "description": "An application written in EPL and published to the store.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The app's unique ID." },
+        "title": { "type": "string", "description": "The name of the app." },
+        "description": { "type": "string", "description": "A description of what the app does." },
+        "code": { "type": "string", "description": "The EPL source code of the app." },
+        "version": { "type": "string", "description": "The version string, e.g., '1.0.0'." },
+        "supportedPlatforms": { "type": "array", "items": { "type": "string" }, "description": "List of supported platforms." },
+        "authorId": { "type": "string", "description": "The UID of the user who created the app." },
+        "authorName": { "type": "string", "description": "The name of the author." },
+        "downloads": { "type": "number", "description": "Number of times the app was run/downloaded." },
+        "rating": { "type": "number", "description": "Average rating." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the app was published." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "When the app was last updated." }
+      },
+      "required": ["title", "description", "code", "version", "authorId", "authorName", "downloads", "rating", "createdAt", "updatedAt"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "A user review for an app.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The review's unique ID." },
+        "appId": { "type": "string", "description": "The ID of the app being reviewed." },
+        "userId": { "type": "string", "description": "The UID of the user writing the review." },
+        "userName": { "type": "string", "description": "The name of the user writing the review." },
+        "rating": { "type": "number", "description": "Rating from 1 to 5." },
+        "comment": { "type": "string", "description": "The review text." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the review was posted." }
+      },
+      "required": ["appId", "userId", "userName", "rating", "comment", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profiles."
+    },
+    "/apps/{appId}": {
+      "schema": { "$ref": "#/entities/App" },
+      "description": "Stores published apps."
+    },
+    "/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/Review" },
+      "description": "Stores app reviews."
+    }
+  }
+}
