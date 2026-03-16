@@ -42,8 +42,10 @@ export const signInWithGoogle = async () => {
         createdAt: new Date().toISOString()
       });
     }
-  } catch (error) {
+    return { user, error: null };
+  } catch (error: any) {
     console.error("Error signing in with Google", error);
+    return { user: null, error };
   }
 };
 

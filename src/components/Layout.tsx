@@ -8,6 +8,25 @@ import { translations } from '../lib/translations';
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { currentView, setCurrentView, user, theme, language, isPremium } = useStore();
   const t = translations[language];
+  const [isLoggingIn, setIsLoggingIn] = React.useState(false);
+  const [loginError, setLoginError] = React.useState<string | null>(null);
+
+  const handleSignIn = async () => {
+    setIsLoggingIn(true);
+    setLoginError(null);
+    const { error } = await signInWithGoogle();
+    if (error) {
+      console.error("Login failed:", error);
+      if (error.code === 'auth/popup-blocked') {
+        setLoginError(language === 'ru' ? 'Поп-ап заблокирован. Пожалуйста, разрешите всплывающие окна.' : 'Popup blocked. Please allow popups.');
+      } else if (error.code === 'auth/unauthorized-domain') {
+        setLoginError(language === 'ru' ? 'Домен не авторизован в Firebase Console.' : 'Domain not authorized in Firebase Console.');
+      } else {
+        setLoginError(language === 'ru' ? 'Ошибка входа. Попробуйте еще раз.' : 'Login failed. Please try again.');
+      }
+    }
+    setIsLoggingIn(false);
+  };
 
   const navItems = [
     { id: 'store', label: t.store, icon: Store },
@@ -62,6 +81,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </nav>
 
         <div className="p-4 border-t border-zinc-800/50">
+          {loginError && (
+            <div className="mb-4 p-2 bg-red-500/10 border border-red-500/20 rounded-lg text-xs text-red-500 text-center">
+              {loginError}
+            </div>
+          )}
           {user ? (
             <div className="flex items-center gap-3 px-2 py-2">
               <img src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} alt="Avatar" className="w-8 h-8 rounded-full bg-zinc-800" referrerPolicy="no-referrer" />
@@ -77,10 +101,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </div>
           ) : (
             <button
-              onClick={signInWithGoogle}
-              className="w-full py-2.5 px-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors"
+              onClick={handleSignIn}
+              disabled={isLoggingIn}
+              className="w-full py-2.5 px-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors flex items-center justify-center gap-2"
             >
-              Sign In
+              {isLoggingIn ? (
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+              ) : (
+                'Sign In'
+              )}
             </button>
           )}
         </div>
@@ -95,7 +124,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           {user ? (
             <img src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} alt="Avatar" className="w-8 h-8 rounded-full bg-zinc-800" referrerPolicy="no-referrer" />
           ) : (
-            <button onClick={signInWithGoogle} className="text-sm font-medium text-emerald-500">Sign In</button>
+            <button onClick={handleSignIn} disabled={isLoggingIn} className="text-sm font-medium text-emerald-500 disabled:opacity-50">
+              {isLoggingIn ? '...' : 'Sign In'}
+            </button>
           )}
         </div>
       </div>
