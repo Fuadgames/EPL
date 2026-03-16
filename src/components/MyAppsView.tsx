@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { collection, query, where, getDocs, deleteDoc, doc } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { useStore } from '../store/useStore';
-import { Package, Edit2, Trash2, Plus, Terminal, Lock } from 'lucide-react';
+import { Package, Edit2, Trash2, Plus, Terminal, Lock, Key } from 'lucide-react';
 import { clsx } from 'clsx';
 
 interface AppData {
@@ -13,6 +13,7 @@ interface AppData {
   downloads: number;
   isAiGenerated?: boolean;
   isPrivate?: boolean;
+  isLocked?: boolean;
 }
 
 export default function MyAppsView() {
@@ -71,7 +72,7 @@ export default function MyAppsView() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">My Apps</h1>
-          <p className={clsx("mt-2", theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500')}>Manage your published EPL applications.</p>
+          <p className={clsx("mt-2", theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>Manage your published EPL applications.</p>
         </div>
         <button
           onClick={() => {
@@ -108,7 +109,7 @@ export default function MyAppsView() {
           {apps.map(app => (
             <div key={app.id} className={clsx(
               "p-6 rounded-2xl border transition-all relative overflow-hidden",
-              theme === 'dark' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
+              theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
             )}>
               <div className="flex justify-between items-start mb-1">
                 <h3 className="text-lg font-semibold truncate flex-1">{app.title}</h3>
@@ -118,6 +119,11 @@ export default function MyAppsView() {
                       <Lock className="w-3 h-3 text-zinc-400" />
                     </div>
                   )}
+                  {app.isLocked && (
+                    <div className="bg-emerald-500/10 p-1 rounded-md" title="Locked with Code">
+                      <Key className="w-3 h-3 text-emerald-500" />
+                    </div>
+                  )}
                   {app.isAiGenerated && (
                     <div className="bg-emerald-500/10 p-1 rounded-md" title="AI Generated">
                       <Terminal className="w-3 h-3 text-emerald-500" />
@@ -125,7 +131,7 @@ export default function MyAppsView() {
                   )}
                 </div>
               </div>
-              <p className={clsx("text-sm mb-4 line-clamp-2 h-10", theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500')}>
+              <p className={clsx("text-sm mb-4 line-clamp-2 h-10", theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>
                 {app.description}
               </p>
               
@@ -162,7 +168,7 @@ export default function MyAppsView() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(
             "w-full max-w-sm rounded-2xl p-6 shadow-2xl",
-            theme === 'dark' ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'
+            theme !== 'light' ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'
           )}>
             <h3 className="text-xl font-bold mb-2">Delete App</h3>
             <p className="text-zinc-500 mb-6">Are you sure you want to delete this app? This action cannot be undone.</p>

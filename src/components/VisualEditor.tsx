@@ -62,7 +62,7 @@ export default function VisualEditor({ code, onChange }: VisualEditorProps) {
 
   return (
     <div 
-      className={clsx("flex-1 h-full overflow-y-auto p-6 font-mono text-sm cursor-text", theme === 'dark' ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-50 text-zinc-800')}
+      className={clsx("flex-1 h-full overflow-y-auto p-6 font-mono text-sm cursor-text", theme !== 'light' ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-50 text-zinc-800')}
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           if (lines.length === 0 || lines[lines.length - 1] !== '') {
@@ -177,6 +177,7 @@ function VisualLine({
     const val = e.target.value;
     setInputValue(val);
     updateSuggestions(val, e.target.selectionStart);
+    onChange(val);
   };
 
   const handleKeyUp = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -225,13 +226,28 @@ function VisualLine({
       }
     }
 
-    if (e.key === 'Enter') {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const pos = inputRef.current?.selectionStart || 0;
+      const newValue = inputValue.slice(0, pos) + '  ' + inputValue.slice(pos);
+      setInputValue(newValue);
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.setSelectionRange(pos + 2, pos + 2);
+        }
+      }, 0);
+    } else if (e.key === 'Enter') {
       e.preventDefault();
       const pos = inputRef.current?.selectionStart || 0;
       const textBefore = inputValue.slice(0, pos);
       const textAfter = inputValue.slice(pos);
+      
+      // Auto-indent: calculate indentation of current line
+      const indentMatch = textBefore.match(/^\s*/);
+      const indent = indentMatch ? indentMatch[0] : '';
+      
       onChange(textBefore);
-      onSplit(textBefore, textAfter);
+      onSplit(textBefore, indent + textAfter.trimStart());
     } else if (e.key === 'Backspace' && (inputRef.current?.selectionStart === 0 && inputRef.current?.selectionEnd === 0)) {
       e.preventDefault();
       onMerge(inputValue);
@@ -465,9 +481,12 @@ function Token({ keyword, settingsStr, entityNames, onUpdateSettings }: { keywor
 
       {showPopover && def.schema && (
         <>
-          <div className="fixed inset-0 z-40" onClick={(e) => { e.stopPropagation(); setShowPopover(false); }} />
+          <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={(e) => { e.stopPropagation(); setShowPopover(false); }} />
           <div 
-            className="absolute top-full left-0 mt-2 w-64 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl z-50 p-4"
+            className={clsx(
+              "z-50 p-4 bg-zinc-900 border border-zinc-700 shadow-2xl",
+              "fixed inset-4 sm:absolute sm:top-full sm:left-0 sm:mt-2 sm:w-64 sm:rounded-xl sm:inset-auto"
+            )}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-3">
@@ -518,7 +537,7 @@ function Token({ keyword, settingsStr, entityNames, onUpdateSettings }: { keywor
             
             <button 
               onClick={handleSave}
-              className="w-full mt-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg py-1.5 text-sm font-medium transition-colors"
+              className="w-full mt-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg py-2 text-sm font-medium transition-colors"
             >
               Apply
             </button>

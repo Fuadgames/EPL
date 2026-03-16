@@ -84,13 +84,47 @@ export class EPLInterpreter {
   }
 
   evaluateExpression(expr: string): EPLValue {
-    expr = expr.trim();
+    if (expr === undefined || expr === null) return null;
+    expr = String(expr).trim();
     if (expr.startsWith('"') && expr.endsWith('"')) return expr.slice(1, -1);
-    if (!isNaN(Number(expr))) return Number(expr);
+    if (expr.startsWith("'") && expr.endsWith("'")) return expr.slice(1, -1);
+    
+    // Check for entity property access like Player.x
+    if (expr.includes('.')) {
+      const [entityName, prop] = expr.split('.');
+      const entity = Object.values(this.context.entities).find(e => e.name === entityName);
+      if (entity && entity[prop] !== undefined) return entity[prop];
+    }
+
+    if (!isNaN(Number(expr)) && expr !== '') return Number(expr);
     if (expr === 'true') return true;
     if (expr === 'false') return false;
     
-    return this.context.variables[expr] !== undefined ? this.context.variables[expr] : null;
+    return this.context.variables[expr] !== undefined ? this.context.variables[expr] : expr;
+  }
+
+  evaluateCompare(a: any, op: string, b: any): boolean {
+    const valA = this.evaluateExpression(a);
+    const valB = this.evaluateExpression(b);
+
+    switch (op) {
+      case '>': return Number(valA) > Number(valB);
+      case '<': return Number(valA) < Number(valB);
+      case '==': return valA == valB;
+      case '>=': return Number(valA) >= Number(valB);
+      case '<=': return Number(valA) <= Number(valB);
+      case '~=': {
+        // Approximate equality (within 10%)
+        const numA = Number(valA);
+        const numB = Number(valB);
+        if (isNaN(numA) || isNaN(numB)) return valA == valB;
+        const diff = Math.abs(numA - numB);
+        const avg = (Math.abs(numA) + Math.abs(numB)) / 2;
+        if (avg === 0) return diff === 0;
+        return (diff / avg) <= 0.1;
+      }
+      default: return false;
+    }
   }
 
   evaluateCondition(cond: string): boolean {
@@ -143,7 +177,7 @@ export class EPLInterpreter {
           const nextSettingsStr = parts[j+5] || '';
           const nextSettings = this.parseSettings(nextSettingsStr);
           
-          if (['world', 'button', 'block', '3Dblock', 'sprite', 'png', 'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox'].includes(nextKeyword)) {
+          if (['world', 'button', 'block', '3Dblock', 'sprite', 'png', 'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox', 'circle', 'line'].includes(nextKeyword)) {
             const id = nextSettings.name || `entity_${Date.now()}_${Math.random()}`;
             this.context.entities[id] = { id, type: nextKeyword, ...nextSettings };
             this.onUIUpdate({ ...this.context.entities });
@@ -169,7 +203,7 @@ export class EPLInterpreter {
           }
           executed = true;
         } 
-        else if (['world', 'button', 'block', '3Dblock', 'sprite', 'png', 'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox'].includes(keyword)) {
+        else if (['world', 'button', 'block', '3Dblock', 'sprite', 'png', 'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox', 'circle', 'line'].includes(keyword)) {
           // If used without 'create', it updates an existing entity
           const targetName = settings.name || settings.target || (keyword === 'world' ? 'world' : null);
           const target = Object.values(this.context.entities).find(e => e.name === targetName || (keyword === 'world' && e.type === 'world'));
@@ -229,6 +263,43 @@ export class EPLInterpreter {
           
           this.context.currentObject = previousObject;
           
+          executed = true;
+          break;
+        }
+        else if (keyword === 'repeat') {
+          const times = Number(settings.times || 1);
+          let block: string[] = [];
+          i++;
+          while (i < lines.length) {
+            const innerLine = lines[i].trim();
+            if (innerLine === 'end' || innerLine.startsWith('end')) break;
+            block.push(lines[i]);
+            i++;
+          }
+          for (let k = 0; k < times; k++) {
+            if (!this.context.isRunning) break;
+            await this.runLines(block);
+          }
+          executed = true;
+          break;
+        }
+        else if (keyword === 'forever') {
+          let block: string[] = [];
+          i++;
+          while (i < lines.length) {
+            const innerLine = lines[i].trim();
+            if (innerLine === 'end' || innerLine.startsWith('end')) break;
+            block.push(lines[i]);
+            i++;
+          }
+          // We run forever in a background loop to not block the main interpreter
+          const runForever = async () => {
+            while (this.context.isRunning) {
+              await this.runLines(block);
+              await new Promise(resolve => setTimeout(resolve, 16)); // ~60fps cap
+            }
+          };
+          runForever();
           executed = true;
           break;
         }
@@ -300,26 +371,60 @@ export class EPLInterpreter {
           }
           executed = true;
         }
+        else if (keyword === 'variable') {
+          if (settings.name) {
+            this.context.variables[settings.name] = this.evaluateExpression(settings.value);
+          }
+          executed = true;
+        }
+        else if (keyword === 'math') {
+          const targetName = settings.target;
+          const op = settings.op;
+          const val = this.evaluateExpression(settings.value);
+          
+          if (targetName && op && val !== null) {
+            let currentVal = this.context.variables[targetName] !== undefined ? this.context.variables[targetName] : 0;
+            if (typeof currentVal !== 'number') currentVal = Number(currentVal) || 0;
+            const numVal = Number(val);
+            
+            switch (op) {
+              case 'add': this.context.variables[targetName] = currentVal + numVal; break;
+              case 'subtract': this.context.variables[targetName] = currentVal - numVal; break;
+              case 'multiply': this.context.variables[targetName] = currentVal * numVal; break;
+              case 'divide': this.context.variables[targetName] = currentVal / numVal; break;
+              case 'set': this.context.variables[targetName] = numVal; break;
+            }
+          }
+          executed = true;
+        }
         else if (keyword === 'if') {
-          // Find check on current line or next line
+          // Find check or compare on current line or next line
           let checkIdx = parts.indexOf('check', j);
-          let condition = 'false';
+          let compareIdx = parts.indexOf('compare', j);
+          let isTrue = false;
           
           if (checkIdx !== -1) {
             const checkSettings = this.parseSettings(parts[checkIdx+1] || '');
-            condition = checkSettings.expression || 'false';
-          } else if (i + 1 < lines.length && lines[i+1].trim().startsWith('check')) {
+            isTrue = this.evaluateCondition(checkSettings.expression || 'false');
+          } else if (compareIdx !== -1) {
+            const compSettings = this.parseSettings(parts[compareIdx+1] || '');
+            isTrue = this.evaluateCompare(compSettings.a, compSettings.op, compSettings.b);
+          } else if (i + 1 < lines.length) {
             const nextLine = lines[i+1].trim();
             const nextParts = nextLine.split(TOKEN_REGEX);
             const nextCheckIdx = nextParts.indexOf('check');
+            const nextCompareIdx = nextParts.indexOf('compare');
+            
             if (nextCheckIdx !== -1) {
               const checkSettings = this.parseSettings(nextParts[nextCheckIdx+1] || '');
-              condition = checkSettings.expression || 'false';
-              i++; // Consume the check line
+              isTrue = this.evaluateCondition(checkSettings.expression || 'false');
+              i++; 
+            } else if (nextCompareIdx !== -1) {
+              const compSettings = this.parseSettings(nextParts[nextCompareIdx+1] || '');
+              isTrue = this.evaluateCompare(compSettings.a, compSettings.op, compSettings.b);
+              i++;
             }
           }
-
-          const isTrue = this.evaluateCondition(condition);
           
           let ifBlock: string[] = [];
           let elseBlock: string[] = [];
@@ -417,6 +522,10 @@ export class EPLInterpreter {
 
   hasEvents(): boolean {
     return Object.values(this.context.events).some(lines => lines.length > 0);
+  }
+
+  getVariable(name: string): EPLValue {
+    return this.context.variables[name];
   }
 
   stop() {

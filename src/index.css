@@ -1,0 +1,11 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    cursor: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 2V22L9.5 16.5L13.5 24L16.5 22.5L12.5 15H19L4 2Z' fill='black' stroke='white' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E"), auto !important;
+  }
+
+  button, a, .cursor-pointer, input, textarea, select {
+    cursor: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 2V22L9.5 16.5L13.5 24L16.5 22.5L12.5 15H19L4 2Z' fill='black' stroke='white' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E"), auto !important;
+  }
+}

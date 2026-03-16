@@ -2,11 +2,11 @@ import React, { useState } from 'react';
 import { useStore } from '../store/useStore';
 import { auth } from '../firebase';
 import { updateProfile } from 'firebase/auth';
-import { Sun, Moon, User, Save, CheckCircle2, AlertCircle, Bot } from 'lucide-react';
+import { Sun, Moon, User, Save, CheckCircle2, AlertCircle, Bot, Lock, Sparkles } from 'lucide-react';
 import { clsx } from 'clsx';
 
 export default function SettingsView() {
-  const { theme, toggleTheme, user, setUser, aiAnswerMode, setAiAnswerMode, aiChangesEnabled, setAiChangesEnabled } = useStore();
+  const { theme, setTheme, user, setUser, aiAnswerMode, setAiAnswerMode, aiChangesEnabled, setAiChangesEnabled, isPremium } = useStore();
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [isUpdating, setIsUpdating] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
@@ -36,7 +36,7 @@ export default function SettingsView() {
           {/* Appearance Section */}
           <section className={clsx(
             "p-6 rounded-3xl border",
-            theme === 'dark' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
+            theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
           )}>
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 bg-emerald-500/10 text-emerald-500 rounded-lg">
@@ -45,33 +45,56 @@ export default function SettingsView() {
               <h2 className="text-xl font-bold">Appearance</h2>
             </div>
 
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <p className="font-medium">Theme Mode</p>
-                <p className="text-sm text-zinc-500">Switch between light and dark themes</p>
+                <p className="text-sm text-zinc-500">Switch between light, dark, and gradient themes</p>
               </div>
-              <button
-                onClick={toggleTheme}
-                className={clsx(
-                  "flex items-center gap-2 px-4 py-2 rounded-xl border transition-all",
-                  theme === 'dark' 
-                    ? 'bg-zinc-800 border-zinc-700 text-zinc-200 hover:bg-zinc-700' 
-                    : 'bg-zinc-100 border-zinc-200 text-zinc-800 hover:bg-zinc-200'
-                )}
-              >
-                {theme === 'dark' ? (
-                  <><Moon className="w-4 h-4" /> Dark</>
-                ) : (
-                  <><Sun className="w-4 h-4" /> Light</>
-                )}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setTheme('light')}
+                  className={clsx(
+                    "flex items-center gap-2 px-4 py-2 rounded-xl border transition-all",
+                    theme === 'light'
+                      ? 'bg-zinc-800 border-zinc-700 text-zinc-200'
+                      : 'bg-zinc-100 border-zinc-200 text-zinc-800 hover:bg-zinc-200'
+                  )}
+                >
+                  <Sun className="w-4 h-4" /> Light
+                </button>
+                <button
+                  onClick={() => setTheme('dark')}
+                  className={clsx(
+                    "flex items-center gap-2 px-4 py-2 rounded-xl border transition-all",
+                    theme === 'dark'
+                      ? 'bg-zinc-800 border-zinc-700 text-zinc-200'
+                      : 'bg-zinc-100 border-zinc-200 text-zinc-800 hover:bg-zinc-200'
+                  )}
+                >
+                  <Moon className="w-4 h-4" /> Dark
+                </button>
+                <button
+                  onClick={() => isPremium && setTheme('gradient')}
+                  disabled={!isPremium}
+                  className={clsx(
+                    "flex items-center gap-2 px-4 py-2 rounded-xl border transition-all",
+                    theme === 'gradient'
+                      ? 'bg-gradient-to-r from-emerald-500 to-cyan-500 border-emerald-500 text-white'
+                      : !isPremium 
+                        ? 'bg-zinc-100 border-zinc-200 text-zinc-400 cursor-not-allowed opacity-50'
+                        : 'bg-zinc-100 border-zinc-200 text-zinc-800 hover:bg-zinc-200'
+                  )}
+                >
+                  <Sparkles className="w-4 h-4" /> Gradient {!isPremium && <Lock className="w-3 h-3" />}
+                </button>
+              </div>
             </div>
           </section>
 
           {/* AI Section */}
           <section className={clsx(
             "p-6 rounded-3xl border",
-            theme === 'dark' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
+            theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
           )}>
             <div className="flex items-center gap-3 mb-6">
               <div className="p-2 bg-purple-500/10 text-purple-500 rounded-lg">
@@ -137,7 +160,7 @@ export default function SettingsView() {
           {user && (
             <section className={clsx(
               "p-6 rounded-3xl border",
-              theme === 'dark' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
+              theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
             )}>
               <div className="flex items-center gap-3 mb-6">
                 <div className="p-2 bg-blue-500/10 text-blue-500 rounded-lg">
@@ -155,7 +178,7 @@ export default function SettingsView() {
                     onChange={(e) => setDisplayName(e.target.value)}
                     className={clsx(
                       "w-full px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all",
-                      theme === 'dark' ? 'bg-zinc-800 border-zinc-700 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                      theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
                     )}
                     placeholder="Enter your name"
                   />

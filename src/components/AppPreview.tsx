@@ -11,7 +11,7 @@ export default function AppPreview({ entities, handleUIEvent }: AppPreviewProps)
     <div 
       className="w-full h-full relative overflow-hidden"
       style={{
-        backgroundColor: (Object.values(entities).find((e: any) => e.type === 'world') as any)?.background || '#09090b',
+        backgroundColor: (Object.values(entities).find((e: any) => e.type === 'world') as any)?.background || '#ffffff',
         backgroundImage: (Object.values(entities).find((e: any) => e.type === 'world') as any)?.backgroundImage ? `url(${(Object.values(entities).find((e: any) => e.type === 'world') as any)?.backgroundImage})` : 'none',
         backgroundSize: 'cover',
         backgroundPosition: 'center'
@@ -85,7 +85,7 @@ export default function AppPreview({ entities, handleUIEvent }: AppPreviewProps)
               style={{ 
                 left: entity.x || 0, 
                 top: entity.y || 0,
-                color: entity.color || '#ffffff',
+                color: entity.color || '#000000',
                 fontSize: entity.size ? `${entity.size}px` : '16px'
               }}
             >
@@ -111,6 +111,44 @@ export default function AppPreview({ entities, handleUIEvent }: AppPreviewProps)
                 left: entity.x || 0, 
                 top: entity.y || 0,
                 width: entity.width || 200
+              }}
+            />
+          );
+        }
+        if (entity.type === 'circle') {
+          return (
+            <div
+              key={entity.id}
+              className="absolute rounded-full"
+              style={{ 
+                left: entity.x || 0, 
+                top: entity.y || 0,
+                width: (entity.radius || 25) * 2,
+                height: (entity.radius || 25) * 2,
+                backgroundColor: entity.color || '#3f3f46'
+              }}
+            />
+          );
+        }
+        if (entity.type === 'line') {
+          const x1 = entity.x1 || 0;
+          const y1 = entity.y1 || 0;
+          const x2 = entity.x2 || 100;
+          const y2 = entity.y2 || 100;
+          const length = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+          const angle = Math.atan2(y2 - y1, x2 - x1) * (180 / Math.PI);
+          
+          return (
+            <div
+              key={entity.id}
+              className="absolute origin-left"
+              style={{ 
+                left: x1, 
+                top: y1,
+                width: length,
+                height: entity.thickness || 2,
+                backgroundColor: entity.color || '#000000',
+                transform: `rotate(${angle}deg)`
               }}
             />
           );

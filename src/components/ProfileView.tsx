@@ -56,7 +56,7 @@ export default function ProfileView() {
             onClick={() => setCurrentView('settings')}
             className={clsx(
               "flex items-center gap-2 px-4 py-2 rounded-xl border transition-all",
-              theme === 'dark' ? 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800' : 'bg-white border-zinc-200 hover:bg-zinc-50'
+              theme !== 'light' ? 'bg-zinc-900 border-zinc-800 hover:bg-zinc-800' : 'bg-white border-zinc-200 hover:bg-zinc-50'
             )}
           >
             <SettingsIcon className="w-4 h-4" /> Settings
@@ -67,7 +67,7 @@ export default function ProfileView() {
           {/* User Info Card */}
           <div className={clsx(
             "p-8 rounded-3xl border flex flex-col items-center text-center h-fit",
-            theme === 'dark' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
+            theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
           )}>
             <img 
               src={user.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.uid}`} 
@@ -86,14 +86,14 @@ export default function ProfileView() {
             <div className="w-full grid grid-cols-2 gap-4 mb-8">
               <div className={clsx(
                 "p-4 rounded-2xl border flex flex-col items-center justify-center",
-                theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+                theme !== 'light' ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
               )}>
                 <span className="text-3xl font-bold mb-1">{myApps.length}</span>
                 <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">Apps</span>
               </div>
               <div className={clsx(
                 "p-4 rounded-2xl border flex flex-col items-center justify-center",
-                theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+                theme !== 'light' ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
               )}>
                 <span className="text-3xl font-bold mb-1">{totalDownloads}</span>
                 <span className="text-[10px] text-zinc-500 uppercase tracking-wider font-bold">Downloads</span>
@@ -126,13 +126,13 @@ export default function ProfileView() {
             {loading ? (
               <div className="animate-pulse space-y-4">
                 {[1, 2, 3].map(i => (
-                  <div key={i} className={clsx("h-24 rounded-2xl border", theme === 'dark' ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-200')} />
+                  <div key={i} className={clsx("h-24 rounded-2xl border", theme !== 'light' ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-100 border-zinc-200')} />
                 ))}
               </div>
             ) : myApps.length === 0 ? (
               <div className={clsx(
                 "p-12 rounded-3xl border-2 border-dashed text-center",
-                theme === 'dark' ? 'border-zinc-800 text-zinc-600' : 'border-zinc-200 text-zinc-400'
+                theme !== 'light' ? 'border-zinc-800 text-zinc-600' : 'border-zinc-200 text-zinc-400'
               )}>
                 <p>No projects published yet.</p>
               </div>
@@ -143,7 +143,7 @@ export default function ProfileView() {
                     key={app.id}
                     className={clsx(
                       "p-5 rounded-2xl border flex items-center justify-between group transition-all hover:scale-[1.01]",
-                      theme === 'dark' ? 'bg-zinc-900/50 border-zinc-800 hover:bg-zinc-900' : 'bg-white border-zinc-200 hover:bg-zinc-50'
+                      theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800 hover:bg-zinc-900' : 'bg-white border-zinc-200 hover:bg-zinc-50'
                     )}
                   >
                     <div className="flex items-center gap-4">

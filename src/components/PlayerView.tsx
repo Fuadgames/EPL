@@ -139,10 +139,10 @@ export default function PlayerView() {
   }
 
   return (
-    <div className="h-full flex flex-col overflow-hidden bg-zinc-950">
+    <div className={clsx("h-full flex flex-col overflow-hidden", theme !== 'light' ? 'bg-zinc-950' : 'bg-zinc-50')}>
       <div className={clsx(
         "flex items-center justify-between px-6 py-3 border-b",
-        theme === 'dark' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
+        theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
       )}>
         <div className="flex items-center gap-4">
           <button 
@@ -187,7 +187,7 @@ export default function PlayerView() {
               isFullscreen ? "w-screen h-screen" : "w-full max-w-4xl aspect-video rounded-2xl border border-zinc-800"
             )}
             style={{
-              backgroundColor: (Object.values(uiState.entities).find((e: any) => e.type === 'world') as any)?.background || '#09090b',
+              backgroundColor: (Object.values(uiState.entities).find((e: any) => e.type === 'world') as any)?.background || '#ffffff',
               backgroundImage: (Object.values(uiState.entities).find((e: any) => e.type === 'world') as any)?.backgroundImage ? `url(${(Object.values(uiState.entities).find((e: any) => e.type === 'world') as any)?.backgroundImage})` : 'none',
               backgroundSize: 'cover',
               backgroundPosition: 'center'
@@ -266,7 +266,7 @@ export default function PlayerView() {
                       style={{ 
                         left: entity.x || 0, 
                         top: entity.y || 0,
-                        color: entity.color || '#ffffff',
+                        color: entity.color || '#000000',
                         fontSize: entity.size ? `${entity.size}px` : '16px'
                       }}
                     >

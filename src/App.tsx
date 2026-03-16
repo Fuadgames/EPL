@@ -11,6 +11,7 @@ const MyAppsView = React.lazy(() => import('./components/MyAppsView'));
 const ProfileView = React.lazy(() => import('./components/ProfileView'));
 const PlayerView = React.lazy(() => import('./components/PlayerView'));
 const SettingsView = React.lazy(() => import('./components/SettingsView'));
+const PremiumView = React.lazy(() => import('./components/PremiumView'));
 
 export default function App() {
   const { currentView, setUser } = useStore();
@@ -30,6 +31,7 @@ export default function App() {
       case 'profile': return <ProfileView />;
       case 'player': return <PlayerView />;
       case 'settings': return <SettingsView />;
+      case 'premium': return <PremiumView />;
       default: return <StoreView />;
     }
   };

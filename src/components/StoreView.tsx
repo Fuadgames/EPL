@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useStore } from '../store/useStore';
-import { Search, Star, Download, Play, Monitor, Smartphone, Apple, Terminal } from 'lucide-react';
+import { Search, Star, Download, Play, Monitor, Smartphone, Apple, Terminal, Lock } from 'lucide-react';
 import { clsx } from 'clsx';
 
 interface AppData {
@@ -16,6 +16,8 @@ interface AppData {
   rating: number;
   isAiGenerated?: boolean;
   isPrivate?: boolean;
+  isLocked?: boolean;
+  unlockCode?: string;
   supportedPlatforms?: string[];
 }
 
@@ -24,6 +26,9 @@ export default function StoreView() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [downloadingApp, setDownloadingApp] = useState<string | null>(null);
+  const [unlockingApp, setUnlockingApp] = useState<{app: AppData, action: 'play' | 'download', platform?: string} | null>(null);
+  const [unlockCodeInput, setUnlockCodeInput] = useState('');
+  const [unlockError, setUnlockError] = useState('');
   const { theme, setCurrentView, setPlayingAppId } = useStore();
 
   useEffect(() => {
@@ -44,7 +49,32 @@ export default function StoreView() {
     fetchApps();
   }, []);
 
+  const handlePlay = (app: AppData) => {
+    if (app.isLocked) {
+      setUnlockingApp({ app, action: 'play' });
+      setUnlockCodeInput('');
+      setUnlockError('');
+    } else {
+      executePlay(app);
+    }
+  };
+
+  const executePlay = (app: AppData) => {
+    setPlayingAppId(app.id);
+    setCurrentView('player');
+  };
+
   const handleDownload = (app: AppData, platform: string) => {
+    if (app.isLocked) {
+      setUnlockingApp({ app, action: 'download', platform });
+      setUnlockCodeInput('');
+      setUnlockError('');
+    } else {
+      executeDownload(app, platform);
+    }
+  };
+
+  const executeDownload = (app: AppData, platform: string) => {
     setDownloadingApp(`${app.id}-${platform}`);
     
     // Simulate compilation/download delay
@@ -99,7 +129,7 @@ export default function StoreView() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">App Store</h1>
-          <p className={clsx("mt-2", theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500')}>Discover programs written in EPL.</p>
+          <p className={clsx("mt-2", theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>Discover programs written in EPL.</p>
         </div>
         <div className="relative w-full sm:w-72">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
@@ -110,7 +140,7 @@ export default function StoreView() {
             onChange={(e) => setSearch(e.target.value)}
             className={clsx(
               "w-full pl-10 pr-4 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors",
-              theme === 'dark' ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+              theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
             )}
           />
         </div>
@@ -125,7 +155,7 @@ export default function StoreView() {
           {filteredApps.map(app => (
             <div key={app.id} className={clsx(
               "p-6 rounded-2xl border transition-all hover:shadow-lg group",
-              theme === 'dark' ? 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700' : 'bg-white border-zinc-200 hover:border-zinc-300'
+              theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700' : 'bg-white border-zinc-200 hover:border-zinc-300'
             )}>
               <div className="flex justify-between items-start mb-4">
                 <div className="relative">
@@ -144,8 +174,11 @@ export default function StoreView() {
                 </div>
               </div>
               
-              <h3 className="text-lg font-semibold mb-1 truncate">{app.title}</h3>
-              <p className={clsx("text-sm mb-4 line-clamp-2", theme === 'dark' ? 'text-zinc-400' : 'text-zinc-500')}>
+              <h3 className="text-lg font-semibold mb-1 truncate flex items-center gap-2">
+                {app.title}
+                {app.isLocked && <Lock className="w-4 h-4 text-emerald-500" title="Locked App" />}
+              </h3>
+              <p className={clsx("text-sm mb-4 line-clamp-2", theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>
                 {app.description}
               </p>
               
@@ -158,10 +191,7 @@ export default function StoreView() {
                 <div className="flex flex-wrap gap-2">
                   {(!app.supportedPlatforms || app.supportedPlatforms.includes('web')) && (
                     <button 
-                      onClick={() => {
-                        setPlayingAppId(app.id);
-                        setCurrentView('player');
-                      }}
+                      onClick={() => handlePlay(app)}
                       className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors"
                     >
                       <Play className="w-3.5 h-3.5" /> Play Online
@@ -190,6 +220,58 @@ export default function StoreView() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Unlock App Modal */}
+      {unlockingApp && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className={clsx(
+            "w-full max-w-sm rounded-2xl p-6 shadow-2xl",
+            theme !== 'light' ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'
+          )}>
+            <h3 className="text-xl font-bold mb-2">App is Locked</h3>
+            <p className="text-sm text-zinc-500 mb-6">
+              "{unlockingApp.app.title}" requires an unlock code to {unlockingApp.action}.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <input
+                  type="text"
+                  placeholder="Enter unlock code..."
+                  value={unlockCodeInput}
+                  onChange={(e) => setUnlockCodeInput(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors font-mono"
+                />
+                {unlockError && <p className="text-red-500 text-xs mt-2">{unlockError}</p>}
+              </div>
+            </div>
+            <div className="flex items-center justify-end gap-3 mt-8">
+              <button
+                onClick={() => setUnlockingApp(null)}
+                className="px-4 py-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (unlockCodeInput === unlockingApp.app.unlockCode) {
+                    if (unlockingApp.action === 'play') {
+                      executePlay(unlockingApp.app);
+                    } else if (unlockingApp.action === 'download' && unlockingApp.platform) {
+                      executeDownload(unlockingApp.app, unlockingApp.platform);
+                    }
+                    setUnlockingApp(null);
+                  } else {
+                    setUnlockError('Incorrect unlock code.');
+                  }
+                }}
+                className="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors"
+              >
+                Unlock
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
