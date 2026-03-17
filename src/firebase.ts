@@ -1,5 +1,14 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { 
+  getAuth, 
+  GoogleAuthProvider, 
+  signInWithPopup, 
+  signOut,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  sendPasswordResetEmail,
+  updateProfile
+} from 'firebase/auth';
 import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, deleteDoc, getDocs, query, where, orderBy, onSnapshot, serverTimestamp, getDocFromServer } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
@@ -46,6 +55,50 @@ export const signInWithGoogle = async () => {
   } catch (error: any) {
     console.error("Error signing in with Google", error);
     return { user: null, error };
+  }
+};
+
+export const signUpWithEmail = async (email: string, pass: string, name: string) => {
+  try {
+    const result = await createUserWithEmailAndPassword(auth, email, pass);
+    const user = result.user;
+    
+    await updateProfile(user, { displayName: name });
+    
+    const userRef = doc(db, 'users', user.uid);
+    await setDoc(userRef, {
+      uid: user.uid,
+      name: name,
+      email: email,
+      photoUrl: '',
+      role: 'user',
+      createdAt: new Date().toISOString()
+    });
+    
+    return { user, error: null };
+  } catch (error: any) {
+    console.error("Error signing up with email", error);
+    return { user: null, error };
+  }
+};
+
+export const signInWithEmail = async (email: string, pass: string) => {
+  try {
+    const result = await signInWithEmailAndPassword(auth, email, pass);
+    return { user: result.user, error: null };
+  } catch (error: any) {
+    console.error("Error signing in with email", error);
+    return { user: null, error };
+  }
+};
+
+export const resetPassword = async (email: string) => {
+  try {
+    await sendPasswordResetEmail(auth, email);
+    return { error: null };
+  } catch (error: any) {
+    console.error("Error resetting password", error);
+    return { error };
   }
 };
 

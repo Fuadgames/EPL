@@ -47,6 +47,20 @@ export const translations = {
     uploadSuccess: 'Image uploaded!',
     uploadFailed: 'Failed to upload image.',
     copyUrl: 'Copy this URL to use in your EPL code:',
+    auth: {
+      signIn: 'Sign In',
+      signUp: 'Sign Up',
+      email: 'Email',
+      password: 'Password',
+      login: 'Login',
+      register: 'Register',
+      noAccount: "Don't have an account?",
+      hasAccount: 'Already have an account?',
+      forgotPassword: 'Forgot Password?',
+      googleSignIn: 'Sign In with Google',
+      error: 'Authentication error',
+      success: 'Success!'
+    },
     tutorial: {
       exit: 'Exit Training',
       previous: 'Previous',
@@ -115,6 +129,20 @@ export const translations = {
     uploadSuccess: 'Изображение загружено!',
     uploadFailed: 'Не удалось загрузить изображение.',
     copyUrl: 'Скопируйте этот URL для использования в коде EPL:',
+    auth: {
+      signIn: 'Войти',
+      signUp: 'Регистрация',
+      email: 'Email',
+      password: 'Пароль',
+      login: 'Войти',
+      register: 'Зарегистрироваться',
+      noAccount: 'Нет аккаунта?',
+      hasAccount: 'Уже есть аккаунт?',
+      forgotPassword: 'Забыли пароль?',
+      googleSignIn: 'Войти через Google',
+      error: 'Ошибка аутентификации',
+      success: 'Успешно!'
+    },
     tutorial: {
       exit: 'Выход',
       previous: 'Назад',
