@@ -44,7 +44,41 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
         onClose();
       }
     } catch (err: any) {
-      setError(err.message);
+      console.error("Auth error:", err);
+      let errorMessage = err.message;
+      
+      if (language === 'ru') {
+        switch (err.code) {
+          case 'auth/email-already-in-use':
+            errorMessage = 'Этот email уже используется.';
+            break;
+          case 'auth/invalid-email':
+            errorMessage = 'Некорректный email.';
+            break;
+          case 'auth/operation-not-allowed':
+            errorMessage = 'Вход через email/пароль не включен в консоли Firebase.';
+            break;
+          case 'auth/weak-password':
+            errorMessage = 'Слишком слабый пароль.';
+            break;
+          case 'auth/user-disabled':
+            errorMessage = 'Пользователь заблокирован.';
+            break;
+          case 'auth/user-not-found':
+            errorMessage = 'Пользователь не найден.';
+            break;
+          case 'auth/wrong-password':
+            errorMessage = 'Неверный пароль.';
+            break;
+          case 'auth/popup-blocked':
+            errorMessage = 'Всплывающее окно заблокировано браузером.';
+            break;
+          case 'auth/network-request-failed':
+            errorMessage = 'Ошибка сети. Проверьте подключение.';
+            break;
+        }
+      }
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -58,7 +92,12 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       if (error) throw error;
       onClose();
     } catch (err: any) {
-      setError(err.message);
+      console.error("Google Auth error:", err);
+      let errorMessage = err.message;
+      if (language === 'ru' && err.code === 'auth/popup-blocked') {
+        errorMessage = 'Всплывающее окно заблокировано браузером. Пожалуйста, разрешите всплывающие окна.';
+      }
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }

@@ -18,6 +18,57 @@ export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app);
 
+enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
+}
+
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId?: string;
+    email?: string | null;
+    emailVerified?: boolean;
+    isAnonymous?: boolean;
+    tenantId?: string | null;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
+  }
+}
+
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
+  }
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
+}
+
 // Test connection
 async function testConnection() {
   try {
@@ -39,17 +90,26 @@ export const signInWithGoogle = async () => {
     
     // Check if user exists in DB, if not create
     const userRef = doc(db, 'users', user.uid);
-    const userSnap = await getDoc(userRef);
+    let userSnap;
+    try {
+      userSnap = await getDoc(userRef);
+    } catch (error) {
+      handleFirestoreError(error, OperationType.GET, `users/${user.uid}`);
+    }
     
-    if (!userSnap.exists()) {
-      await setDoc(userRef, {
-        uid: user.uid,
-        name: user.displayName || 'Anonymous',
-        email: user.email || '',
-        photoUrl: user.photoURL || '',
-        role: 'user',
-        createdAt: new Date().toISOString()
-      });
+    if (!userSnap?.exists()) {
+      try {
+        await setDoc(userRef, {
+          uid: user.uid,
+          name: user.displayName || 'Anonymous',
+          email: user.email || '',
+          photoUrl: user.photoURL || '',
+          role: 'user',
+          createdAt: new Date().toISOString()
+        });
+      } catch (error) {
+        handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}`);
+      }
     }
     return { user, error: null };
   } catch (error: any) {
@@ -66,14 +126,18 @@ export const signUpWithEmail = async (email: string, pass: string, name: string)
     await updateProfile(user, { displayName: name });
     
     const userRef = doc(db, 'users', user.uid);
-    await setDoc(userRef, {
-      uid: user.uid,
-      name: name,
-      email: email,
-      photoUrl: '',
-      role: 'user',
-      createdAt: new Date().toISOString()
-    });
+    try {
+      await setDoc(userRef, {
+        uid: user.uid,
+        name: name,
+        email: email,
+        photoUrl: '',
+        role: 'user',
+        createdAt: new Date().toISOString()
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}`);
+    }
     
     return { user, error: null };
   } catch (error: any) {
