@@ -3,11 +3,15 @@ import { useStore } from '../store/useStore';
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { EPLInterpreter } from '../lib/epl-interpreter';
-import { ArrowLeft, Play, StopCircle, Maximize2, Minimize2 } from 'lucide-react';
+import { ArrowLeft, Play, StopCircle, Maximize2, Minimize2, RefreshCw } from 'lucide-react';
 import { clsx } from 'clsx';
 
 export default function PlayerView() {
-  const { theme, playingAppId, setCurrentView, aiAnswerMode, aiChangesEnabled } = useStore();
+  const theme = useStore(state => state.theme);
+  const playingAppId = useStore(state => state.playingAppId);
+  const setCurrentView = useStore(state => state.setCurrentView);
+  const aiAnswerMode = useStore(state => state.aiAnswerMode);
+  const aiChangesEnabled = useStore(state => state.aiChangesEnabled);
   const [appData, setAppData] = useState<any>(null);
   const [uiState, setUiState] = useState<any>({ entities: {} });
   const [output, setOutput] = useState<string[]>([]);
@@ -95,6 +99,13 @@ export default function PlayerView() {
     setIsRunning(false);
   };
 
+  const handleRestart = async () => {
+    handleStop();
+    setTimeout(() => {
+      handleRun();
+    }, 100);
+  };
+
   const handleUIEvent = (eventName: string, target?: string, value?: string) => {
     if (interpreterRef.current && isRunning) {
       interpreterRef.current.triggerEvent(eventName, target, value);
@@ -160,12 +171,21 @@ export default function PlayerView() {
         <div className="flex items-center gap-3">
           {!isRunning ? (
             <button onClick={handleRun} className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors">
-              <Play className="w-4 h-4" /> Restart
+              <Play className="w-4 h-4" /> Run
             </button>
           ) : (
-            <button onClick={handleStop} className="flex items-center gap-2 px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors">
-              <StopCircle className="w-4 h-4" /> Stop
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={handleStop} className="flex items-center gap-2 px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors">
+                <StopCircle className="w-4 h-4" /> Stop
+              </button>
+              <button 
+                onClick={handleRestart} 
+                className="flex items-center justify-center p-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors"
+                title="Restart"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
           )}
           <button onClick={toggleFullscreen} className="p-2 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors">
             {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}

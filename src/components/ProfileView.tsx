@@ -13,7 +13,10 @@ interface AppData {
 }
 
 export default function ProfileView() {
-  const { user, theme, setCurrentView, setEditingAppId } = useStore();
+  const user = useStore(state => state.user);
+  const theme = useStore(state => state.theme);
+  const setCurrentView = useStore(state => state.setCurrentView);
+  const setEditingAppId = useStore(state => state.setEditingAppId);
   const [myApps, setMyApps] = useState<AppData[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -24,6 +27,12 @@ export default function ProfileView() {
           const q = query(collection(db, 'apps'), where('authorId', '==', user.uid));
           const snapshot = await getDocs(q);
           const apps = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppData));
+          // Sort in memory to avoid needing a composite index
+          apps.sort((a, b) => {
+            const dateA = (a as any).updatedAt ? new Date((a as any).updatedAt).getTime() : 0;
+            const dateB = (b as any).updatedAt ? new Date((b as any).updatedAt).getTime() : 0;
+            return dateB - dateA;
+          });
           setMyApps(apps);
         } catch (error) {
           console.error("Error fetching user apps", error);
@@ -138,7 +147,7 @@ export default function ProfileView() {
               </div>
             ) : (
               <div className="space-y-4">
-                {myApps.slice(0, 5).map(app => (
+                {myApps.slice(0, 10).map(app => (
                   <div 
                     key={app.id}
                     className={clsx(

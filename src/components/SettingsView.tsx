@@ -6,7 +6,15 @@ import { Sun, Moon, User, Save, CheckCircle2, AlertCircle, Bot, Lock, Sparkles }
 import { clsx } from 'clsx';
 
 export default function SettingsView() {
-  const { theme, setTheme, user, setUser, aiAnswerMode, setAiAnswerMode, aiChangesEnabled, setAiChangesEnabled, isPremium } = useStore();
+  const theme = useStore(state => state.theme);
+  const setTheme = useStore(state => state.setTheme);
+  const user = useStore(state => state.user);
+  const setUser = useStore(state => state.setUser);
+  const aiAnswerMode = useStore(state => state.aiAnswerMode);
+  const setAiAnswerMode = useStore(state => state.setAiAnswerMode);
+  const aiChangesEnabled = useStore(state => state.aiChangesEnabled);
+  const setAiChangesEnabled = useStore(state => state.setAiChangesEnabled);
+  const isPremium = useStore(state => state.isPremium);
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [isUpdating, setIsUpdating] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);

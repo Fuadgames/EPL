@@ -26,6 +26,8 @@ export class EPLInterpreter {
   onOutput: (msg: string) => void;
   onUIUpdate: (entities: Record<string, EPLEntity>) => void;
   aiSettings: { answerMode: 'text' | 'console', changesEnabled: boolean };
+  keysPressed: Set<string> = new Set();
+  animationFrameId: number | null = null;
 
   constructor(
     onOutput: (msg: string) => void, 
@@ -177,7 +179,7 @@ export class EPLInterpreter {
           const nextSettingsStr = parts[j+5] || '';
           const nextSettings = this.parseSettings(nextSettingsStr);
           
-          if (['world', 'button', 'block', '3Dblock', 'sprite', 'png', 'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox', 'circle', 'line'].includes(nextKeyword)) {
+          if (['world', 'button', 'block', '3Dblock', 'sprite', 'png', 'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox', 'circle', 'line', 'wasd_controls'].includes(nextKeyword)) {
             const id = nextSettings.name || `entity_${Date.now()}_${Math.random()}`;
             this.context.entities[id] = { id, type: nextKeyword, ...nextSettings };
             this.onUIUpdate({ ...this.context.entities });
@@ -203,7 +205,7 @@ export class EPLInterpreter {
           }
           executed = true;
         } 
-        else if (['world', 'button', 'block', '3Dblock', 'sprite', 'png', 'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox', 'circle', 'line'].includes(keyword)) {
+        else if (['world', 'button', 'block', '3Dblock', 'sprite', 'png', 'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox', 'circle', 'line', 'wasd_controls'].includes(keyword)) {
           // If used without 'create', it updates an existing entity
           const targetName = settings.name || settings.target || (keyword === 'world' ? 'world' : null);
           const target = Object.values(this.context.entities).find(e => e.name === targetName || (keyword === 'world' && e.type === 'world'));
@@ -355,6 +357,14 @@ export class EPLInterpreter {
           await new Promise(resolve => setTimeout(resolve, ms));
           executed = true;
         }
+        else if (keyword === 'draggable') {
+          const target = Object.values(this.context.entities).find(e => e.name === settings.target) || this.context.currentObject;
+          if (target) {
+            target.isDraggable = true;
+            this.onUIUpdate({ ...this.context.entities });
+          }
+          executed = true;
+        }
         else if (keyword === 'set up') {
           const target = Object.values(this.context.entities).find(e => e.name === settings.target) || this.context.currentObject;
           if (target && settings.property) {
@@ -466,6 +476,11 @@ export class EPLInterpreter {
   async run(code: string) {
     this.stop();
     this.context.isRunning = true;
+    this.keysPressed.clear();
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+    }
+    this.startGameLoop();
     this.context.output = [];
     this.context.entities = {};
     this.context.events = {};
@@ -530,6 +545,10 @@ export class EPLInterpreter {
 
   stop() {
     this.context.isRunning = false;
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
     Object.values(this.context.timers).forEach(id => clearInterval(id));
     this.context.timers = {};
   }
@@ -581,6 +600,17 @@ export class EPLInterpreter {
       if (target === 'ArrowDown') normalizedTarget = 'down';
       if (target === 'ArrowLeft') normalizedTarget = 'left';
       if (target === 'ArrowRight') normalizedTarget = 'right';
+      
+      if (normalizedTarget) this.keysPressed.add(normalizedTarget);
+    } else if (eventName === 'key_released?' && target) {
+      normalizedTarget = target.toLowerCase();
+      if (target === ' ') normalizedTarget = 'space';
+      if (target === 'ArrowUp') normalizedTarget = 'up';
+      if (target === 'ArrowDown') normalizedTarget = 'down';
+      if (target === 'ArrowLeft') normalizedTarget = 'left';
+      if (target === 'ArrowRight') normalizedTarget = 'right';
+      
+      if (normalizedTarget) this.keysPressed.delete(normalizedTarget);
     }
 
     // Try specific event first (e.g. key_pressed?_a)
@@ -592,6 +622,73 @@ export class EPLInterpreter {
     // Also try generic event if it's a different key (e.g. catch-all key_pressed?)
     if (normalizedTarget && specificKey !== eventName && this.context.events[eventName]) {
       await this.runLines(this.context.events[eventName]);
+    }
+  }
+
+  startGameLoop = () => {
+    if (!this.context.isRunning) return;
+    
+    this.handleWasdControls();
+    
+    this.animationFrameId = requestAnimationFrame(this.startGameLoop);
+  };
+
+  handleWasdControls() {
+    const wasdEntities = Object.values(this.context.entities).filter(e => e.type === 'wasd_controls');
+    if (wasdEntities.length === 0) return;
+    
+    let updated = false;
+    const now = Date.now();
+
+    wasdEntities.forEach(ctrl => {
+      const targetName = String(ctrl.target || '').toLowerCase();
+      const target = Object.values(this.context.entities).find(e => String(e.name || '').toLowerCase() === targetName);
+      if (!target) return;
+
+      const speed = Number(ctrl.speed || 10);
+      const step = Number(ctrl.step || speed);
+      const duration = Number(ctrl.duration || 0);
+
+      // Check cooldown if duration is set
+      const lastMoveTime = Number(ctrl._lastMoveTime || 0);
+      if (duration > 0 && now - lastMoveTime < duration * 1000) {
+        return; // Still in cooldown
+      }
+
+      let currentX = parseFloat(String(target.x || 0)) || 0;
+      let currentY = parseFloat(String(target.y || 0)) || 0;
+      let moved = false;
+
+      if (this.keysPressed.has('w') || this.keysPressed.has('up')) {
+        target.y = currentY - step;
+        moved = true;
+      } else if (this.keysPressed.has('s') || this.keysPressed.has('down')) {
+        target.y = currentY + step;
+        moved = true;
+      }
+      
+      if (this.keysPressed.has('a') || this.keysPressed.has('left')) {
+        target.x = currentX - step;
+        moved = true;
+      } else if (this.keysPressed.has('d') || this.keysPressed.has('right')) {
+        target.x = currentX + step;
+        moved = true;
+      }
+
+      if (moved) {
+        ctrl._lastMoveTime = now;
+        if (duration > 0) {
+          target.transitionDuration = duration;
+        } else {
+          target.transitionDuration = 0; // Instant movement if no duration
+        }
+        updated = true;
+        this.checkCollisions(target);
+      }
+    });
+
+    if (updated) {
+      this.onUIUpdate({ ...this.context.entities });
     }
   }
 }

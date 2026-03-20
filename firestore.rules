@@ -57,20 +57,45 @@ service cloud.firestore {
     }
     
     function isValidApp(data) {
-      return hasOnlyAllowedFields(['id', 'title', 'description', 'code', 'version', 'supportedPlatforms', 'authorId', 'authorName', 'downloads', 'rating', 'createdAt', 'updatedAt']) &&
-             hasRequiredFields(['id', 'title', 'description', 'code', 'version', 'authorId', 'authorName', 'downloads', 'rating', 'updatedAt']) &&
+      return hasOnlyAllowedFields(['id', 'title', 'description', 'code', 'version', 'category', 'supportedPlatforms', 'windowsUrl', 'macosUrl', 'linuxUrl', 'apkUrl', 'authorId', 'authorName', 'iconUrl', 'screenshotUrl', 'bannerUrl', 'downloads', 'likes', 'dislikes', 'rating', 'createdAt', 'updatedAt', 'isAiGenerated', 'isPrivate', 'isLocked', 'unlockCode', 'allowCopy', 'originalAppId', 'originalAppName', 'events']) &&
+             hasRequiredFields(['id', 'title', 'description', 'code', 'version', 'category', 'authorId', 'authorName', 'downloads', 'likes', 'dislikes', 'rating', 'updatedAt']) &&
              data.id is string && data.id.size() > 0 && data.id.size() < 128 &&
              data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
              data.description is string && data.description.size() < 2000 &&
-             data.code is string && data.code.size() < 50000 &&
+             data.code is string && data.code.size() < 1000000 &&
              data.version is string && data.version.size() > 0 && data.version.size() < 20 &&
+             data.category in ["games", "apps", "work", "AI", "Programming Language", "Store", "Other"] &&
              (!('supportedPlatforms' in data) || (data.supportedPlatforms is list && data.supportedPlatforms.size() <= 10)) &&
+             (!('windowsUrl' in data) || (data.windowsUrl is string && data.windowsUrl.size() < 1000)) &&
+             (!('macosUrl' in data) || (data.macosUrl is string && data.macosUrl.size() < 1000)) &&
+             (!('linuxUrl' in data) || (data.linuxUrl is string && data.linuxUrl.size() < 1000)) &&
+             (!('apkUrl' in data) || (data.apkUrl is string && data.apkUrl.size() < 1000)) &&
+             (!('iconUrl' in data) || (data.iconUrl is string && data.iconUrl.size() < 2000)) &&
+             (!('screenshotUrl' in data) || (data.screenshotUrl is string && data.screenshotUrl.size() < 2000)) &&
+             (!('bannerUrl' in data) || (data.bannerUrl is string && data.bannerUrl.size() < 2000)) &&
              data.authorId is string && data.authorId.size() > 0 && data.authorId.size() < 128 &&
              data.authorName is string && data.authorName.size() > 0 && data.authorName.size() < 100 &&
              data.downloads is number && data.downloads >= 0 &&
+             data.likes is number && data.likes >= 0 &&
+             data.dislikes is number && data.dislikes >= 0 &&
              data.rating is number && data.rating >= 0 && data.rating <= 5 &&
              (!('createdAt' in data) || data.createdAt is string) &&
-             data.updatedAt is string;
+             data.updatedAt is string &&
+             (!('isAiGenerated' in data) || data.isAiGenerated is bool) &&
+             (!('isPrivate' in data) || data.isPrivate is bool) &&
+             (!('isLocked' in data) || data.isLocked is bool) &&
+             (!('unlockCode' in data) || data.unlockCode is string) &&
+             (!('allowCopy' in data) || data.allowCopy is bool) &&
+             (!('originalAppId' in data) || (data.originalAppId is string || data.originalAppId == null)) &&
+             (!('originalAppName' in data) || (data.originalAppName is string || data.originalAppName == null)) &&
+             (!('events' in data) || (data.events is list && data.events.size() <= 20));
+    }
+    
+    function isValidVote(data) {
+      return hasOnlyAllowedFields(['userId', 'appId', 'type']) &&
+             data.userId is string && data.userId == request.auth.uid &&
+             data.appId is string && data.appId.size() > 0 &&
+             data.type in ['like', 'dislike'];
     }
     
     function isValidReview(data) {
@@ -101,21 +126,33 @@ service cloud.firestore {
     match /apps/{appId} {
       allow read: if true; // Publicly readable
       allow create: if isAuthenticated() && isValidApp(request.resource.data) && request.resource.data.authorId == request.auth.uid;
-      allow update: if isAuthenticated() && isValidApp(request.resource.data) && (
+      allow update: if isAuthenticated() && (
         // Author can update their app
-        (request.auth.uid == resource.data.authorId && 
+        (request.auth.uid == resource.data.authorId && isValidApp(request.resource.data) &&
          request.resource.data.authorId == resource.data.authorId &&
          (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
          request.resource.data.downloads == resource.data.downloads &&
+         request.resource.data.likes == resource.data.likes &&
+         request.resource.data.dislikes == resource.data.dislikes &&
          request.resource.data.rating == resource.data.rating) ||
         // Anyone can increment downloads
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['downloads']) &&
          request.resource.data.downloads == resource.data.downloads + 1) ||
-        // Anyone can update rating (simplified for now, ideally handled by Cloud Function)
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['rating'])) ||
+        // Anyone can update likes/dislikes/rating
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'dislikes', 'rating']) &&
+         request.resource.data.likes is number && request.resource.data.likes >= 0 &&
+         request.resource.data.dislikes is number && request.resource.data.dislikes >= 0 &&
+         request.resource.data.rating is number && request.resource.data.rating >= 0 && request.resource.data.rating <= 5) ||
         isAdmin()
       );
       allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorId || isAdmin());
+    }
+    
+    match /votes/{voteId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidVote(request.resource.data) && voteId == request.auth.uid + "_" + request.resource.data.appId;
+      allow update: if isAuthenticated() && isValidVote(request.resource.data) && request.auth.uid == resource.data.userId && voteId == request.auth.uid + "_" + request.resource.data.appId;
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
     }
     
     match /reviews/{reviewId} {

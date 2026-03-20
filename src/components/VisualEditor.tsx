@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { EPL_DICTIONARY, TOKEN_REGEX } from '../lib/epl-dictionary';
-import { Plus, X } from 'lucide-react';
+import { Plus, X, HelpCircle } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useStore } from '../store/useStore';
 
@@ -10,7 +10,7 @@ interface VisualEditorProps {
 }
 
 export default function VisualEditor({ code, onChange }: VisualEditorProps) {
-  const { theme } = useStore();
+  const theme = useStore(state => state.theme);
   const lines = code.split('\n');
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const [cursorPos, setCursorPos] = useState<number | null>(null);
@@ -403,6 +403,7 @@ function VisualLine({
 
 function Token({ keyword, settingsStr, entityNames, onUpdateSettings }: { keyword: string, settingsStr: string | undefined, entityNames: string[], onUpdateSettings: (s: string | undefined) => void, key?: React.Key }) {
   const [showPopover, setShowPopover] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
   const def = EPL_DICTIONARY[keyword];
   
   // Parse settings string into object
@@ -490,7 +491,16 @@ function Token({ keyword, settingsStr, entityNames, onUpdateSettings }: { keywor
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-3">
-              <h4 className="text-sm font-bold text-zinc-200 capitalize">{keyword} Settings</h4>
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-bold text-zinc-200 capitalize">{keyword} Settings</h4>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setShowHelpModal(true); }}
+                  className="text-zinc-400 hover:text-zinc-200 transition-colors rounded-full p-1 hover:bg-zinc-800"
+                  title="Show Information"
+                >
+                  <HelpCircle className="w-4 h-4" />
+                </button>
+              </div>
               <button onClick={(e) => { e.stopPropagation(); setShowPopover(false); }} className="text-zinc-500 hover:text-zinc-300"><X className="w-4 h-4" /></button>
             </div>
             
@@ -543,6 +553,42 @@ function Token({ keyword, settingsStr, entityNames, onUpdateSettings }: { keywor
             </button>
           </div>
         </>
+      )}
+
+      {showHelpModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={(e) => { e.stopPropagation(); setShowHelpModal(false); }} />
+          <div className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-white capitalize">{keyword} Information</h3>
+              <button onClick={(e) => { e.stopPropagation(); setShowHelpModal(false); }} className="text-zinc-500 hover:text-zinc-300">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="text-zinc-300 text-sm leading-relaxed">
+              {def.description}
+            </div>
+            {def.schema && (
+              <div className="mt-2">
+                <h4 className="text-sm font-semibold text-zinc-400 mb-2 uppercase tracking-wider">Available Parameters</h4>
+                <div className="bg-zinc-950 rounded-lg border border-zinc-800 p-3 space-y-2">
+                  {Object.entries(def.schema).map(([key, type]) => (
+                    <div key={key} className="flex justify-between items-center border-b border-zinc-800/50 last:border-0 pb-2 last:pb-0">
+                      <span className="font-mono text-emerald-400 text-xs">{key}</span>
+                      <span className="font-mono text-zinc-500 text-xs">{type}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <button 
+              onClick={(e) => { e.stopPropagation(); setShowHelpModal(false); }}
+              className="mt-4 w-full bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg py-2 text-sm font-medium transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );

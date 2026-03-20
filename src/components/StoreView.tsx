@@ -1,118 +1,142 @@
-import React, { useEffect, useState } from 'react';
-import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
+import React, { useEffect, useState, useCallback } from 'react';
+import { collection, getDocs, query, orderBy, limit, where, doc, updateDoc, increment, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useStore } from '../store/useStore';
-import { Search, Star, Download, Play, Monitor, Smartphone, Apple, Terminal, Lock } from 'lucide-react';
+import { Search, Star, Download, Play, Monitor, Smartphone, Apple, Terminal, Lock, ThumbsUp, ThumbsDown, RefreshCw, Flame, Clock } from 'lucide-react';
 import { clsx } from 'clsx';
+import { AppData, AppCategory, UserVote } from '../types';
 
-interface AppData {
-  id: string;
-  title: string;
-  description: string;
-  code: string;
-  version: string;
-  authorName: string;
-  downloads: number;
-  rating: number;
-  isAiGenerated?: boolean;
-  isPrivate?: boolean;
-  isLocked?: boolean;
-  unlockCode?: string;
-  supportedPlatforms?: string[];
-}
+const CATEGORIES: AppCategory[] = ['games', 'apps', 'work', 'AI', 'Programming Language', 'Store', 'Other'];
 
 export default function StoreView() {
   const [apps, setApps] = useState<AppData[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState<'featured' | 'recent'>('featured');
+  const [selectedCategory, setSelectedCategory] = useState<AppCategory | 'all'>('all');
   const [downloadingApp, setDownloadingApp] = useState<string | null>(null);
-  const [unlockingApp, setUnlockingApp] = useState<{app: AppData, action: 'play' | 'download', platform?: string} | null>(null);
-  const [unlockCodeInput, setUnlockCodeInput] = useState('');
-  const [unlockError, setUnlockError] = useState('');
-  const { theme, setCurrentView, setPlayingAppId } = useStore();
+  const [userVotes, setUserVotes] = useState<Record<string, 'like' | 'dislike'>>({});
+  
+  const theme = useStore(state => state.theme);
+  const setCurrentView = useStore(state => state.setCurrentView);
+  const setPlayingAppId = useStore(state => state.setPlayingAppId);
+  const setSelectedAppId = useStore(state => state.setSelectedAppId);
+  const user = useStore(state => state.user);
+  const isPremium = useStore(state => state.isPremium);
+
+  const fetchApps = useCallback(async () => {
+    setLoading(true);
+    try {
+      let q;
+      if (activeTab === 'featured') {
+        q = query(collection(db, 'apps'), orderBy('downloads', 'desc'), limit(50));
+      } else {
+        q = query(collection(db, 'apps'), orderBy('createdAt', 'desc'), limit(50));
+      }
+      
+      const snapshot = await getDocs(q);
+      let appsData = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as object) } as AppData));
+      
+      // Filter out private apps - they should only appear in "My Apps"
+      appsData = appsData.filter(app => !app.isPrivate);
+      
+      if (selectedCategory !== 'all') {
+        appsData = appsData.filter(app => app.category === selectedCategory);
+      }
+      
+      setApps(appsData);
+
+      // Fetch user votes if logged in
+      if (user) {
+        const votesSnapshot = await getDocs(query(collection(db, 'votes'), where('userId', '==', user.uid)));
+        const votes: Record<string, 'like' | 'dislike'> = {};
+        votesSnapshot.docs.forEach(doc => {
+          const data = doc.data() as UserVote;
+          votes[data.appId] = data.type;
+        });
+        setUserVotes(votes);
+      }
+    } catch (error) {
+      console.error("Error fetching apps", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeTab, selectedCategory, user]);
 
   useEffect(() => {
-    const fetchApps = async () => {
-      try {
-        const q = query(collection(db, 'apps'), orderBy('downloads', 'desc'), limit(50));
-        const snapshot = await getDocs(q);
-        const appsData = snapshot.docs
-          .map(doc => ({ id: doc.id, ...doc.data() } as AppData))
-          .filter(app => !app.isPrivate);
-        setApps(appsData);
-      } catch (error) {
-        console.error("Error fetching apps", error);
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchApps();
-  }, []);
+  }, [fetchApps]);
 
-  const handlePlay = (app: AppData) => {
-    if (app.isLocked) {
-      setUnlockingApp({ app, action: 'play' });
-      setUnlockCodeInput('');
-      setUnlockError('');
-    } else {
-      executePlay(app);
+  const handleVote = async (appId: string, type: 'like' | 'dislike') => {
+    if (!user) return;
+    
+    const voteId = `${user.uid}_${appId}`;
+    const voteRef = doc(db, 'votes', voteId);
+    const appRef = doc(db, 'apps', appId);
+    
+    const currentVote = userVotes[appId];
+    
+    try {
+      if (currentVote === type) {
+        // Remove vote
+        await deleteDoc(voteRef);
+        await updateDoc(appRef, {
+          [type === 'like' ? 'likes' : 'dislikes']: increment(-1)
+        });
+        setUserVotes(prev => {
+          const next = { ...prev };
+          delete next[appId];
+          return next;
+        });
+      } else {
+        // Add or change vote
+        await setDoc(voteRef, { userId: user.uid, appId, type });
+        
+        const updates: any = {
+          [type === 'like' ? 'likes' : 'dislikes']: increment(1)
+        };
+        
+        if (currentVote) {
+          updates[currentVote === 'like' ? 'likes' : 'dislikes'] = increment(-1);
+        }
+        
+        await updateDoc(appRef, updates);
+        setUserVotes(prev => ({ ...prev, [appId]: type }));
+      }
+    } catch (error) {
+      console.error("Error voting", error);
     }
   };
 
-  const executePlay = (app: AppData) => {
+  const handlePlay = (app: AppData) => {
     setPlayingAppId(app.id);
     setCurrentView('player');
   };
 
   const handleDownload = (app: AppData, platform: string) => {
-    if (app.isLocked) {
-      setUnlockingApp({ app, action: 'download', platform });
-      setUnlockCodeInput('');
-      setUnlockError('');
+    const url = (app as any)[`${platform}Url`];
+    if (url) {
+      window.open(url, '_blank');
+      updateDoc(doc(db, 'apps', app.id), { downloads: increment(1) });
     } else {
-      executeDownload(app, platform);
+      // Fallback to simulated download
+      setDownloadingApp(`${app.id}-${platform}`);
+      setTimeout(() => {
+        const blob = new Blob([app.code], { type: 'text/plain' });
+        const downloadUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = `${app.title}-${platform}.txt`;
+        a.click();
+        setDownloadingApp(null);
+      }, 1000);
     }
   };
 
-  const executeDownload = (app: AppData, platform: string) => {
-    setDownloadingApp(`${app.id}-${platform}`);
-    
-    // Simulate compilation/download delay
-    setTimeout(() => {
-      const htmlContent = `<!DOCTYPE html>
-<html>
-<head>
-  <title>${app.title}</title>
-  <style>
-    body { margin: 0; overflow: hidden; background: #09090b; color: white; font-family: sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; }
-    .container { text-align: center; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <h1>${app.title}</h1>
-    <p>This is a packaged EPL application for ${platform}.</p>
-    <p>To run this natively, wrap this HTML with Electron, Tauri, or Capacitor.</p>
-    <pre style="text-align: left; background: #18181b; padding: 20px; border-radius: 8px; margin-top: 20px; max-width: 600px; overflow: auto;">${app.code}</pre>
-  </div>
-</body>
-</html>`;
-
-      const blob = new Blob([htmlContent], { type: 'text/html' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${app.title.replace(/\s+/g, '_').toLowerCase()}-${platform}.html`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      
-      setDownloadingApp(null);
-    }, 1500);
-  };
-
-  const filteredApps = apps.filter(app => app.title.toLowerCase().includes(search.toLowerCase()) || app.description.toLowerCase().includes(search.toLowerCase()));
+  const filteredApps = apps.filter(app => 
+    app.title.toLowerCase().includes(search.toLowerCase()) || 
+    app.description.toLowerCase().includes(search.toLowerCase())
+  );
 
   const getPlatformIcon = (platform: string) => {
     switch(platform) {
@@ -125,155 +149,258 @@ export default function StoreView() {
   };
 
   return (
-    <div className="h-full flex flex-col p-4 sm:p-8 overflow-y-auto">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">App Store</h1>
-          <p className={clsx("mt-2", theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>Discover programs written in EPL.</p>
+    <div className="h-full flex flex-col pb-20 sm:pb-8">
+      {/* Header & Search */}
+      <div className="p-4 sm:p-8 pb-0">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+          <div>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">App Store</h1>
+            <p className={clsx("mt-1 text-xs sm:text-sm", theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>Discover programs written in EPL.</p>
+          </div>
+          <div className="relative w-full sm:w-72 flex gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              <input
+                type="text"
+                placeholder="Search apps..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className={clsx(
+                  "w-full pl-10 pr-4 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors",
+                  theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                )}
+              />
+            </div>
+            <button 
+              onClick={fetchApps}
+              className={clsx(
+                "p-2 rounded-xl border hover:bg-zinc-800 transition-all",
+                theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
+              )}
+            >
+              <RefreshCw className={clsx("w-5 h-5", loading && "animate-spin")} />
+            </button>
+          </div>
         </div>
-        <div className="relative w-full sm:w-72">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-          <input
-            type="text"
-            placeholder="Search apps..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+
+        {/* Categories */}
+        <div className="flex gap-2 overflow-x-auto pb-4 no-scrollbar">
+          <button
+            onClick={() => setSelectedCategory('all')}
             className={clsx(
-              "w-full pl-10 pr-4 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors",
-              theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+              "px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors",
+              selectedCategory === 'all' 
+                ? "bg-emerald-500 text-white" 
+                : theme !== 'light' ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
             )}
-          />
+          >
+            All
+          </button>
+          {CATEGORIES.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
+              className={clsx(
+                "px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors capitalize",
+                selectedCategory === cat 
+                  ? "bg-emerald-500 text-white" 
+                  : theme !== 'light' ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+              )}
+            >
+              {cat}
+            </button>
+          ))}
         </div>
       </div>
 
-      {loading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredApps.map(app => (
-            <div key={app.id} className={clsx(
-              "p-6 rounded-2xl border transition-all hover:shadow-lg group",
-              theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700' : 'bg-white border-zinc-200 hover:border-zinc-300'
-            )}>
-              <div className="flex justify-between items-start mb-4">
-                <div className="relative">
-                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center text-white font-bold text-xl shadow-inner">
-                    {app.title.charAt(0)}
-                  </div>
-                  {app.isAiGenerated && (
-                    <div className="absolute -top-2 -right-2 bg-zinc-900 border border-emerald-500/50 rounded-full p-1 shadow-lg" title="AI Generated">
-                      <Terminal className="w-3 h-3 text-emerald-500" />
+      {/* App List */}
+      <div className="flex-1 overflow-y-auto p-4 sm:p-8 pt-0 custom-scrollbar">
+        {loading ? (
+          <div className="flex items-center justify-center h-64">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+          </div>
+        ) : (
+          <div className="space-y-8">
+            {/* Featured Section on Mobile */}
+            {activeTab === 'featured' && filteredApps.length > 0 && (
+              <section className="sm:hidden">
+                <h2 className="text-lg font-bold mb-4">Featured App</h2>
+                <div 
+                  onClick={() => setSelectedAppId(filteredApps[0].id)}
+                  className={clsx(
+                    "relative aspect-[16/9] rounded-3xl overflow-hidden border border-zinc-800 shadow-2xl group cursor-pointer",
+                    theme !== 'light' ? 'bg-zinc-900' : 'bg-white'
+                  )}
+                >
+                  {filteredApps[0].bannerUrl ? (
+                    <img 
+                      src={filteredApps[0].bannerUrl} 
+                      alt={filteredApps[0].title} 
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      referrerPolicy="no-referrer"
+                    />
+                  ) : (
+                    <div className="w-full h-full bg-gradient-to-br from-emerald-500/20 to-cyan-500/20 flex items-center justify-center">
+                      <Play className="w-12 h-12 text-emerald-500/50" />
                     </div>
                   )}
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent flex flex-col justify-end p-6">
+                    <div className="flex items-center gap-3 mb-2">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center text-white font-bold shadow-lg overflow-hidden">
+                        {filteredApps[0].iconUrl ? (
+                          <img src={filteredApps[0].iconUrl} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          filteredApps[0].title.charAt(0)
+                        )}
+                      </div>
+                      <div>
+                        <h3 className="text-white font-bold text-lg leading-tight">{filteredApps[0].title}</h3>
+                        <p className="text-zinc-300 text-xs">{filteredApps[0].category}</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 text-amber-400 bg-amber-400/10 px-2 py-1 rounded-lg text-xs font-medium">
-                  <Star className="w-3 h-3 fill-current" />
-                  {app.rating.toFixed(1)}
-                </div>
-              </div>
-              
-              <h3 className="text-lg font-semibold mb-1 truncate flex items-center gap-2">
-                {app.title}
-                {app.isLocked && <Lock className="w-4 h-4 text-emerald-500" title="Locked App" />}
-              </h3>
-              <p className={clsx("text-sm mb-4 line-clamp-2", theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>
-                {app.description}
-              </p>
-              
-              <div className="flex flex-col gap-2 mt-auto pt-4 border-t border-zinc-800/50">
-                <div className="flex items-center justify-between text-xs text-zinc-500 mb-2">
-                  <span className="truncate max-w-[100px]">by {app.authorName}</span>
-                  <span className="flex items-center gap-1"><Download className="w-3 h-3" /> {app.downloads}</span>
-                </div>
-                
-                <div className="flex flex-wrap gap-2">
-                  {(!app.supportedPlatforms || app.supportedPlatforms.includes('web')) && (
-                    <button 
-                      onClick={() => handlePlay(app)}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors"
-                    >
-                      <Play className="w-3.5 h-3.5" /> Play Online
-                    </button>
-                  )}
-                  
-                  {app.supportedPlatforms && app.supportedPlatforms.filter(p => p !== 'web').map(platform => (
-                    <button
-                      key={platform}
-                      onClick={() => handleDownload(app, platform)}
-                      disabled={downloadingApp === `${app.id}-${platform}`}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-                      title={`Download for ${platform}`}
-                    >
-                      {downloadingApp === `${app.id}-${platform}` ? (
-                        <div className="animate-spin rounded-full h-3.5 w-3.5 border-b-2 border-current"></div>
-                      ) : (
-                        <>
-                          {getPlatformIcon(platform)}
-                          <span className="capitalize">{platform}</span>
-                        </>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+              </section>
+            )}
 
-      {/* Unlock App Modal */}
-      {unlockingApp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className={clsx(
-            "w-full max-w-sm rounded-2xl p-6 shadow-2xl",
-            theme !== 'light' ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'
-          )}>
-            <h3 className="text-xl font-bold mb-2">App is Locked</h3>
-            <p className="text-sm text-zinc-500 mb-6">
-              "{unlockingApp.app.title}" requires an unlock code to {unlockingApp.action}.
-            </p>
-            <div className="space-y-4">
-              <div>
-                <input
-                  type="text"
-                  placeholder="Enter unlock code..."
-                  value={unlockCodeInput}
-                  onChange={(e) => setUnlockCodeInput(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors font-mono"
-                />
-                {unlockError && <p className="text-red-500 text-xs mt-2">{unlockError}</p>}
-              </div>
-            </div>
-            <div className="flex items-center justify-end gap-3 mt-8">
-              <button
-                onClick={() => setUnlockingApp(null)}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  if (unlockCodeInput === unlockingApp.app.unlockCode) {
-                    if (unlockingApp.action === 'play') {
-                      executePlay(unlockingApp.app);
-                    } else if (unlockingApp.action === 'download' && unlockingApp.platform) {
-                      executeDownload(unlockingApp.app, unlockingApp.platform);
-                    }
-                    setUnlockingApp(null);
-                  } else {
-                    setUnlockError('Incorrect unlock code.');
-                  }
-                }}
-                className="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors"
-              >
-                Unlock
-              </button>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
+              {filteredApps.map((app, index) => {
+                // Skip the first app on mobile featured section to avoid duplication if needed
+                // but usually it's fine to show it in the list too.
+                return (
+                  <div 
+                    key={app.id} 
+                    className={clsx(
+                      "p-4 sm:p-6 rounded-2xl border transition-all hover:shadow-lg group flex flex-col",
+                      theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700' : 'bg-white border-zinc-200 hover:border-zinc-300'
+                    )}
+                  >
+                    <div className="flex justify-between items-start mb-3 sm:mb-4">
+                      <div 
+                        className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center text-white font-bold text-xl shadow-inner cursor-pointer overflow-hidden"
+                        onClick={() => setSelectedAppId(app.id)}
+                      >
+                        {app.iconUrl ? (
+                          <img 
+                            src={app.iconUrl} 
+                            alt={app.title} 
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          app.title.charAt(0)
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1 text-amber-400 bg-amber-400/10 px-2 py-1 rounded-lg text-[10px] sm:text-xs font-medium">
+                          <Star className="w-3 h-3 fill-current" />
+                          {app.rating.toFixed(1)}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <h3 
+                      className="text-base sm:text-lg font-semibold mb-1 truncate cursor-pointer hover:text-emerald-500 transition-colors"
+                      onClick={() => setSelectedAppId(app.id)}
+                    >
+                      {app.title}
+                    </h3>
+                    <p className={clsx("text-xs sm:text-sm mb-4 line-clamp-2 flex-1", theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>
+                      {app.description}
+                    </p>
+                    
+                    <div className="flex flex-col gap-3 pt-3 sm:pt-4 border-t border-zinc-800/50">
+                      <div className="flex items-center justify-between text-[10px] sm:text-xs text-zinc-500">
+                        <span className="truncate max-w-[100px]">by {app.authorName}</span>
+                        <div className="flex items-center gap-3">
+                          <button 
+                            onClick={() => handleVote(app.id, 'like')}
+                            className={clsx("flex items-center gap-1 transition-colors", userVotes[app.id] === 'like' ? 'text-emerald-500' : 'hover:text-emerald-400')}
+                          >
+                            <ThumbsUp className={clsx("w-3 h-3 sm:w-3.5 sm:h-3.5", userVotes[app.id] === 'like' && "fill-current")} />
+                            {app.likes || 0}
+                          </button>
+                          <button 
+                            onClick={() => handleVote(app.id, 'dislike')}
+                            className={clsx("flex items-center gap-1 transition-colors", userVotes[app.id] === 'dislike' ? 'text-red-500' : 'hover:text-red-400')}
+                          >
+                            <ThumbsDown className={clsx("w-3 h-3 sm:w-3.5 sm:h-3.5", userVotes[app.id] === 'dislike' && "fill-current")} />
+                            {app.dislikes || 0}
+                          </button>
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-2">
+                        <button 
+                          onClick={() => handlePlay(app)}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs sm:text-sm font-medium transition-colors"
+                        >
+                          <Play className="w-3.5 h-3.5" /> Play
+                        </button>
+                        
+                        {['windows', 'macos', 'linux', 'apk'].map(platform => {
+                          const url = (app as any)[`${platform}Url`];
+                          if (!url && (!app.supportedPlatforms || !app.supportedPlatforms.includes(platform))) return null;
+                          return (
+                            <button
+                              key={platform}
+                              onClick={() => handleDownload(app, platform)}
+                              className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl transition-colors"
+                              title={`Download for ${platform}`}
+                            >
+                              {getPlatformIcon(platform)}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
+
+      {/* Bottom Navigation (Mobile Style) */}
+      <div className={clsx(
+        "fixed bottom-0 left-0 right-0 h-16 border-t flex items-center justify-around px-6 z-40",
+        theme !== 'light' ? 'bg-zinc-950/80 border-zinc-800 backdrop-blur-lg' : 'bg-white/80 border-zinc-200 backdrop-blur-lg',
+        isPremium && theme === 'gradient' && "bg-gradient-to-r from-yellow-500/10 to-emerald-500/10 border-t-yellow-500/30"
+      )}>
+        <button 
+          onClick={() => setActiveTab('featured')}
+          className={clsx(
+            "flex flex-col items-center gap-1 transition-colors p-2 rounded-xl",
+            activeTab === 'featured' ? 'text-emerald-500' : 'text-zinc-500 hover:text-zinc-300',
+            (isPremium && theme === 'gradient') && "bg-gradient-to-r from-yellow-500/10 to-emerald-500/10 border border-yellow-500/20"
+          )}
+        >
+          <Flame className="w-5 h-5" />
+          <span className="text-[10px] font-medium uppercase tracking-wider">Featured</span>
+        </button>
+        <button 
+          onClick={() => setActiveTab('recent')}
+          className={clsx(
+            "flex flex-col items-center gap-1 transition-colors p-2 rounded-xl",
+            activeTab === 'recent' ? 'text-emerald-500' : 'text-zinc-500 hover:text-zinc-300',
+            (isPremium && theme === 'gradient') && "bg-gradient-to-r from-yellow-500/10 to-emerald-500/10 border border-yellow-500/20"
+          )}
+        >
+          <Clock className="w-5 h-5" />
+          <span className="text-[10px] font-medium uppercase tracking-wider">Recent</span>
+        </button>
+        <button 
+          onClick={() => fetchApps()}
+          className={clsx(
+            "flex flex-col items-center gap-1 text-zinc-500 hover:text-zinc-300 transition-colors p-2 rounded-xl",
+            (isPremium && theme === 'gradient') && "bg-gradient-to-r from-yellow-500/10 to-emerald-500/10 border border-yellow-500/20"
+          )}
+        >
+          <RefreshCw className={clsx("w-5 h-5", loading && "animate-spin")} />
+          <span className="text-[10px] font-medium uppercase tracking-wider">Refresh</span>
+        </button>
+      </div>
     </div>
   );
 }

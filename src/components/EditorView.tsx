@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useStore } from '../store/useStore';
 import { db, auth, storage } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'firebase/firestore';
 import { EPLInterpreter } from '../lib/epl-interpreter';
 import { EPL_DICTIONARY } from '../lib/epl-dictionary';
-import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock } from 'lucide-react';
+import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move } from 'lucide-react';
 import { clsx } from 'clsx';
+import { GoogleGenAI } from "@google/genai";
 import VisualEditor from './VisualEditor';
 import AppPreview from './AppPreview';
 import AIAgent from './AIAgent';
@@ -16,24 +17,25 @@ import { translations, tutorialContent } from '../lib/translations';
 const DEFAULT_CODE = ``;
 
 export default function EditorView() {
-  const { 
-    theme, 
-    user, 
-    editingAppId, 
-    setEditingAppId, 
-    aiAnswerMode, 
-    aiChangesEnabled, 
-    language, 
-    setLanguage,
-    tutorialMinimized,
-    setTutorialMinimized,
-    tutorialLevel,
-    tutorialStep,
-    tutorialStepCompleted,
-    setTutorialStepCompleted,
-    tutorialCheckRequested,
-    setTutorialCheckRequested
-  } = useStore();
+  const theme = useStore(state => state.theme);
+  const user = useStore(state => state.user);
+  const editingAppId = useStore(state => state.editingAppId);
+  const setEditingAppId = useStore(state => state.setEditingAppId);
+  const copiedAppData = useStore(state => state.copiedAppData);
+  const setCopiedAppData = useStore(state => state.setCopiedAppData);
+  const aiAnswerMode = useStore(state => state.aiAnswerMode);
+  const aiChangesEnabled = useStore(state => state.aiChangesEnabled);
+  const language = useStore(state => state.language);
+  const setLanguage = useStore(state => state.setLanguage);
+  const tutorialMinimized = useStore(state => state.tutorialMinimized);
+  const setTutorialMinimized = useStore(state => state.setTutorialMinimized);
+  const tutorialLevel = useStore(state => state.tutorialLevel);
+  const tutorialStep = useStore(state => state.tutorialStep);
+  const tutorialStepCompleted = useStore(state => state.tutorialStepCompleted);
+  const setTutorialStepCompleted = useStore(state => state.setTutorialStepCompleted);
+  const tutorialCheckRequested = useStore(state => state.tutorialCheckRequested);
+  const setTutorialCheckRequested = useStore(state => state.setTutorialCheckRequested);
+  const isPremium = useStore(state => state.isPremium);
   const t = translations[language];
   const [code, setCode] = useState(DEFAULT_CODE);
   const [history, setHistory] = useState<string[]>([DEFAULT_CODE]);
@@ -44,6 +46,10 @@ export default function EditorView() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [isSavingLocally, setIsSavingLocally] = useState(false);
   const [isAiGenerated, setIsAiGenerated] = useState(false);
+  const [isPrivate, setIsPrivate] = useState(false);
+  const [allowCopy, setAllowCopy] = useState(true);
+  const [originalAppId, setOriginalAppId] = useState<string | null>(null);
+  const [originalAppName, setOriginalAppName] = useState<string | null>(null);
   const [isMobilePlayerOpen, setIsMobilePlayerOpen] = useState(false);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
@@ -150,17 +156,24 @@ export default function EditorView() {
   }, [tutorialCheckRequested, language, tutorialLevel, tutorialStep, tutorialMinimized, setTutorialStepCompleted, setTutorialMinimized, setOutput]);
   const imageInputRef = useRef<HTMLInputElement>(null);
   
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'icon' | 'banner' | 'screenshot' | 'general' = 'general') => {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (!file || !user) return;
+
     setIsUploading(true);
     try {
-      const storageRef = ref(storage, `images/${Date.now()}_${file.name}`);
+      const storageRef = ref(storage, `apps/${user.uid}/${Date.now()}_${file.name}`);
       await uploadBytes(storageRef, file);
       const url = await getDownloadURL(storageRef);
-      alert(`Image uploaded! URL: ${url}\n\nCopy this URL to use in your EPL code: image=${url}`);
+      
+      if (type === 'icon') setAppIconUrl(url);
+      else if (type === 'banner') setAppBannerUrl(url);
+      else if (type === 'screenshot') setAppScreenshotUrl(url);
+      else {
+        alert(`Image uploaded! URL: ${url}\n\nCopy this URL to use in your EPL code: image=${url}`);
+      }
     } catch (error) {
-      console.error("Error uploading image", error);
+      console.error('Error uploading image:', error);
       alert("Failed to upload image.");
     } finally {
       setIsUploading(false);
@@ -178,13 +191,22 @@ export default function EditorView() {
   const [appTitle, setAppTitle] = useState('My EPL App');
   const [appDesc, setAppDesc] = useState('A cool app written in EPL.');
   const [appVersion, setAppVersion] = useState('1.0.0');
+  const [appCategory, setAppCategory] = useState<string>('Other');
   const [supportedPlatforms, setSupportedPlatforms] = useState<string[]>(['web', 'windows', 'macos', 'linux', 'apk']);
+  const [windowsUrl, setWindowsUrl] = useState('');
+  const [macosUrl, setMacosUrl] = useState('');
+  const [linuxUrl, setLinuxUrl] = useState('');
+  const [apkUrl, setApkUrl] = useState('');
+  const [appIconUrl, setAppIconUrl] = useState('');
+  const [appScreenshotUrl, setAppScreenshotUrl] = useState('');
+  const [appBannerUrl, setAppBannerUrl] = useState('');
+  const [isGeneratingImage, setIsGeneratingImage] = useState<string | null>(null);
   const [isLocked, setIsLocked] = useState(false);
   const [unlockCode, setUnlockCode] = useState('');
+  const [events, setEvents] = useState<{ id: string; title: string; description: string; imageUrl: string }[]>([]);
+  const [publishTab, setPublishTab] = useState<'general' | 'events'>('general');
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  const { isPremium } = useStore();
-
   const [rightPanelWidth, setRightPanelWidth] = useState(384);
   const isResizing = useRef(false);
 
@@ -226,7 +248,26 @@ export default function EditorView() {
   }, []);
 
   useEffect(() => {
-    if (editingAppId) {
+    if (copiedAppData) {
+      setCode(copiedAppData.code);
+      setAppTitle(`Copy of ${copiedAppData.title}`);
+      setAppDesc(copiedAppData.description);
+      setAppVersion('1.0.0');
+      setAppCategory(copiedAppData.category || 'Other');
+      setIsAiGenerated(copiedAppData.isAiGenerated || false);
+      setIsPrivate(true); // Default to private when copying
+      setIsLocked(false);
+      setUnlockCode('');
+      setAllowCopy(true);
+      setOriginalAppId(copiedAppData.id);
+      setOriginalAppName(copiedAppData.title);
+      if (copiedAppData.supportedPlatforms) setSupportedPlatforms(copiedAppData.supportedPlatforms);
+      setWindowsUrl('');
+      setMacosUrl('');
+      setLinuxUrl('');
+      setApkUrl('');
+      setCopiedAppData(null);
+    } else if (editingAppId) {
       const fetchApp = async () => {
         const docRef = doc(db, 'apps', editingAppId);
         const docSnap = await getDoc(docRef);
@@ -236,24 +277,45 @@ export default function EditorView() {
           setAppTitle(data.title);
           setAppDesc(data.description);
           setAppVersion(data.version);
+          setAppCategory(data.category || 'Other');
           setIsAiGenerated(data.isAiGenerated || false);
+          setIsPrivate(data.isPrivate || false);
           setIsLocked(data.isLocked || false);
           setUnlockCode(data.unlockCode || '');
+          setAllowCopy(data.allowCopy !== false);
+          setOriginalAppId(data.originalAppId || null);
+          setOriginalAppName(data.originalAppName || null);
           if (data.supportedPlatforms) setSupportedPlatforms(data.supportedPlatforms);
+          setWindowsUrl(data.windowsUrl || '');
+          setMacosUrl(data.macosUrl || '');
+          setLinuxUrl(data.linuxUrl || '');
+          setApkUrl(data.apkUrl || '');
+          setAppIconUrl(data.iconUrl || '');
+          setAppScreenshotUrl(data.screenshotUrl || '');
+          setAppBannerUrl(data.bannerUrl || '');
+          setEvents(data.events || []);
         }
       };
       fetchApp();
     } else {
-      setCode(DEFAULT_CODE);
       setAppTitle('My EPL App');
       setAppDesc('A cool app written in EPL.');
       setAppVersion('1.0.0');
+      setAppCategory('Other');
       setIsAiGenerated(false);
+      setIsPrivate(false);
       setIsLocked(false);
       setUnlockCode('');
+      setAllowCopy(true);
+      setOriginalAppId(null);
+      setOriginalAppName(null);
       setSupportedPlatforms(['web', 'windows', 'macos', 'linux', 'apk']);
+      setWindowsUrl('');
+      setMacosUrl('');
+      setLinuxUrl('');
+      setApkUrl('');
     }
-  }, [editingAppId]);
+  }, [editingAppId, copiedAppData]);
 
   useEffect(() => {
     outputEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -266,6 +328,15 @@ export default function EditorView() {
     setHistory(newHistory);
     setHistoryIndex(newHistory.length - 1);
   };
+
+  const handleCodeGenerated = useCallback((newCode: string) => {
+    setCode(newCode);
+    setIsAiGenerated(true);
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push(newCode);
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+  }, [history, historyIndex]);
 
   const undo = () => {
     if (historyIndex > 0) {
@@ -299,8 +370,19 @@ export default function EditorView() {
         handleUIEvent('key_pressed?', e.key);
       }
     };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (isRunning && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        handleUIEvent('key_released?', e.key);
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
   }, [isRunning, history, historyIndex]);
 
   const handleRun = async () => {
@@ -330,7 +412,7 @@ export default function EditorView() {
       // Don't set isRunning to false immediately if there are UI events waiting
       if (!interpreterRef.current?.hasEvents()) {
         setIsRunning(false);
-        setIsMobilePlayerOpen(false);
+        // Keep mobile player open so user can see the result
       }
     }
   };
@@ -344,6 +426,13 @@ export default function EditorView() {
     setOutput((prev) => [...prev, "Program stopped."]);
   };
 
+  const handleRestart = async () => {
+    handleStop();
+    setTimeout(() => {
+      handleRun();
+    }, 100);
+  };
+
   const handlePublish = async () => {
     if (!user) return alert("You must be signed in to publish apps.");
     setIsPublishing(true);
@@ -355,13 +444,25 @@ export default function EditorView() {
         description: appDesc,
         code,
         version: appVersion,
+        category: appCategory,
         supportedPlatforms,
+        windowsUrl,
+        macosUrl,
+        linuxUrl,
+        apkUrl,
+        iconUrl: appIconUrl,
+        screenshotUrl: appScreenshotUrl,
+        bannerUrl: appBannerUrl,
         authorId: user.uid,
         authorName: user.displayName || 'Anonymous',
         isAiGenerated,
-        isPrivate: false,
+        isPrivate,
         isLocked: isPremium ? isLocked : false,
         unlockCode: isPremium && isLocked ? unlockCode : '',
+        allowCopy: isPremium ? allowCopy : true,
+        originalAppId,
+        originalAppName,
+        events,
         updatedAt: new Date().toISOString()
       };
 
@@ -369,6 +470,8 @@ export default function EditorView() {
         appData.createdAt = new Date().toISOString();
         appData.downloads = 0;
         appData.rating = 0;
+        appData.likes = 0;
+        appData.dislikes = 0;
       }
 
       await setDoc(doc(db, 'apps', appId), appData, { merge: true });
@@ -394,13 +497,25 @@ export default function EditorView() {
         description: appDesc,
         code,
         version: appVersion,
+        category: appCategory,
         supportedPlatforms,
+        windowsUrl,
+        macosUrl,
+        linuxUrl,
+        apkUrl,
+        iconUrl: appIconUrl,
+        screenshotUrl: appScreenshotUrl,
+        bannerUrl: appBannerUrl,
         authorId: user.uid,
         authorName: user.displayName || 'Anonymous',
         isAiGenerated,
-        isPrivate: true,
+        isPrivate: true, // handleSaveLocally always sets to private
         isLocked: isPremium ? isLocked : false,
         unlockCode: isPremium && isLocked ? unlockCode : '',
+        allowCopy: isPremium ? allowCopy : true,
+        originalAppId,
+        originalAppName,
+        events,
         updatedAt: new Date().toISOString()
       };
 
@@ -408,12 +523,15 @@ export default function EditorView() {
         appData.createdAt = new Date().toISOString();
         appData.downloads = 0;
         appData.rating = 0;
+        appData.likes = 0;
+        appData.dislikes = 0;
       }
 
       await setDoc(doc(db, 'apps', appId), appData, { merge: true });
       setEditingAppId(appId);
+      setIsPrivate(true);
       setActiveMenu(null);
-      alert("App saved locally to your account!");
+      alert(language === 'ru' ? 'Проект сохранен локально в "Мои приложения".' : 'App saved locally to your account!');
     } catch (error) {
       console.error("Error saving app locally", error);
       alert("Failed to save app locally.");
@@ -452,11 +570,61 @@ export default function EditorView() {
     reader.readAsText(file);
   };
 
-  const handleUIEvent = (eventName: string, target?: string) => {
+  const handleGenerateImage = async (type: 'icon' | 'banner' | 'screenshot') => {
+    setIsGeneratingImage(type);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      let prompt = "";
+      
+      if (type === 'icon') {
+        prompt = `Create a high-quality, modern app icon for an app titled "${appTitle}". Description: ${appDesc}. Style: minimalist, vibrant colors, professional.`;
+      } else if (type === 'banner') {
+        prompt = `Create a stunning promotional banner for an app titled "${appTitle}". Description: ${appDesc}. Wide aspect ratio, professional design, engaging.`;
+      } else if (type === 'screenshot') {
+        prompt = `Create a professional screenshot of an app interface for "${appTitle}". Description: ${appDesc}. Show a clean UI with modern elements. Based on this code: ${code}`;
+      }
+
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: { parts: [{ text: prompt }] },
+        config: {
+          imageConfig: {
+            aspectRatio: type === 'banner' ? '16:9' : '1:1',
+          }
+        }
+      });
+
+      const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
+      if (part?.inlineData) {
+        const base64Data = part.inlineData.data;
+        const mimeType = part.inlineData.mimeType;
+        
+        // Upload generated image to Firebase Storage
+        const blob = await fetch(`data:${mimeType};base64,${base64Data}`).then(res => res.blob());
+        const storageRef = ref(storage, `apps/${user?.uid}/${Date.now()}_generated_${type}.png`);
+        await uploadBytes(storageRef, blob);
+        const url = await getDownloadURL(storageRef);
+
+        if (type === 'icon') setAppIconUrl(url);
+        else if (type === 'banner') setAppBannerUrl(url);
+        else if (type === 'screenshot') setAppScreenshotUrl(url);
+        setIsAiGenerated(true);
+      } else {
+        alert("Failed to generate image.");
+      }
+    } catch (error) {
+      console.error("Error generating image:", error);
+      alert("Error generating image. Please try again.");
+    } finally {
+      setIsGeneratingImage(null);
+    }
+  };
+
+  const handleUIEvent = useCallback((eventName: string, target?: string) => {
     if (interpreterRef.current && isRunning) {
       interpreterRef.current.triggerEvent(eventName, target);
     }
-  };
+  }, [isRunning]);
 
   return (
     <div className="h-full flex flex-col overflow-hidden">
@@ -576,15 +744,24 @@ export default function EditorView() {
             <span className="hidden sm:inline">EPL Editor</span>
           </h2>
           <div className="h-6 w-px bg-zinc-700/50 mx-2 hidden sm:block"></div>
-          {!isRunning ? (
-            <button onClick={handleRun} className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors">
-              <Play className="w-4 h-4" /> {t.run}
+          <div className="flex items-center gap-2">
+            {!isRunning ? (
+              <button onClick={handleRun} className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors">
+                <Play className="w-4 h-4" /> {t.run}
+              </button>
+            ) : (
+              <button onClick={handleStop} className="flex items-center gap-2 px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors">
+                <StopCircle className="w-4 h-4" /> {t.stop}
+              </button>
+            )}
+            <button 
+              onClick={handleRestart} 
+              className="flex items-center justify-center p-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors"
+              title={language === 'ru' ? 'Перезагрузить' : 'Restart'}
+            >
+              <RefreshCw className="w-4 h-4" />
             </button>
-          ) : (
-            <button onClick={handleStop} className="flex items-center gap-2 px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors">
-              <StopCircle className="w-4 h-4" /> {t.stop}
-            </button>
-          )}
+          </div>
         </div>
         
         <div className="flex items-center gap-3">
@@ -624,7 +801,16 @@ export default function EditorView() {
         <div className="fixed inset-0 z-[100] bg-zinc-950 flex flex-col">
           <div className="flex justify-between items-center p-4 border-b border-zinc-800">
             <h2 className="text-lg font-bold">App Preview</h2>
-            <button onClick={handleStop} className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium">Stop</button>
+            <div className="flex items-center gap-2">
+              <button onClick={handleRestart} className="p-2 bg-zinc-800 text-white rounded-lg transition-colors">
+                <RefreshCw className="w-4 h-4" />
+              </button>
+              {isRunning ? (
+                <button onClick={handleStop} className="px-4 py-2 bg-red-500 text-white rounded-lg text-sm font-medium">Stop</button>
+              ) : (
+                <button onClick={() => setIsMobilePlayerOpen(false)} className="px-4 py-2 bg-zinc-800 text-white rounded-lg text-sm font-medium">Close</button>
+              )}
+            </div>
           </div>
           <div className="flex-1 relative overflow-hidden">
             <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} />
@@ -643,10 +829,7 @@ export default function EditorView() {
             <VisualEditor code={code} onChange={handleCodeChange} />
           </div>
           <AIAgent 
-            onCodeGenerated={(newCode) => {
-              setCode(newCode);
-              setIsAiGenerated(true);
-            }} 
+            onCodeGenerated={handleCodeGenerated}
             currentCode={code} 
             onSave={handleSaveLocally}
           />
@@ -654,7 +837,7 @@ export default function EditorView() {
 
         {/* Resize Handle */}
         <div 
-          className="hidden sm:block w-1 hover:w-1.5 bg-zinc-800 hover:bg-emerald-500 cursor-col-resize transition-all z-20"
+          className="hidden sm:block w-2 hover:w-3 bg-zinc-800 hover:bg-emerald-500 cursor-col-resize transition-all z-20"
           onMouseDown={handleMouseDown}
         />
 
@@ -710,13 +893,29 @@ export default function EditorView() {
       {showPublishModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(
-            "w-full max-w-md rounded-2xl p-6 shadow-2xl",
+            "w-full max-w-md rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto",
             theme !== 'light' ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'
           )}>
             <h3 className="text-xl font-bold mb-4">{t.publishButton}</h3>
             <p className="text-sm text-zinc-500 mb-6">
               Publishing your app will make it publicly visible in the App Store for everyone to see and play.
             </p>
+            <div className="flex gap-2 mb-4 border-b border-zinc-800">
+              <button
+                onClick={() => setPublishTab('general')}
+                className={clsx("px-4 py-2 text-sm font-medium border-b-2 transition-colors", publishTab === 'general' ? "border-emerald-500 text-emerald-500" : "border-transparent text-zinc-400 hover:text-zinc-200")}
+              >
+                {language === 'ru' ? 'Общие' : 'General'}
+              </button>
+              <button
+                onClick={() => setPublishTab('events')}
+                className={clsx("px-4 py-2 text-sm font-medium border-b-2 transition-colors", publishTab === 'events' ? "border-emerald-500 text-emerald-500" : "border-transparent text-zinc-400 hover:text-zinc-200")}
+              >
+                {language === 'ru' ? 'События' : 'Events'}
+              </button>
+            </div>
+
+            {publishTab === 'general' ? (
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium mb-1 text-zinc-400">{t.appName}</label>
@@ -745,6 +944,18 @@ export default function EditorView() {
                 />
               </div>
               <div>
+                <label className="block text-sm font-medium mb-1 text-zinc-400">Category</label>
+                <select
+                  value={appCategory}
+                  onChange={(e) => setAppCategory(e.target.value)}
+                  className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors"
+                >
+                  {['games', 'apps', 'work', 'AI', 'Programming Language', 'Store', 'Other'].map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label className="block text-sm font-medium mb-2 text-zinc-400">{t.supportedPlatforms}</label>
                 <div className="flex flex-wrap gap-3">
                   {['web', 'windows', 'macos', 'linux', 'apk'].map((platform) => (
@@ -766,6 +977,203 @@ export default function EditorView() {
                   ))}
                 </div>
               </div>
+
+              {/* Image Options */}
+              <div className="space-y-4 pt-4 border-t border-zinc-800">
+                <h4 className="text-sm font-bold text-zinc-300 flex items-center gap-2">
+                  <ImageIcon className="w-4 h-4" /> {language === 'ru' ? 'Изображения приложения' : 'App Images'}
+                </h4>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="block text-xs font-medium text-zinc-500 uppercase">{language === 'ru' ? 'Иконка' : 'Icon'}</label>
+                    <div className="aspect-square rounded-xl bg-zinc-800 flex items-center justify-center overflow-hidden border border-zinc-700 relative group">
+                      {appIconUrl ? (
+                        <img src={appIconUrl} alt="Icon" className="w-full h-full object-cover" />
+                      ) : (
+                        <ImageIcon className="w-8 h-8 text-zinc-600" />
+                      )}
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => handleGenerateImage('icon')}
+                            disabled={!!isGeneratingImage}
+                            className="p-2 bg-emerald-500 rounded-full hover:bg-emerald-600 transition-colors disabled:opacity-50"
+                            title={language === 'ru' ? 'Сгенерировать' : 'Generate'}
+                          >
+                            {isGeneratingImage === 'icon' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                          </button>
+                          <button 
+                            onClick={() => document.getElementById('icon-upload-modal')?.click()}
+                            className="p-2 bg-zinc-700 rounded-full hover:bg-zinc-600 transition-colors"
+                            title={language === 'ru' ? 'Загрузить' : 'Upload'}
+                          >
+                            <Camera className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <input 
+                          id="icon-upload-modal"
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => handleImageUpload(e, 'icon')}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="block text-xs font-medium text-zinc-500 uppercase">{language === 'ru' ? 'Скриншот' : 'Screenshot'}</label>
+                    <div className="aspect-square rounded-xl bg-zinc-800 flex items-center justify-center overflow-hidden border border-zinc-700 relative group">
+                      {appScreenshotUrl ? (
+                         <img src={appScreenshotUrl} alt="Screenshot" className="w-full h-full object-cover" />
+                      ) : (
+                        <Camera className="w-8 h-8 text-zinc-600" />
+                      )}
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                        <div className="flex gap-2">
+                          <button 
+                            onClick={() => handleGenerateImage('screenshot')}
+                            disabled={!!isGeneratingImage}
+                            className="p-2 bg-blue-500 rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
+                            title={language === 'ru' ? 'Сгенерировать' : 'Generate'}
+                          >
+                            {isGeneratingImage === 'screenshot' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                          </button>
+                          <button 
+                            onClick={() => document.getElementById('screenshot-upload-modal')?.click()}
+                            className="p-2 bg-zinc-700 rounded-full hover:bg-zinc-600 transition-colors"
+                            title={language === 'ru' ? 'Загрузить' : 'Upload'}
+                          >
+                            <Camera className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <input 
+                          id="screenshot-upload-modal"
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => handleImageUpload(e, 'screenshot')}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-medium text-zinc-500 uppercase">{language === 'ru' ? 'Баннер' : 'Banner'}</label>
+                  <div className="aspect-video rounded-xl bg-zinc-800 flex items-center justify-center overflow-hidden border border-zinc-700 relative group">
+                    {appBannerUrl ? (
+                      <img src={appBannerUrl} alt="Banner" className="w-full h-full object-cover" />
+                    ) : (
+                      <ImageIcon className="w-12 h-12 text-zinc-600" />
+                    )}
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
+                      <button 
+                        onClick={() => handleGenerateImage('banner')}
+                        disabled={!!isGeneratingImage}
+                        className="flex items-center gap-2 px-4 py-2 bg-emerald-500 rounded-lg hover:bg-emerald-600 transition-colors text-sm font-medium disabled:opacity-50"
+                      >
+                        {isGeneratingImage === 'banner' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                        {language === 'ru' ? 'Сгенерировать' : 'Generate'}
+                      </button>
+                      <button 
+                        onClick={() => document.getElementById('banner-upload-modal')?.click()}
+                        className="flex items-center gap-2 px-4 py-2 bg-zinc-700 rounded-lg hover:bg-zinc-600 transition-colors text-sm font-medium"
+                      >
+                        <Camera className="w-4 h-4" />
+                        {language === 'ru' ? 'Загрузить' : 'Upload'}
+                      </button>
+                      <input 
+                        id="banner-upload-modal"
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => handleImageUpload(e, 'banner')}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-zinc-400">{language === 'ru' ? 'Своя ссылка на иконку' : 'Custom Icon URL'}</label>
+                  <input
+                    type="text"
+                    value={appIconUrl}
+                    onChange={(e) => setAppIconUrl(e.target.value)}
+                    placeholder="https://example.com/icon.png"
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-zinc-400">{language === 'ru' ? 'Своя ссылка на скриншот' : 'Custom Screenshot URL'}</label>
+                  <input
+                    type="text"
+                    value={appScreenshotUrl}
+                    onChange={(e) => setAppScreenshotUrl(e.target.value)}
+                    placeholder="https://example.com/screenshot.png"
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors text-sm"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-zinc-400">{language === 'ru' ? 'Своя ссылка на баннер' : 'Custom Banner URL'}</label>
+                  <input
+                    type="text"
+                    value={appBannerUrl}
+                    onChange={(e) => setAppBannerUrl(e.target.value)}
+                    placeholder="https://example.com/banner.png"
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors text-sm"
+                  />
+                </div>
+              </div>
+              {supportedPlatforms.includes('windows') && (
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-zinc-400">Windows Download URL (.exe)</label>
+                  <input
+                    type="text"
+                    value={windowsUrl}
+                    onChange={(e) => setWindowsUrl(e.target.value)}
+                    placeholder="https://example.com/app.exe"
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                </div>
+              )}
+              {supportedPlatforms.includes('macos') && (
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-zinc-400">MacOS Download URL (.app)</label>
+                  <input
+                    type="text"
+                    value={macosUrl}
+                    onChange={(e) => setMacosUrl(e.target.value)}
+                    placeholder="https://example.com/app.dmg"
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                </div>
+              )}
+              {supportedPlatforms.includes('linux') && (
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-zinc-400">Linux Download URL</label>
+                  <input
+                    type="text"
+                    value={linuxUrl}
+                    onChange={(e) => setLinuxUrl(e.target.value)}
+                    placeholder="https://example.com/app.tar.gz"
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                </div>
+              )}
+              {supportedPlatforms.includes('apk') && (
+                <div>
+                  <label className="block text-sm font-medium mb-1 text-zinc-400">Android Download URL (.apk)</label>
+                  <input
+                    type="text"
+                    value={apkUrl}
+                    onChange={(e) => setApkUrl(e.target.value)}
+                    placeholder="https://example.com/app.apk"
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors"
+                  />
+                </div>
+              )}
               <div className="pt-4 border-t border-zinc-800">
                 <label className={clsx("flex items-center gap-2 mb-3", !isPremium ? "cursor-not-allowed opacity-50" : "cursor-pointer")}>
                   <input
@@ -777,6 +1185,29 @@ export default function EditorView() {
                   />
                   <span className="text-sm font-medium text-emerald-400 flex items-center gap-2">
                     Lock App with Code (Premium Feature) {!isPremium && <Lock className="w-3 h-3" />}
+                  </span>
+                </label>
+                <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isPrivate}
+                    onChange={(e) => setIsPrivate(e.target.checked)}
+                    className="w-4 h-4 rounded border-zinc-700 text-emerald-500 focus:ring-emerald-500 bg-zinc-800/50"
+                  />
+                  <span className="text-sm font-medium text-zinc-400">
+                    {language === 'ru' ? 'Приватное приложение (не отображать в магазине)' : 'Private App (don\'t show in store)'}
+                  </span>
+                </label>
+                <label className={clsx("flex items-center gap-2 mb-3", !isPremium ? "cursor-not-allowed opacity-50" : "cursor-pointer")}>
+                  <input
+                    type="checkbox"
+                    checked={allowCopy}
+                    onChange={(e) => isPremium && setAllowCopy(e.target.checked)}
+                    disabled={!isPremium}
+                    className="w-4 h-4 rounded border-zinc-700 text-emerald-500 focus:ring-emerald-500 bg-zinc-800/50"
+                  />
+                  <span className="text-sm font-medium text-emerald-400 flex items-center gap-2">
+                    {language === 'ru' ? 'Разрешить копирование проекта' : 'Allow copying project'} {!isPremium && <Lock className="w-3 h-3" />}
                   </span>
                 </label>
                 {(!isPremium || isLocked) && (
@@ -797,6 +1228,55 @@ export default function EditorView() {
                 )}
               </div>
             </div>
+            ) : (
+              <div className="space-y-4">
+                <h4 className="text-sm font-bold text-zinc-300">{language === 'ru' ? 'События' : 'Events'}</h4>
+                <div className="space-y-2">
+                  {events.map((event, index) => (
+                    <div key={index} className="p-3 bg-zinc-800/50 rounded-lg border border-zinc-700 flex flex-col gap-3">
+                      <div className="flex items-center gap-3">
+                        {event.imageUrl ? (
+                          <img src={event.imageUrl} alt={event.title} className="w-12 h-12 rounded object-cover" />
+                        ) : (
+                          <div className="w-12 h-12 rounded bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-xs font-bold text-white truncate px-1">
+                            {event.title.charAt(0)}
+                          </div>
+                        )}
+                        <div className="flex-1 space-y-1">
+                          <input
+                            type="text"
+                            value={event.title}
+                            onChange={(e) => {
+                              const newEvents = [...events];
+                              newEvents[index].title = e.target.value;
+                              setEvents(newEvents);
+                            }}
+                            className="w-full text-sm font-medium text-zinc-200 bg-transparent border-none focus:ring-0 p-0"
+                          />
+                          <input
+                            type="text"
+                            value={event.description}
+                            onChange={(e) => {
+                              const newEvents = [...events];
+                              newEvents[index].description = e.target.value;
+                              setEvents(newEvents);
+                            }}
+                            className="w-full text-xs text-zinc-400 bg-transparent border-none focus:ring-0 p-0"
+                          />
+                        </div>
+                        <button onClick={() => setEvents(events.filter((_, i) => i !== index))} className="text-red-400 hover:text-red-300">Delete</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <button 
+                  onClick={() => setEvents([...events, { id: Date.now().toString(), title: 'New Event', description: 'Description', imageUrl: '' }])}
+                  className="w-full py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-colors"
+                >
+                  {language === 'ru' ? 'Добавить событие' : 'Add Event'}
+                </button>
+              </div>
+            )}
             <div className="flex items-center justify-end gap-3 mt-8">
               <button
                 onClick={() => setShowPublishModal(false)}

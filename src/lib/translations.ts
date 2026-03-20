@@ -79,6 +79,29 @@ export const translations = {
         advanced: 'Advanced',
         pro: 'Pro'
       }
+    },
+    premiumFeatures: {
+      title: 'Premium Features',
+      active: 'Premium Active',
+      thanks: 'Thank you for supporting EPL Studio!',
+      yourFeatures: 'Your Premium Features:',
+      unlimitedAi: 'Unlimited AI requests',
+      fasterAi: 'Faster AI response times',
+      proAi: 'Pro & Thinking AI modes unlocked',
+      gradientTheme: 'Exclusive Gradient Theme',
+      copyBlocking: 'App Copy Protection',
+      copyBlockingDesc: 'Prevent other users from copying your application code or assets.',
+      appLocking: 'App Access Locking',
+      appLockingDesc: 'Set a password or code to restrict access to your application.',
+      themeSettings: 'Theme Settings',
+      enableGradient: 'Enable Gradient Theme',
+      disableGradient: 'Disable Gradient Theme',
+      cancelPremium: 'Cancel Premium',
+      unlockPremium: 'Unlock Premium',
+      enterCode: 'Enter your unlock code to get unlimited access.',
+      placeholder: 'Enter code to activate premium',
+      unlockButton: 'Unlock Premium',
+      invalidCode: 'Invalid unlock code.'
     }
   },
   ru: {
@@ -161,6 +184,29 @@ export const translations = {
         advanced: 'Продвинутый',
         pro: 'Профи'
       }
+    },
+    premiumFeatures: {
+      title: 'Премиум-функции',
+      active: 'Премиум активен',
+      thanks: 'Спасибо за поддержку EPL Studio!',
+      yourFeatures: 'Ваши премиум-функции:',
+      unlimitedAi: 'Безлимитные запросы к ИИ',
+      fasterAi: 'Ускоренное время ответа ИИ',
+      proAi: 'Разблокированы режимы Pro и Thinking AI',
+      gradientTheme: 'Эксклюзивная градиентная тема',
+      copyBlocking: 'Защита приложений от копирования',
+      copyBlockingDesc: 'Запретите другим пользователям копировать код или ресурсы вашего приложения.',
+      appLocking: 'Блокировка доступа к приложениям',
+      appLockingDesc: 'Установите пароль или код для ограничения доступа к вашему приложению.',
+      themeSettings: 'Настройки темы',
+      enableGradient: 'Включить градиентную тему',
+      disableGradient: 'Выключить градиентную тему',
+      cancelPremium: 'Отменить премиум',
+      unlockPremium: 'Разблокировать премиум',
+      enterCode: 'Введите код разблокировки для получения неограниченного доступа.',
+      placeholder: 'Введите код для активации премиума',
+      unlockButton: 'Разблокировать премиум',
+      invalidCode: 'Неверный код разблокировки.'
     }
   }
 };

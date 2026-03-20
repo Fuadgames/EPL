@@ -11,7 +11,15 @@ interface AIAgentProps {
 }
 
 export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgentProps) {
-  const { theme, isPremium, aiMode, setAiMode, requestCount, setRequestCount, lastResetTime, setLastResetTime, language } = useStore();
+  const theme = useStore(state => state.theme);
+  const isPremium = useStore(state => state.isPremium);
+  const aiMode = useStore(state => state.aiMode);
+  const setAiMode = useStore(state => state.setAiMode);
+  const requestCount = useStore(state => state.requestCount);
+  const setRequestCount = useStore(state => state.setRequestCount);
+  const lastResetTime = useStore(state => state.lastResetTime);
+  const setLastResetTime = useStore(state => state.setLastResetTime);
+  const language = useStore(state => state.language);
   const [prompt, setPrompt] = useState('');
   const [lastPrompt, setLastPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -80,6 +88,9 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
         contents: `Refine this programming prompt for an AI agent to be more detailed and clear: "${originalPrompt}"`,
+        config: {
+          systemInstruction: "You are an AI expert in Easy Programming Language (EPL). When refining prompts, ensure they are detailed and clear, following the EPL rules: every entity must have a 'set up' block with x, y, width, height, and color."
+        }
       });
       return response.text?.trim() || originalPrompt;
     } catch (error) {
@@ -105,17 +116,32 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
         
         const systemInstruction = `
           You are an AI expert in Easy Programming Language (EPL).
-          Syntax: keyword{param=val}, #comment, create entity, update entity, event?, end, if check{exp=...} ... end.
-          Keywords: world, button, block, 3Dblock, sprite, png, text_label, particle, sound, timer, player, enemy.
-          Actions: move, set up, background, type, destroy, wait, stop.
+          
+          VALID KEYWORDS:
+          - Control: if, else, then, end, check, return, stop, repeat, forever, wait, control
+          - Events: started?, created?, clicked?, collided?, key_pressed?, writed?, timer_tick?
+          - Actions: set up, background, move, create, type, destroy, hide, show, rotate, scale, play_sound, stop_sound, clear, ai, math
+          - Entities: world, button, block, 3Dblock, sprite, png, text_label, particle, sound, timer, player, enemy
 
-          ${aiMode === 'thinking' ? 'Think step-by-step before generating code.' : ''}
-          
-          Your task is to generate ONLY the EPL code based on the user's request.
-          Do not include any explanations, markdown code blocks, or extra text.
-          CRITICAL: If there is existing code, you MUST modify it and return the FULL, complete updated code. NEVER return just a snippet. If the user asks to add something, integrate it into the existing code and return everything.
-          If the user asks to save the app, append [SAVE] at the very end of your response.
-          
+          CRITICAL RULES:
+          1. ONLY use the keywords and entities listed above. Do NOT invent new ones.
+          2. EVERY entity created MUST have a corresponding "set up" block immediately after its creation.
+          3. A "set up" block MUST configure essential properties: x, y, width, height, and color (or background).
+          4. When creating entities, keep their x and y coordinates within 0-800 and width/height within 10-200.
+          5. Do not include any explanations, markdown code blocks, or extra text. Return ONLY the code.
+          6. If there is existing code, you MUST modify it and return the FULL, complete updated code.
+          7. If the user asks to save the app, append [SAVE] at the very end of your response.
+
+          EXAMPLE OF CORRECT SYNTAX:
+          create block "my_block"
+          set up "my_block"
+            x: 100
+            y: 100
+            width: 50
+            height: 50
+            color: "red"
+          end
+
           Current code:
           ${currentCode}
         `;

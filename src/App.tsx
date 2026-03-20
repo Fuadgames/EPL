@@ -14,7 +14,8 @@ const SettingsView = React.lazy(() => import('./components/SettingsView'));
 const PremiumView = React.lazy(() => import('./components/PremiumView'));
 
 export default function App() {
-  const { currentView, setUser } = useStore();
+  const currentView = useStore(state => state.currentView);
+  const setUser = useStore(state => state.setUser);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {

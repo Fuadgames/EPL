@@ -9,19 +9,17 @@ interface TutorialProps {
 }
 
 export default function Tutorial({ onClose }: TutorialProps) {
-  const { 
-    theme, 
-    language, 
-    tutorialMinimized, 
-    setTutorialMinimized,
-    tutorialLevel,
-    setTutorialLevel,
-    tutorialStep,
-    setTutorialStep,
-    tutorialStepCompleted,
-    setTutorialStepCompleted,
-    setTutorialCheckRequested
-  } = useStore();
+  const theme = useStore(state => state.theme);
+  const language = useStore(state => state.language);
+  const tutorialMinimized = useStore(state => state.tutorialMinimized);
+  const setTutorialMinimized = useStore(state => state.setTutorialMinimized);
+  const tutorialLevel = useStore(state => state.tutorialLevel);
+  const setTutorialLevel = useStore(state => state.setTutorialLevel);
+  const tutorialStep = useStore(state => state.tutorialStep);
+  const setTutorialStep = useStore(state => state.setTutorialStep);
+  const tutorialStepCompleted = useStore(state => state.tutorialStepCompleted);
+  const setTutorialStepCompleted = useStore(state => state.setTutorialStepCompleted);
+  const setTutorialCheckRequested = useStore(state => state.setTutorialCheckRequested);
   const t = translations[language];
   const levels = tutorialContent[language];
   

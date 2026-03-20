@@ -16,6 +16,10 @@ interface AppState {
   setEditingAppId: (id: string | null) => void;
   playingAppId: string | null;
   setPlayingAppId: (id: string | null) => void;
+  selectedAppId: string | null;
+  setSelectedAppId: (id: string | null) => void;
+  copiedAppData: any | null;
+  setCopiedAppData: (data: any | null) => void;
   aiAnswerMode: 'text' | 'console';
   setAiAnswerMode: (mode: 'text' | 'console') => void;
   aiChangesEnabled: boolean;
@@ -54,6 +58,10 @@ export const useStore = create<AppState>()(persist((set) => ({
   setEditingAppId: (id) => set({ editingAppId: id }),
   playingAppId: null,
   setPlayingAppId: (id) => set({ playingAppId: id }),
+  selectedAppId: null,
+  setSelectedAppId: (id) => set({ selectedAppId: id }),
+  copiedAppData: null,
+  setCopiedAppData: (data) => set({ copiedAppData: data }),
   aiAnswerMode: 'text',
   setAiAnswerMode: (mode) => set({ aiAnswerMode: mode }),
   aiChangesEnabled: false,

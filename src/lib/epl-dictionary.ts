@@ -74,6 +74,7 @@ export const EPL_DICTIONARY: Record<string, TokenDef> = {
   'cursor': { word: 'cursor', type: 'action', color: 'text-blue-500', description: 'Changes the cursor image.', schema: { image: 'string' } },
   'move_to': { word: 'move_to', type: 'action', color: 'text-blue-500', description: 'Moves an entity to specific coordinates.', schema: { target: 'string', x: 'number', y: 'number' } },
   'draggable': { word: 'draggable', type: 'action', color: 'text-blue-500', description: 'Makes an entity draggable by the cursor.', schema: { target: 'string' } },
+  'wasd_controls': { word: 'wasd_controls', type: 'entity', color: 'text-emerald-500', description: 'Enables WASD movement for a target entity.', schema: { name: 'string', target: 'string', step: 'number', duration: 'number' } },
 };
 
 // Sort keywords by length descending so longer phrases like "set up" match before "set"

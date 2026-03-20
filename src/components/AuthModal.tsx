@@ -10,7 +10,7 @@ interface AuthModalProps {
 }
 
 export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
-  const { language } = useStore();
+  const language = useStore(state => state.language);
   const t = translations[language].auth;
   const [isLogin, setIsLogin] = useState(true);
   const [isReset, setIsReset] = useState(false);

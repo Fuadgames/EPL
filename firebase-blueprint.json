@@ -24,15 +24,33 @@
         "description": { "type": "string", "description": "A description of what the app does." },
         "code": { "type": "string", "description": "The EPL source code of the app." },
         "version": { "type": "string", "description": "The version string, e.g., '1.0.0'." },
+        "category": { "type": "string", "enum": ["games", "apps", "work", "AI", "Programming Language", "Store", "Other"], "description": "The app's category." },
         "supportedPlatforms": { "type": "array", "items": { "type": "string" }, "description": "List of supported platforms." },
+        "windowsUrl": { "type": "string", "format": "uri", "description": "Download URL for Windows (.exe)." },
+        "macosUrl": { "type": "string", "format": "uri", "description": "Download URL for MacOS (.app)." },
+        "linuxUrl": { "type": "string", "format": "uri", "description": "Download URL for Linux." },
+        "apkUrl": { "type": "string", "format": "uri", "description": "Download URL for Android (.apk)." },
         "authorId": { "type": "string", "description": "The UID of the user who created the app." },
         "authorName": { "type": "string", "description": "The name of the author." },
         "downloads": { "type": "number", "description": "Number of times the app was run/downloaded." },
+        "likes": { "type": "number", "description": "Number of likes." },
+        "dislikes": { "type": "number", "description": "Number of dislikes." },
         "rating": { "type": "number", "description": "Average rating." },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the app was published." },
         "updatedAt": { "type": "string", "format": "date-time", "description": "When the app was last updated." }
       },
-      "required": ["title", "description", "code", "version", "authorId", "authorName", "downloads", "rating", "createdAt", "updatedAt"]
+      "required": ["title", "description", "code", "version", "category", "authorId", "authorName", "downloads", "likes", "dislikes", "rating", "createdAt", "updatedAt"]
+    },
+    "UserVote": {
+      "title": "UserVote",
+      "description": "A user's vote (like/dislike) on an app.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the user." },
+        "appId": { "type": "string", "description": "The ID of the app." },
+        "type": { "type": "string", "enum": ["like", "dislike"], "description": "The type of vote." }
+      },
+      "required": ["userId", "appId", "type"]
     },
     "Review": {
       "title": "Review",
@@ -62,6 +80,10 @@
     "/reviews/{reviewId}": {
       "schema": { "$ref": "#/entities/Review" },
       "description": "Stores app reviews."
+    },
+    "/votes/{voteId}": {
+      "schema": { "$ref": "#/entities/UserVote" },
+      "description": "Stores user votes on apps."
     }
   }
 }
