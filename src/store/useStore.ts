@@ -62,6 +62,8 @@ interface AppState {
   setComputerStyle: (enabled: boolean) => void;
   selectedExtraCategory: 'Normal' | 'OS' | null;
   setSelectedExtraCategory: (category: 'Normal' | 'OS' | null) => void;
+  isBackdoor: boolean;
+  setIsBackdoor: (isBackdoor: boolean) => void;
 }
 
 export const useStore = create<AppState>()(persist((set) => ({
@@ -110,6 +112,8 @@ export const useStore = create<AppState>()(persist((set) => ({
   setComputerStyle: (enabled) => set({ computerStyle: enabled }),
   selectedExtraCategory: null,
   setSelectedExtraCategory: (category) => set({ selectedExtraCategory: category }),
+  isBackdoor: false,
+  setIsBackdoor: (isBackdoor) => set({ isBackdoor }),
 }), {
   name: 'app-storage',
   partialize: (state) => ({ 
@@ -124,6 +128,7 @@ export const useStore = create<AppState>()(persist((set) => ({
     lastResetTime: state.lastResetTime,
     computerStyle: state.computerStyle,
     selectedExtraCategory: state.selectedExtraCategory,
-    userData: state.userData
+    userData: state.userData,
+    isBackdoor: state.isBackdoor
   }),
 }));

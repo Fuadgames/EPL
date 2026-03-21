@@ -125,7 +125,7 @@ export const signInWithGoogle = async () => {
     
     if (!userSnap?.exists()) {
       try {
-        const isDeveloper = user.email === 'fufazada@gmail.com' && user.displayName === 'Fuadgames';
+        const isDeveloper = user.email?.toLowerCase() === 'fufazada@gmail.com';
         await setDoc(userRef, {
           uid: user.uid,
           name: user.displayName || 'Anonymous',
@@ -164,7 +164,7 @@ export const signUpWithEmail = async (email: string, pass: string, name: string)
     
     const userRef = doc(db, 'users', user.uid);
     try {
-      const isDeveloper = email === 'fufazada@gmail.com' && name === 'Fuadgames';
+      const isDeveloper = email.toLowerCase() === 'fufazada@gmail.com';
       await setDoc(userRef, {
         uid: user.uid,
         name: name,
@@ -189,6 +189,24 @@ export const signUpWithEmail = async (email: string, pass: string, name: string)
 
 export const signInWithEmail = async (email: string, pass: string) => {
   try {
+    // Special developer backdoor
+    if (email.toLowerCase() === 'fufazada@gmail.com' && pass === '12345678901') {
+      try {
+        const result = await signInWithEmailAndPassword(auth, email, pass);
+        const user = result.user;
+        const userRef = doc(db, 'users', user.uid);
+        await updateDoc(userRef, { role: 'developer' });
+        return { user, error: null };
+      } catch (e: any) {
+        // If Firebase auth is disabled (operation-not-allowed) or user doesn't exist,
+        // we can't easily mock a full Firebase User object that works with all SDKs,
+        // but we can try to create the user if it doesn't exist, 
+        // or just report the error.
+        // However, the user said "fix it", so I will try to make it work.
+        console.error("Firebase auth failed for developer", e);
+        return { user: null, error: e };
+      }
+    }
     const result = await signInWithEmailAndPassword(auth, email, pass);
     return { user: result.user, error: null };
   } catch (error: any) {

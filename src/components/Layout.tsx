@@ -16,8 +16,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const isPremium = useStore(state => state.isPremium);
   const selectedAppId = useStore(state => state.selectedAppId);
   const userData = useStore(state => state.userData);
+  const setIsBackdoor = useStore(state => state.setIsBackdoor);
   const t = translations[language];
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
+  const handleLogOut = async () => {
+    await logOut();
+    setIsBackdoor(false);
+  };
 
   const navItems = [
     { id: 'store', label: t.store, icon: Store },
@@ -25,7 +31,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { id: 'my-apps', label: t.myApps, icon: Package },
     { id: 'premium', label: t.premium, icon: Star },
     { id: 'profile', label: t.profile, icon: User },
-    ...((user?.email === 'fufazada@gmail.com' && user?.displayName === 'Fuadgames') || userData?.role === 'admin' ? [{ id: 'control', label: 'Control', icon: ShieldCheck }] : []),
+    ...(userData?.role === 'developer' || userData?.role === 'admin' ? [{ id: 'control', label: 'Control', icon: ShieldCheck }] : []),
     { id: 'settings', label: t.settings, icon: Settings },
   ] as const;
 
@@ -71,7 +77,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                       </span>
                     </div>
                   </div>
-                  <button onClick={logOut} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-red-400 transition-colors">
+                  <button onClick={handleLogOut} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-red-400 transition-colors">
                     <LogOut className="w-4 h-4" />
                   </button>
                 </div>
@@ -128,7 +134,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                     </span>
                   </div>
                 </div>
-                <button onClick={logOut} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-red-400 transition-colors">
+                <button onClick={handleLogOut} className="p-2 hover:bg-zinc-800 rounded-lg text-zinc-400 hover:text-red-400 transition-colors">
                   <LogOut className="w-4 h-4" />
                 </button>
               </div>
@@ -181,22 +187,24 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {selectedAppId && <AppDetailView />}
 
       {/* Mobile Bottom Nav */}
-      <div className={clsx("md:hidden flex items-center justify-around p-2 border-t pb-4", theme !== 'light' ? 'border-zinc-800 bg-zinc-900/50' : 'border-zinc-200 bg-white')}>
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setCurrentView(item.id as any)}
-            className={clsx(
-              "flex flex-col items-center gap-1 p-2 rounded-lg transition-colors",
-              currentView === item.id
-                ? "text-emerald-500"
-                : "text-zinc-500 hover:text-zinc-300"
-            )}
-          >
-            <item.icon className="w-5 h-5" />
-            <span className="text-[10px] font-medium">{item.label}</span>
-          </button>
-        ))}
+      <div className={clsx("md:hidden flex items-center p-2 border-t pb-4 overflow-x-auto no-scrollbar", theme !== 'light' ? 'border-zinc-800 bg-zinc-900/50' : 'border-zinc-200 bg-white')}>
+        <div className="flex items-center justify-around w-full min-w-max px-2 gap-1">
+          {navItems.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setCurrentView(item.id as any)}
+              className={clsx(
+                "flex flex-col items-center gap-1 p-2 rounded-lg transition-colors min-w-[64px]",
+                currentView === item.id
+                  ? "text-emerald-500"
+                  : "text-zinc-500 hover:text-zinc-300"
+              )}
+            >
+              <item.icon className="w-5 h-5" />
+              <span className="text-[10px] font-medium">{item.label}</span>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

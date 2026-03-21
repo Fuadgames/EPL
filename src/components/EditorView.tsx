@@ -780,7 +780,7 @@ export default function EditorView() {
       <div 
         ref={menuRef}
         className={clsx(
-          "flex items-center gap-1 px-2 py-1 border-b text-sm relative z-50",
+          "flex items-center gap-1 px-2 py-1 border-b text-sm relative z-50 overflow-x-auto no-scrollbar whitespace-nowrap",
           theme !== 'light' ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : 'bg-zinc-100 border-zinc-200 text-zinc-700'
         )}
       >
@@ -883,10 +883,10 @@ export default function EditorView() {
 
       {/* Toolbar */}
       <div className={clsx(
-        "flex flex-wrap items-center justify-between gap-4 px-4 sm:px-6 py-4 border-b",
+        "flex items-center justify-between gap-4 px-4 sm:px-6 py-4 border-b overflow-x-auto no-scrollbar",
         theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
       )}>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 min-w-max">
           <h2 className="text-xl font-bold flex items-center gap-2">
             <Code2 className="w-5 h-5 text-emerald-500" />
             <span className="hidden sm:inline">EPL Editor</span>
@@ -894,17 +894,17 @@ export default function EditorView() {
           <div className="h-6 w-px bg-zinc-700/50 mx-2 hidden sm:block"></div>
           <div className="flex items-center gap-2">
             {!isRunning ? (
-              <button onClick={handleRun} className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors">
+              <button onClick={handleRun} className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap">
                 <Play className="w-4 h-4" /> {t.run}
               </button>
             ) : (
-              <button onClick={handleStop} className="flex items-center gap-2 px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors">
+              <button onClick={handleStop} className="flex items-center gap-2 px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap">
                 <StopCircle className="w-4 h-4" /> {t.stop}
               </button>
             )}
             <button 
               onClick={handleRestart} 
-              className="flex items-center justify-center p-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg transition-colors"
+              className="flex items-center justify-center p-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl transition-colors"
               title={language === 'ru' ? 'Перезагрузить' : 'Restart'}
             >
               <RefreshCw className="w-4 h-4" />
@@ -912,17 +912,17 @@ export default function EditorView() {
           </div>
         </div>
         
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-max">
           <button 
             onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
-            className="sm:hidden px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+            className="sm:hidden px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap"
           >
             {isRightPanelOpen ? 'Hide UI' : 'Show UI'}
           </button>
           <button 
             onClick={() => imageInputRef.current?.click()}
             disabled={isUploading}
-            className="flex items-center gap-2 px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap"
           >
             <UploadCloud className="w-4 h-4" /> <span className="hidden sm:inline">{isUploading ? t.publishing : t.uploadFile}</span>
           </button>
@@ -930,20 +930,20 @@ export default function EditorView() {
           {user && (
             <button 
               onClick={() => setShowPublishModal(true)}
-              className="flex items-center gap-2 px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+              className="flex items-center gap-2 px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap"
             >
               <UploadCloud className="w-4 h-4" /> <span className="hidden sm:inline">{t.publish}</span>
             </button>
           )}
           <button 
             onClick={() => setShowEditorStoreModal(true)}
-            className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap"
           >
             <Sparkles className="w-4 h-4" /> <span className="hidden sm:inline">Editor Store</span>
           </button>
           <button 
             onClick={() => setShowFileControlModal(true)}
-            className="flex items-center gap-2 px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap"
           >
             <FolderOpen className="w-4 h-4" /> <span className="hidden sm:inline">Image Control</span>
           </button>

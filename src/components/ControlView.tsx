@@ -88,11 +88,11 @@ export default function ControlView() {
           Control Panel
         </h1>
         
-        <div className="flex gap-4 mb-6">
+        <div className="flex gap-4 mb-6 overflow-x-auto no-scrollbar pb-2">
           <button
             onClick={() => setActiveTab('apps')}
             className={clsx(
-              "px-6 py-2 rounded-xl font-medium transition-colors",
+              "px-6 py-2 rounded-xl font-medium transition-colors whitespace-nowrap",
               activeTab === 'apps' ? 'bg-emerald-500 text-white' : theme !== 'light' ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-200 text-zinc-600'
             )}
           >
@@ -101,7 +101,7 @@ export default function ControlView() {
           <button
             onClick={() => setActiveTab('users')}
             className={clsx(
-              "px-6 py-2 rounded-xl font-medium transition-colors",
+              "px-6 py-2 rounded-xl font-medium transition-colors whitespace-nowrap",
               activeTab === 'users' ? 'bg-emerald-500 text-white' : theme !== 'light' ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-200 text-zinc-600'
             )}
           >

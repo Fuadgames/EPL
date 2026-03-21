@@ -19,14 +19,20 @@ export default function App() {
   const setUser = useStore(state => state.setUser);
   const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
+  const isBackdoor = useStore(state => state.isBackdoor);
 
   useEffect(() => {
     let unsubscribeUser: (() => void) | undefined;
     
-    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-      setUser(user);
-      if (user) {
-        unsubscribeUser = subscribeToUserData(user.uid);
+    const unsubscribeAuth = onAuthStateChanged(auth, (fbUser) => {
+      // If we are in backdoor mode, don't let Firebase Auth reset the user to null
+      if (isBackdoor && !fbUser) {
+        return;
+      }
+      
+      setUser(fbUser);
+      if (fbUser) {
+        unsubscribeUser = subscribeToUserData(fbUser.uid);
       } else {
         if (unsubscribeUser) unsubscribeUser();
       }
@@ -48,7 +54,7 @@ export default function App() {
       case 'settings': return <SettingsView />;
       case 'premium': return <PremiumView />;
       case 'control': 
-        if ((user?.email === 'fufazada@gmail.com' && user?.displayName === 'Fuadgames') || userData?.role === 'admin') {
+        if (userData?.role === 'developer' || userData?.role === 'admin') {
           return <ControlView />;
         }
         return <StoreView />;

