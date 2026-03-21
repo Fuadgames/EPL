@@ -10,6 +10,8 @@ export default function PremiumView() {
   const setIsPremium = useStore(state => state.setIsPremium);
   const setTheme = useStore(state => state.setTheme);
   const setAiMode = useStore(state => state.setAiMode);
+  const computerStyle = useStore(state => state.computerStyle);
+  const setComputerStyle = useStore(state => state.setComputerStyle);
   const language = useStore(state => state.language);
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
@@ -98,27 +100,43 @@ export default function PremiumView() {
                 <li className="flex items-start gap-3">
                   <Star className="w-5 h-5 text-emerald-500 mt-1 shrink-0" />
                   <div>
-                    <span className="font-medium">{t.appLocking}</span>
-                    <p className="text-sm text-zinc-500 mt-1">{t.appLockingDesc}</p>
+                    <span className="font-medium">{language === 'ru' ? 'Компьютерный стиль' : 'Computer Style'}</span>
+                    <p className="text-sm text-zinc-500 mt-1">{language === 'ru' ? 'Включите компьютерный стиль для редактора' : 'Enable computer style for the editor'}</p>
                   </div>
                 </li>
               </ul>
             </div>
             
             <div className="pt-6 border-t border-emerald-500/20 flex flex-col sm:flex-row gap-6 justify-between items-start sm:items-end">
-              <div>
-                <h3 className="font-bold mb-4">{t.themeSettings}</h3>
-                <button
-                  onClick={() => setTheme(theme === 'gradient' ? 'dark' : 'gradient')}
-                  className={clsx(
-                    "px-4 py-2 rounded-xl font-medium transition-colors",
-                    theme === 'gradient' 
-                      ? "bg-zinc-800 text-white hover:bg-zinc-700" 
-                      : "bg-gradient-to-r from-emerald-500 to-cyan-500 text-white hover:opacity-90"
-                  )}
-                >
-                  {theme === 'gradient' ? t.disableGradient : t.enableGradient}
-                </button>
+              <div className="flex flex-col gap-4">
+                <div>
+                  <h3 className="font-bold mb-4">{t.themeSettings}</h3>
+                  <button
+                    onClick={() => setTheme(theme === 'gradient' ? 'dark' : 'gradient')}
+                    className={clsx(
+                      "px-4 py-2 rounded-xl font-medium transition-colors",
+                      theme === 'gradient' 
+                        ? "bg-zinc-800 text-white hover:bg-zinc-700" 
+                        : "bg-gradient-to-r from-emerald-500 to-cyan-500 text-white hover:opacity-90"
+                    )}
+                  >
+                    {theme === 'gradient' ? t.disableGradient : t.enableGradient}
+                  </button>
+                </div>
+                <div>
+                  <h3 className="font-bold mb-4">{language === 'ru' ? 'Стиль редактора' : 'Editor Style'}</h3>
+                  <button
+                    onClick={() => setComputerStyle(!computerStyle)}
+                    className={clsx(
+                      "px-4 py-2 rounded-xl font-medium transition-colors",
+                      computerStyle 
+                        ? "bg-zinc-800 text-white hover:bg-zinc-700" 
+                        : "bg-emerald-500 text-white hover:bg-emerald-600"
+                    )}
+                  >
+                    {computerStyle ? (language === 'ru' ? 'Выключить компьютерный стиль' : 'Disable Computer Style') : (language === 'ru' ? 'Включить компьютерный стиль' : 'Enable Computer Style')}
+                  </button>
+                </div>
               </div>
               
               <div>

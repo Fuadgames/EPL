@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { doc, getDoc, updateDoc, increment, setDoc, collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, increment, setDoc, collection, query, where, getDocs, deleteDoc, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useStore } from '../store/useStore';
-import { X, Star, Download, Play, Monitor, Smartphone, Apple, Terminal, ThumbsUp, ThumbsDown, User, Calendar, Tag } from 'lucide-react';
+import { X, Star, Download, Play, Monitor, Smartphone, Apple, Terminal, ThumbsUp, ThumbsDown, User, Calendar, Tag, CheckCircle, Coins, MessageSquare } from 'lucide-react';
 import { clsx } from 'clsx';
 import { AppData, UserVote } from '../types';
 
@@ -13,12 +13,18 @@ export default function AppDetailView() {
   const setPlayingAppId = useStore(state => state.setPlayingAppId);
   const setCurrentView = useStore(state => state.setCurrentView);
   const user = useStore(state => state.user);
+  const userData = useStore(state => state.userData);
+  const setUserData = useStore(state => state.setUserData);
   const setCopiedAppData = useStore(state => state.setCopiedAppData);
   const setEditingAppId = useStore(state => state.setEditingAppId);
+  const isPremium = useStore(state => state.isPremium);
   const [app, setApp] = useState<AppData | null>(null);
   const [loading, setLoading] = useState(true);
   const [userVote, setUserVote] = useState<'like' | 'dislike' | null>(null);
-  const [activeTab, setActiveTab] = useState<'description' | 'screenshots' | 'downloads' | 'events'>('description');
+  const [activeTab, setActiveTab] = useState<'description' | 'screenshots' | 'downloads' | 'events' | 'comments'>('description');
+  const [comments, setComments] = useState<any[]>([]);
+  const [newComment, setNewComment] = useState('');
+  const [buying, setBuying] = useState(false);
 
   useEffect(() => {
     const fetchApp = async () => {
@@ -38,6 +44,17 @@ export default function AppDetailView() {
             setUserVote(voteSnap.data().type);
           }
         }
+        
+        // Fetch comments
+        try {
+          const commentsQ = query(collection(db, 'comments'), where('appId', '==', selectedAppId), orderBy('createdAt', 'desc'));
+          const commentsSnap = await getDocs(commentsQ);
+          setComments(commentsSnap.docs.map(d => ({ id: d.id, ...d.data() })));
+        } catch (commentError) {
+          console.error("Error fetching comments", commentError);
+          setComments([]); // Fallback to empty comments if permission denied
+        }
+        
       } catch (error) {
         console.error("Error fetching app details", error);
       } finally {
@@ -115,7 +132,62 @@ export default function AppDetailView() {
     }
   };
 
+  const handleBuy = async () => {
+    if (!user || !userData || !app || !app.price) return;
+    if ((userData.eplCoins || 0) < app.price) {
+      alert("Not enough EPLCoins!");
+      return;
+    }
+    
+    setBuying(true);
+    try {
+      const newCoins = (userData.eplCoins || 0) - app.price;
+      const newPurchased = [...(userData.purchasedItems || []), app.id];
+      
+      await updateDoc(doc(db, 'users', user.uid), {
+        eplCoins: newCoins,
+        purchasedItems: newPurchased
+      });
+      
+      // Give coins to author
+      if (app.authorId) {
+        const authorRef = doc(db, 'users', app.authorId);
+        await updateDoc(authorRef, {
+          eplCoins: increment(app.price)
+        });
+      }
+      
+      setUserData({ ...userData, eplCoins: newCoins, purchasedItems: newPurchased });
+    } catch (error) {
+      console.error("Error buying app", error);
+    } finally {
+      setBuying(false);
+    }
+  };
+
+  const handleAddComment = async () => {
+    if (!user || !newComment.trim() || !app) return;
+    
+    try {
+      const commentData = {
+        appId: app.id,
+        userId: user.uid,
+        userName: user.displayName || 'Anonymous',
+        text: newComment.trim(),
+        createdAt: new Date().toISOString()
+      };
+      
+      const docRef = await addDoc(collection(db, 'comments'), commentData);
+      setComments([{ id: docRef.id, ...commentData }, ...comments]);
+      setNewComment('');
+    } catch (error) {
+      console.error("Error adding comment", error);
+    }
+  };
+
   if (!selectedAppId) return null;
+
+  const isPurchased = !app?.price || (userData?.purchasedItems || []).includes(app?.id || '') || app?.authorId === user?.uid || isPremium;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 sm:p-8">
@@ -163,7 +235,14 @@ export default function AppDetailView() {
             <div className="p-6 sm:p-10">
               <div className="flex flex-col sm:flex-row justify-between items-start gap-6 mb-8">
                 <div className="flex-1">
-                  <h1 className="text-4xl font-bold mb-2">{app.title}</h1>
+                  <h1 className="text-4xl font-bold mb-2 flex items-center gap-3">
+                    {app.title}
+                    {app.status === 'verified' && (
+                      <span className="flex items-center gap-1 text-sm bg-emerald-500/10 text-emerald-500 px-2 py-1 rounded-full">
+                        <CheckCircle className="w-4 h-4" /> Verified
+                      </span>
+                    )}
+                  </h1>
                   <div className="flex flex-wrap items-center gap-4 text-sm text-zinc-400">
                     <span className="flex items-center gap-1.5"><User className="w-4 h-4" /> {app.authorName}</span>
                     <span className="flex items-center gap-1.5"><Tag className="w-4 h-4" /> {app.category}</span>
@@ -211,13 +290,13 @@ export default function AppDetailView() {
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
                 <div className="lg:col-span-2 space-y-8">
-                  <div className="flex items-center gap-6 border-b border-zinc-800/50 mb-6">
-                    {(['description', 'screenshots', 'downloads', 'events'] as const).map((tab) => (
+                  <div className="flex items-center gap-6 border-b border-zinc-800/50 mb-6 overflow-x-auto custom-scrollbar pb-2">
+                    {(['description', 'screenshots', 'downloads', 'events', 'comments'] as const).map((tab) => (
                       <button
                         key={tab}
                         onClick={() => setActiveTab(tab)}
                         className={clsx(
-                          "pb-4 text-sm font-medium transition-all relative",
+                          "pb-4 text-sm font-medium transition-all relative whitespace-nowrap",
                           activeTab === tab ? "text-emerald-500" : "text-zinc-500 hover:text-zinc-300"
                         )}
                       >
@@ -351,6 +430,58 @@ export default function AppDetailView() {
                     </section>
                   )}
 
+                  {activeTab === 'comments' && (
+                    <section className="space-y-6">
+                      <h2 className="text-xl font-semibold flex items-center gap-2">
+                        <MessageSquare className="w-5 h-5" /> Comments
+                      </h2>
+                      
+                      {user ? (
+                        <div className="flex gap-4">
+                          <input
+                            type="text"
+                            value={newComment}
+                            onChange={(e) => setNewComment(e.target.value)}
+                            placeholder="Write a comment..."
+                            className={clsx(
+                              "flex-1 px-4 py-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500",
+                              theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
+                            )}
+                            onKeyDown={(e) => e.key === 'Enter' && handleAddComment()}
+                          />
+                          <button
+                            onClick={handleAddComment}
+                            disabled={!newComment.trim()}
+                            className="px-6 py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-xl font-medium transition-colors"
+                          >
+                            Post
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="p-4 rounded-xl bg-zinc-900/50 border border-zinc-800 text-center text-zinc-500">
+                          Please sign in to comment.
+                        </div>
+                      )}
+
+                      <div className="space-y-4">
+                        {comments.length > 0 ? comments.map(comment => (
+                          <div key={comment.id} className={clsx(
+                            "p-4 rounded-xl border",
+                            theme !== 'light' ? 'bg-zinc-900/30 border-zinc-800' : 'bg-white border-zinc-200'
+                          )}>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-bold text-sm">{comment.userName}</span>
+                              <span className="text-xs text-zinc-500">{new Date(comment.createdAt).toLocaleDateString()}</span>
+                            </div>
+                            <p className="text-sm text-zinc-300">{comment.text}</p>
+                          </div>
+                        )) : (
+                          <div className="text-center text-zinc-500 py-8">No comments yet. Be the first!</div>
+                        )}
+                      </div>
+                    </section>
+                  )}
+
                   <section className="p-6 rounded-2xl bg-zinc-900/30 border border-zinc-800/50">
                     <h3 className="text-sm font-medium uppercase tracking-wider text-zinc-500 mb-4">Stats</h3>
                     <div className="grid grid-cols-3 gap-4">
@@ -373,13 +504,23 @@ export default function AppDetailView() {
                 </div>
 
                 <div className="space-y-6">
-                  <button 
-                    onClick={handlePlay}
-                    className="w-full flex items-center justify-center gap-3 py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl text-lg font-bold shadow-xl shadow-emerald-500/20 transition-all active:scale-[0.98]"
-                  >
-                    <Play className="w-6 h-6 fill-current" /> Play Now
-                  </button>
-                  {app.allowCopy !== false && (
+                  {!isPurchased ? (
+                    <button 
+                      onClick={handleBuy}
+                      disabled={buying}
+                      className="w-full flex items-center justify-center gap-3 py-4 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-2xl text-lg font-bold shadow-xl shadow-emerald-500/20 transition-all active:scale-[0.98]"
+                    >
+                      <Coins className="w-6 h-6" /> Buy for {app.price} Coins
+                    </button>
+                  ) : (
+                    <button 
+                      onClick={handlePlay}
+                      className="w-full flex items-center justify-center gap-3 py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl text-lg font-bold shadow-xl shadow-emerald-500/20 transition-all active:scale-[0.98]"
+                    >
+                      <Play className="w-6 h-6 fill-current" /> Play Now
+                    </button>
+                  )}
+                  {app.allowCopy !== false && isPurchased && (
                     <button 
                       onClick={handleCopy}
                       className="w-full flex items-center justify-center gap-3 py-4 bg-zinc-800 hover:bg-zinc-700 text-white rounded-2xl text-lg font-bold shadow-xl transition-all active:scale-[0.98]"

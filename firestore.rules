@@ -36,9 +36,25 @@ service cloud.firestore {
       return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
     }
     
+    function getUserRole() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid)) ? 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'none') : 'none';
+    }
+
     function isAdmin() {
       return isAuthenticated() && (
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+        getUserRole() == 'admin' ||
+        (request.auth.token.email == "fufazada@gmail.com" && request.auth.token.email_verified == true)
+      );
+    }
+    
+    function isModerator() {
+      return isAuthenticated() && getUserRole() in ['admin', 'moderator'];
+    }
+    
+    function isDeveloper() {
+      return isAuthenticated() && (
+        getUserRole() in ['admin', 'developer'] ||
         (request.auth.token.email == "fufazada@gmail.com" && request.auth.token.email_verified == true)
       );
     }
@@ -47,18 +63,20 @@ service cloud.firestore {
     // Domain Validators
     // ===============================================================
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'name', 'email', 'photoUrl', 'role', 'createdAt']) &&
-             data.uid is string && data.uid.size() > 0 && data.uid.size() < 128 &&
-             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
-             data.email is string && isValidEmail(data.email) &&
+      return hasOnlyAllowedFields(['uid', 'name', 'email', 'photoUrl', 'role', 'eplCoins', 'purchasedItems', 'createdAt']) &&
+             (!('uid' in data) || (data.uid is string && data.uid.size() > 0 && data.uid.size() < 128)) &&
+             (!('name' in data) || (data.name is string && data.name.size() > 0 && data.name.size() < 100)) &&
+             (!('email' in data) || (data.email is string && isValidEmail(data.email))) &&
              (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() < 1000)) &&
-             data.role in ['user', 'admin'] &&
-             data.createdAt is string;
+             data.role in ['user', 'admin', 'moderator', 'developer'] &&
+             (!('eplCoins' in data) || (data.eplCoins is number && data.eplCoins >= 0)) &&
+             (!('purchasedItems' in data) || (data.purchasedItems is list && data.purchasedItems.size() <= 1000)) &&
+             (!('createdAt' in data) || data.createdAt is string);
     }
     
     function isValidApp(data) {
-      return hasOnlyAllowedFields(['id', 'title', 'description', 'code', 'version', 'category', 'supportedPlatforms', 'windowsUrl', 'macosUrl', 'linuxUrl', 'apkUrl', 'authorId', 'authorName', 'iconUrl', 'screenshotUrl', 'bannerUrl', 'downloads', 'likes', 'dislikes', 'rating', 'createdAt', 'updatedAt', 'isAiGenerated', 'isPrivate', 'isLocked', 'unlockCode', 'allowCopy', 'originalAppId', 'originalAppName', 'events']) &&
-             hasRequiredFields(['id', 'title', 'description', 'code', 'version', 'category', 'authorId', 'authorName', 'downloads', 'likes', 'dislikes', 'rating', 'updatedAt']) &&
+      return hasOnlyAllowedFields(['id', 'title', 'description', 'code', 'version', 'category', 'supportedPlatforms', 'windowsUrl', 'macosUrl', 'linuxUrl', 'apkUrl', 'authorId', 'authorName', 'downloads', 'likes', 'dislikes', 'rating', 'isVerified', 'comments', 'createdAt', 'updatedAt']) &&
+             hasRequiredFields(['id', 'title', 'description', 'code', 'version', 'category', 'authorId', 'authorName', 'downloads', 'likes', 'dislikes', 'rating', 'isVerified', 'createdAt', 'updatedAt']) &&
              data.id is string && data.id.size() > 0 && data.id.size() < 128 &&
              data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
              data.description is string && data.description.size() < 2000 &&
@@ -70,42 +88,40 @@ service cloud.firestore {
              (!('macosUrl' in data) || (data.macosUrl is string && data.macosUrl.size() < 1000)) &&
              (!('linuxUrl' in data) || (data.linuxUrl is string && data.linuxUrl.size() < 1000)) &&
              (!('apkUrl' in data) || (data.apkUrl is string && data.apkUrl.size() < 1000)) &&
-             (!('iconUrl' in data) || (data.iconUrl is string && data.iconUrl.size() < 2000)) &&
-             (!('screenshotUrl' in data) || (data.screenshotUrl is string && data.screenshotUrl.size() < 2000)) &&
-             (!('bannerUrl' in data) || (data.bannerUrl is string && data.bannerUrl.size() < 2000)) &&
              data.authorId is string && data.authorId.size() > 0 && data.authorId.size() < 128 &&
              data.authorName is string && data.authorName.size() > 0 && data.authorName.size() < 100 &&
              data.downloads is number && data.downloads >= 0 &&
              data.likes is number && data.likes >= 0 &&
              data.dislikes is number && data.dislikes >= 0 &&
              data.rating is number && data.rating >= 0 && data.rating <= 5 &&
-             (!('createdAt' in data) || data.createdAt is string) &&
-             data.updatedAt is string &&
-             (!('isAiGenerated' in data) || data.isAiGenerated is bool) &&
-             (!('isPrivate' in data) || data.isPrivate is bool) &&
-             (!('isLocked' in data) || data.isLocked is bool) &&
-             (!('unlockCode' in data) || data.unlockCode is string) &&
-             (!('allowCopy' in data) || data.allowCopy is bool) &&
-             (!('originalAppId' in data) || (data.originalAppId is string || data.originalAppId == null)) &&
-             (!('originalAppName' in data) || (data.originalAppName is string || data.originalAppName == null)) &&
-             (!('events' in data) || (data.events is list && data.events.size() <= 20));
+             data.isVerified is bool &&
+             (!('comments' in data) || (data.comments is list && data.comments.size() <= 1000)) &&
+             data.createdAt is string &&
+             data.updatedAt is string;
     }
     
+    function isValidComment(data) {
+      return hasOnlyAllowedFields(['appId', 'userId', 'userName', 'text', 'createdAt']) &&
+             data.appId is string && data.appId.size() > 0 &&
+             data.userId is string && data.userId.size() > 0 &&
+             data.userName is string && data.userName.size() > 0 &&
+             data.text is string && data.text.size() > 0 && data.text.size() < 1000 &&
+             data.createdAt is string;
+    }
+
     function isValidVote(data) {
       return hasOnlyAllowedFields(['userId', 'appId', 'type']) &&
-             data.userId is string && data.userId == request.auth.uid &&
+             data.userId is string && data.userId.size() > 0 &&
              data.appId is string && data.appId.size() > 0 &&
              data.type in ['like', 'dislike'];
     }
-    
+
     function isValidReview(data) {
-      return hasOnlyAllowedFields(['id', 'appId', 'userId', 'userName', 'rating', 'comment', 'createdAt']) &&
-             data.id is string && data.id.size() > 0 && data.id.size() < 128 &&
-             data.appId is string && data.appId.size() > 0 && data.appId.size() < 128 &&
-             data.userId is string && data.userId.size() > 0 && data.userId.size() < 128 &&
-             data.userName is string && data.userName.size() > 0 && data.userName.size() < 100 &&
+      return hasOnlyAllowedFields(['userId', 'appId', 'rating', 'text', 'createdAt']) &&
+             data.userId is string && data.userId.size() > 0 &&
+             data.appId is string && data.appId.size() > 0 &&
              data.rating is number && data.rating >= 1 && data.rating <= 5 &&
-             data.comment is string && data.comment.size() < 1000 &&
+             data.text is string && data.text.size() < 2000 &&
              data.createdAt is string;
     }
 
@@ -113,53 +129,64 @@ service cloud.firestore {
     // Collections
     // ===============================================================
     match /users/{userId} {
-      allow read: if isAuthenticated();
+      allow read: if isOwner(userId) || isAdmin() || isDeveloper();
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && (
-        (isOwner(userId) && request.resource.data.role == 'user' && uidUnchanged()) || isAdmin()
+        (isOwner(userId) && request.resource.data.role == 'user' && request.resource.data.eplCoins == 0 && request.resource.data.purchasedItems.size() == 0) || isAdmin() || isDeveloper()
       );
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && (
-        (isOwner(userId) && request.resource.data.role == resource.data.role && uidNotModified()) || isAdmin()
+        (isOwner(userId) && request.resource.data.role == resource.data.get('role', 'user') && (
+          (request.resource.data.get('eplCoins', 0) == resource.data.get('eplCoins', 0) && request.resource.data.get('purchasedItems', []) == resource.data.get('purchasedItems', [])) ||
+          (request.resource.data.get('eplCoins', 0) <= resource.data.get('eplCoins', 0) && request.resource.data.get('purchasedItems', []).size() >= resource.data.get('purchasedItems', []).size())
+        )) || 
+        (isDeveloper() && request.resource.data.diff(resource.data).affectedKeys().hasAny(['eplCoins'])) ||
+        isAdmin()
       );
-      allow delete: if isAdmin();
+      allow delete: if isAdmin() || isDeveloper();
     }
     
     match /apps/{appId} {
-      allow read: if true; // Publicly readable
+      allow read: if true;
       allow create: if isAuthenticated() && isValidApp(request.resource.data) && request.resource.data.authorId == request.auth.uid;
       allow update: if isAuthenticated() && (
-        // Author can update their app
         (request.auth.uid == resource.data.authorId && isValidApp(request.resource.data) &&
          request.resource.data.authorId == resource.data.authorId &&
-         (!('createdAt' in resource.data) || request.resource.data.createdAt == resource.data.createdAt) &&
+         request.resource.data.createdAt == resource.data.createdAt &&
          request.resource.data.downloads == resource.data.downloads &&
          request.resource.data.likes == resource.data.likes &&
          request.resource.data.dislikes == resource.data.dislikes &&
          request.resource.data.rating == resource.data.rating) ||
-        // Anyone can increment downloads
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['downloads']) &&
          request.resource.data.downloads == resource.data.downloads + 1) ||
-        // Anyone can update likes/dislikes/rating
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'dislikes', 'rating']) &&
          request.resource.data.likes is number && request.resource.data.likes >= 0 &&
          request.resource.data.dislikes is number && request.resource.data.dislikes >= 0 &&
          request.resource.data.rating is number && request.resource.data.rating >= 0 && request.resource.data.rating <= 5) ||
-        isAdmin()
+        (isModerator() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) && request.resource.data.status == 'pending') ||
+        (isDeveloper() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) && request.resource.data.status == 'verified') ||
+        isAdmin() || isDeveloper()
       );
-      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorId || isAdmin());
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorId || isAdmin() || isDeveloper());
     }
     
     match /votes/{voteId} {
       allow read: if true;
       allow create: if isAuthenticated() && isValidVote(request.resource.data) && voteId == request.auth.uid + "_" + request.resource.data.appId;
       allow update: if isAuthenticated() && isValidVote(request.resource.data) && request.auth.uid == resource.data.userId && voteId == request.auth.uid + "_" + request.resource.data.appId;
-      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin() || isDeveloper());
     }
     
     match /reviews/{reviewId} {
       allow read: if true; // Publicly readable
       allow create: if isAuthenticated() && isValidReview(request.resource.data) && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && isValidReview(request.resource.data) && request.auth.uid == resource.data.userId && request.resource.data.userId == resource.data.userId;
-      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin());
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin() || isDeveloper());
+    }
+
+    match /comments/{commentId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidComment(request.resource.data) && request.resource.data.userId == request.auth.uid;
+      allow update: if isAuthenticated() && isValidComment(request.resource.data) && request.auth.uid == resource.data.userId;
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin() || isDeveloper());
     }
   }
 }

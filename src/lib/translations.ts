@@ -44,9 +44,11 @@ export const translations = {
     publishing: 'Publishing...',
     saveSuccess: 'App saved locally to your account!',
     publishSuccess: 'App published successfully!',
-    uploadSuccess: 'Image uploaded!',
-    uploadFailed: 'Failed to upload image.',
-    copyUrl: 'Copy this URL to use in your EPL code:',
+    uploadSuccess: 'File uploaded!',
+    uploadFailed: 'Failed to upload file.',
+    copyUrl: 'Copy this URL or use the file name in your EPL code:',
+    fileControl: 'File Control',
+    fileControlDesc: 'Manage your uploaded assets. You can use the file name directly in your code (e.g., image=my_file.png) or copy the full URL.',
     auth: {
       signIn: 'Sign In',
       signUp: 'Sign Up',
@@ -149,9 +151,11 @@ export const translations = {
     publishing: 'Публикация...',
     saveSuccess: 'Приложение сохранено локально в вашем аккаунте!',
     publishSuccess: 'Приложение успешно опубликовано!',
-    uploadSuccess: 'Изображение загружено!',
-    uploadFailed: 'Не удалось загрузить изображение.',
-    copyUrl: 'Скопируйте этот URL для использования в коде EPL:',
+    uploadSuccess: 'Файл загружен!',
+    uploadFailed: 'Не удалось загрузить файл.',
+    copyUrl: 'Скопируйте этот URL или используйте имя файла в коде EPL:',
+    fileControl: 'Управление файлами',
+    fileControlDesc: 'Управляйте загруженными ресурсами. Вы можете использовать имя файла прямо в коде (например, image=my_file.png) или скопировать полный URL.',
     auth: {
       signIn: 'Войти',
       signUp: 'Регистрация',
@@ -858,6 +862,171 @@ export const tutorialContent = {
           task: "Upload any file via the 'Upload File' button, open 'Image Control', and copy the URL of the uploaded file."
         }
       ]
+    },
+    {
+      title: "Level 28: Draggable Objects",
+      difficulty: "intermediate",
+      steps: [
+        {
+          type: 'info',
+          title: "Interactivity",
+          content: "You can make any entity draggable by the user's cursor."
+        },
+        {
+          type: 'how-to',
+          title: "Using Draggable",
+          content: "Use the 'draggable' action and specify the target entity.",
+          example: "started?\n  draggable{target=Player}\nend"
+        },
+        {
+          type: 'challenge',
+          title: "Level 28 Challenge",
+          content: "Make it move!",
+          task: "Make the entity named 'Box' draggable."
+        }
+      ]
+    },
+    {
+      title: "Level 29: Keyboard Input",
+      difficulty: "intermediate",
+      steps: [
+        {
+          type: 'info',
+          title: "Key Events",
+          content: "Listen for specific keyboard keys to trigger actions."
+        },
+        {
+          type: 'how-to',
+          title: "Using Key Pressed",
+          content: "Use the 'key_pressed?' event with a key name (e.g., 'Space', 'Enter', 'ArrowUp').",
+          example: "key_pressed?{key=\"Space\"}\n  type{text=\"Jump!\"}\nend"
+        },
+        {
+          type: 'challenge',
+          title: "Level 29 Challenge",
+          content: "Respond to the keyboard.",
+          task: "Print 'Action!' when the 'Enter' key is pressed."
+        }
+      ]
+    },
+    {
+      title: "Level 30: Advanced Controls",
+      difficulty: "advanced",
+      steps: [
+        {
+          type: 'info',
+          title: "WASD Controls Entity",
+          content: "Instead of manual movement, you can create a 'wasd_controls' entity to handle movement automatically."
+        },
+        {
+          type: 'how-to',
+          title: "Using WASD Controls",
+          content: "Create the entity and link it to a target.",
+          example: "started?\n  create wasd_controls{target=Hero, step=10}\nend"
+        },
+        {
+          type: 'challenge',
+          title: "Level 30 Challenge",
+          content: "Enable movement.",
+          task: "Create a wasd_controls entity targeting 'Player' with a step of 5."
+        }
+      ]
+    },
+    {
+      title: "Level 31: Terminal Component",
+      difficulty: "intermediate",
+      steps: [
+        {
+          type: 'info',
+          title: "The Terminal",
+          content: "The 'terminal' entity is a UI component that can display text logs or receive input."
+        },
+        {
+          type: 'how-to',
+          title: "Creating a Terminal",
+          content: "Set its position and size.",
+          example: "started?\n  create terminal{name=Log, x=0, y=0, width=300, height=150}\nend"
+        },
+        {
+          type: 'challenge',
+          title: "Level 31 Challenge",
+          content: "Add a log.",
+          task: "Create a terminal named 'SystemLog' at x=10, y=10."
+        }
+      ]
+    },
+    {
+      title: "Level 32: Wait & Stop",
+      difficulty: "advanced",
+      steps: [
+        {
+          type: 'info',
+          title: "Timing & Control",
+          content: "You can pause execution with 'wait' or stop it entirely with 'stop'."
+        },
+        {
+          type: 'how-to',
+          title: "Using Wait and Stop",
+          content: "Specify seconds for wait.",
+          example: "clicked?{target=Btn}\n  type{text=\"Wait...\"}\n  wait{seconds=2}\n  type{text=\"Done!\"}\n  stop\nend"
+        },
+        {
+          type: 'challenge',
+          title: "Level 32 Challenge",
+          content: "Control the flow.",
+          task: "Wait 1 second and then stop the script."
+        }
+      ]
+    },
+    {
+      title: "Level 33: Visibility",
+      difficulty: "beginner",
+      steps: [
+        {
+          type: 'info',
+          title: "Hide and Show",
+          content: "Dynamically change whether an entity is visible on the screen."
+        },
+        {
+          type: 'how-to',
+          title: "Using Hide/Show",
+          content: "Target an entity to change its visibility.",
+          example: "clicked?{target=HideBtn}\n  hide{target=Box}\nend"
+        },
+        {
+          type: 'challenge',
+          title: "Level 33 Challenge",
+          content: "Make it disappear.",
+          task: "Hide the 'Player' entity when a button named 'Vanish' is clicked."
+        }
+      ]
+    },
+    {
+      title: "Level 34: Platform Features",
+      difficulty: "beginner",
+      steps: [
+        {
+          type: 'info',
+          title: "EPLCoins",
+          content: "EPLCoins are the platform's currency. You can see your balance in the sidebar and profile."
+        },
+        {
+          type: 'info',
+          title: "User Profile",
+          content: "The Profile view lets you manage your role, see your coins, and track your progress."
+        },
+        {
+          type: 'info',
+          title: "Developer Panel",
+          content: "Admins have access to the Developer Panel to manage users, verify apps, and distribute coins."
+        },
+        {
+          type: 'challenge',
+          title: "Level 34 Challenge",
+          content: "Explore the platform.",
+          task: "Open your Profile and check your current EPLCoins balance."
+        }
+      ]
     }
   ],
   ru: [
@@ -1506,6 +1675,171 @@ export const tutorialContent = {
           title: "Задание 27 уровня",
           content: "Попробуйте загрузить файл и скопировать его URL.",
           task: "Загрузите любой файл через кнопку 'Загрузить файл', откройте 'Image Control' и скопируйте URL загруженного файла."
+        }
+      ]
+    },
+    {
+      title: "Уровень 28: Перетаскиваемые объекты",
+      difficulty: "intermediate",
+      steps: [
+        {
+          type: 'info',
+          title: "Интерактивность",
+          content: "Вы можете сделать любую сущность перетаскиваемой с помощью курсора пользователя."
+        },
+        {
+          type: 'how-to',
+          title: "Использование Draggable",
+          content: "Используйте действие 'draggable' и укажите целевую сущность.",
+          example: "started?\n  draggable{target=Player}\nend"
+        },
+        {
+          type: 'challenge',
+          title: "Задание 28 уровня",
+          content: "Заставьте это двигаться!",
+          task: "Сделайте сущность с именем 'Box' перетаскиваемой."
+        }
+      ]
+    },
+    {
+      title: "Уровень 29: Клавиатурный ввод",
+      difficulty: "intermediate",
+      steps: [
+        {
+          type: 'info',
+          title: "События клавиш",
+          content: "Слушайте нажатия определенных клавиш на клавиатуре для запуска действий."
+        },
+        {
+          type: 'how-to',
+          title: "Использование Key Pressed",
+          content: "Используйте событие 'key_pressed?' с именем клавиши (например, 'Space', 'Enter', 'ArrowUp').",
+          example: "key_pressed?{key=\"Space\"}\n  type{text=\"Прыжок!\"}\nend"
+        },
+        {
+          type: 'challenge',
+          title: "Задание 29 уровня",
+          content: "Ответьте клавиатуре.",
+          task: "Выведите 'Действие!', когда нажата клавиша 'Enter'."
+        }
+      ]
+    },
+    {
+      title: "Уровень 30: Продвинутое управление",
+      difficulty: "advanced",
+      steps: [
+        {
+          type: 'info',
+          title: "Сущность WASD Controls",
+          content: "Вместо ручного перемещения вы можете создать сущность 'wasd_controls' для автоматической обработки движения."
+        },
+        {
+          type: 'how-to',
+          title: "Использование WASD Controls",
+          content: "Создайте сущность и свяжите ее с целью.",
+          example: "started?\n  create wasd_controls{target=Hero, step=10}\nend"
+        },
+        {
+          type: 'challenge',
+          title: "Задание 30 уровня",
+          content: "Включите движение.",
+          task: "Создайте сущность wasd_controls для 'Player' с шагом 5."
+        }
+      ]
+    },
+    {
+      title: "Уровень 31: Терминал",
+      difficulty: "intermediate",
+      steps: [
+        {
+          type: 'info',
+          title: "Терминал",
+          content: "Сущность 'terminal' — это компонент интерфейса, который может отображать текстовые логи или принимать ввод."
+        },
+        {
+          type: 'how-to',
+          title: "Создание терминала",
+          content: "Установите его положение и размер.",
+          example: "started?\n  create terminal{name=Log, x=0, y=0, width=300, height=150}\nend"
+        },
+        {
+          type: 'challenge',
+          title: "Задание 31 уровня",
+          content: "Добавьте лог.",
+          task: "Создайте терминал с именем 'SystemLog' в x=10, y=10."
+        }
+      ]
+    },
+    {
+      title: "Уровень 32: Ожидание и Остановка",
+      difficulty: "advanced",
+      steps: [
+        {
+          type: 'info',
+          title: "Время и Управление",
+          content: "Вы можете приостановить выполнение с помощью 'wait' или полностью остановить его с помощью 'stop'."
+        },
+        {
+          type: 'how-to',
+          title: "Использование Wait и Stop",
+          content: "Укажите секунды для ожидания.",
+          example: "clicked?{target=Btn}\n  type{text=\"Ждите...\"}\n  wait{seconds=2}\n  type{text=\"Готово!\"}\n  stop\nend"
+        },
+        {
+          type: 'challenge',
+          title: "Задание 32 уровня",
+          content: "Управляйте потоком.",
+          task: "Подождите 1 секунду, а затем остановите скрипт."
+        }
+      ]
+    },
+    {
+      title: "Уровень 33: Видимость",
+      difficulty: "beginner",
+      steps: [
+        {
+          type: 'info',
+          title: "Скрыть и Показать",
+          content: "Динамически изменяйте видимость сущности на экране."
+        },
+        {
+          type: 'how-to',
+          title: "Использование Hide/Show",
+          content: "Выберите сущность, чтобы изменить ее видимость.",
+          example: "clicked?{target=HideBtn}\n  hide{target=Box}\nend"
+        },
+        {
+          type: 'challenge',
+          title: "Задание 33 уровня",
+          content: "Заставьте это исчезнуть.",
+          task: "Скройте сущность 'Player', когда нажата кнопка с именем 'Vanish'."
+        }
+      ]
+    },
+    {
+      title: "Уровень 34: Особенности платформы",
+      difficulty: "beginner",
+      steps: [
+        {
+          type: 'info',
+          title: "EPLCoins",
+          content: "EPLCoins — это валюта платформы. Вы можете видеть свой баланс в боковой панели и профиле."
+        },
+        {
+          type: 'info',
+          title: "Профиль пользователя",
+          content: "Профиль позволяет управлять вашей ролью, видеть монеты и отслеживать прогресс."
+        },
+        {
+          type: 'info',
+          title: "Панель разработчика",
+          content: "Админы имеют доступ к панели разработчика для управления пользователями, проверки приложений и выдачи монет."
+        },
+        {
+          type: 'challenge',
+          title: "Задание 34 уровня",
+          content: "Исследуйте платформу.",
+          task: "Откройте свой профиль и проверьте текущий баланс EPLCoins."
         }
       ]
     }

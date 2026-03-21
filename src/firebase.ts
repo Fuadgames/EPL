@@ -9,7 +9,7 @@ import {
   sendPasswordResetEmail,
   updateProfile
 } from 'firebase/auth';
-import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, deleteDoc, getDocs, query, where, orderBy, onSnapshot, serverTimestamp, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, collection, doc, getDoc, setDoc, updateDoc, deleteDoc, getDocs, query, where, orderBy, onSnapshot, serverTimestamp, getDocFromServer, increment } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -81,6 +81,32 @@ async function testConnection() {
 }
 testConnection();
 
+import { useStore, UserData } from './store/useStore';
+
+// ... (rest of imports) ...
+
+export const subscribeToUserData = (uid: string) => {
+  const userRef = doc(db, 'users', uid);
+  return onSnapshot(userRef, async (userSnap) => {
+    if (userSnap.exists()) {
+      const data = userSnap.data();
+      let userData = data as UserData;
+      
+      const userEmail = data.email || auth.currentUser?.email;
+      
+      // Enforce developer role for fufazada@gmail.com with specific name
+      if (userEmail === 'fufazada@gmail.com' && (data.name === 'Fuadgames' || auth.currentUser?.displayName === 'Fuadgames') && data.role !== 'developer') {
+        await updateDoc(userRef, { role: 'developer', email: 'fufazada@gmail.com' });
+        userData = { ...userData, role: 'developer' };
+      }
+      
+      useStore.getState().setUserData(userData);
+    }
+  }, (error) => {
+    handleFirestoreError(error, OperationType.GET, `users/${uid}`);
+  });
+};
+
 export const googleProvider = new GoogleAuthProvider();
 
 export const signInWithGoogle = async () => {
@@ -99,18 +125,29 @@ export const signInWithGoogle = async () => {
     
     if (!userSnap?.exists()) {
       try {
+        const isDeveloper = user.email === 'fufazada@gmail.com' && user.displayName === 'Fuadgames';
         await setDoc(userRef, {
           uid: user.uid,
           name: user.displayName || 'Anonymous',
           email: user.email || '',
           photoUrl: user.photoURL || '',
-          role: 'user',
+          role: isDeveloper ? 'developer' : 'user',
+          eplCoins: 0,
+          purchasedItems: [],
+          uploadedFiles: [],
           createdAt: new Date().toISOString()
         });
       } catch (error) {
         handleFirestoreError(error, OperationType.CREATE, `users/${user.uid}`);
       }
+    } else {
+      // If user exists but is fufazada@gmail.com with correct name and not developer, update it
+      const data = userSnap.data();
+      if (user.email === 'fufazada@gmail.com' && user.displayName === 'Fuadgames' && data.role !== 'developer') {
+        await updateDoc(userRef, { role: 'developer' });
+      }
     }
+    
     return { user, error: null };
   } catch (error: any) {
     console.error("Error signing in with Google", error);
@@ -127,12 +164,16 @@ export const signUpWithEmail = async (email: string, pass: string, name: string)
     
     const userRef = doc(db, 'users', user.uid);
     try {
+      const isDeveloper = email === 'fufazada@gmail.com' && name === 'Fuadgames';
       await setDoc(userRef, {
         uid: user.uid,
         name: name,
         email: email,
         photoUrl: '',
-        role: 'user',
+        role: isDeveloper ? 'developer' : 'user',
+        eplCoins: 0,
+        purchasedItems: [],
+        uploadedFiles: [],
         createdAt: new Date().toISOString()
       });
     } catch (error) {
@@ -169,7 +210,43 @@ export const resetPassword = async (email: string) => {
 export const logOut = async () => {
   try {
     await signOut(auth);
+    useStore.getState().setUserData(null);
   } catch (error) {
     console.error("Error signing out", error);
+  }
+};
+
+export const giveCoins = async (targetUserId: string, amount: number) => {
+  try {
+    const userRef = doc(db, 'users', targetUserId);
+    await updateDoc(userRef, { 
+      eplCoins: increment(amount) 
+    });
+    return { error: null };
+  } catch (error: any) {
+    console.error("Error giving coins", error);
+    return { error };
+  }
+};
+
+export const sendProjectToVerify = async (projectId: string) => {
+  try {
+    const appRef = doc(db, 'apps', projectId);
+    await updateDoc(appRef, { status: 'pending' });
+    return { error: null };
+  } catch (error: any) {
+    console.error("Error sending project to verify", error);
+    return { error };
+  }
+};
+
+export const verifyProject = async (projectId: string) => {
+  try {
+    const appRef = doc(db, 'apps', projectId);
+    await updateDoc(appRef, { status: 'verified' });
+    return { error: null };
+  } catch (error: any) {
+    console.error("Error verifying project", error);
+    return { error };
   }
 };

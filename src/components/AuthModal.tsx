@@ -25,6 +25,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("handleSubmit called", { isLogin, isReset, email });
     setLoading(true);
     setError(null);
     setMessage(null);
@@ -47,37 +48,36 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       console.error("Auth error:", err);
       let errorMessage = err.message;
       
-      if (language === 'ru') {
-        switch (err.code) {
-          case 'auth/email-already-in-use':
-            errorMessage = 'Этот email уже используется.';
-            break;
-          case 'auth/invalid-email':
-            errorMessage = 'Некорректный email.';
-            break;
-          case 'auth/operation-not-allowed':
-            errorMessage = 'Вход через email/пароль не включен в консоли Firebase.';
-            break;
-          case 'auth/weak-password':
-            errorMessage = 'Слишком слабый пароль.';
-            break;
-          case 'auth/user-disabled':
-            errorMessage = 'Пользователь заблокирован.';
-            break;
-          case 'auth/user-not-found':
-            errorMessage = 'Пользователь не найден.';
-            break;
-          case 'auth/wrong-password':
-            errorMessage = 'Неверный пароль.';
-            break;
-          case 'auth/popup-blocked':
-            errorMessage = 'Всплывающее окно заблокировано браузером.';
-            break;
-          case 'auth/network-request-failed':
-            errorMessage = 'Ошибка сети. Проверьте подключение.';
-            break;
-        }
+      switch (err.code) {
+        case 'auth/email-already-in-use':
+          errorMessage = language === 'ru' ? 'Этот email уже используется.' : 'This email is already in use.';
+          break;
+        case 'auth/invalid-email':
+          errorMessage = language === 'ru' ? 'Некорректный email.' : 'Invalid email address.';
+          break;
+        case 'auth/operation-not-allowed':
+          errorMessage = language === 'ru' ? 'Вход через email/пароль не включен в консоли Firebase.' : 'Email/password sign-in is not enabled.';
+          break;
+        case 'auth/weak-password':
+          errorMessage = language === 'ru' ? 'Слишком слабый пароль.' : 'Password is too weak.';
+          break;
+        case 'auth/user-disabled':
+          errorMessage = language === 'ru' ? 'Пользователь заблокирован.' : 'User account has been disabled.';
+          break;
+        case 'auth/user-not-found':
+          errorMessage = language === 'ru' ? 'Пользователь не найден.' : 'User not found.';
+          break;
+        case 'auth/wrong-password':
+          errorMessage = language === 'ru' ? 'Неверный пароль.' : 'Incorrect password.';
+          break;
+        case 'auth/popup-blocked':
+          errorMessage = language === 'ru' ? 'Всплывающее окно заблокировано браузером.' : 'Popup was blocked by the browser.';
+          break;
+        case 'auth/network-request-failed':
+          errorMessage = language === 'ru' ? 'Ошибка сети. Проверьте подключение.' : 'Network error. Check your connection.';
+          break;
       }
+      
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -85,6 +85,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
   };
 
   const handleGoogleSignIn = async () => {
+    console.log("handleGoogleSignIn called");
     setLoading(true);
     setError(null);
     try {
@@ -94,8 +95,10 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     } catch (err: any) {
       console.error("Google Auth error:", err);
       let errorMessage = err.message;
-      if (language === 'ru' && err.code === 'auth/popup-blocked') {
-        errorMessage = 'Всплывающее окно заблокировано браузером. Пожалуйста, разрешите всплывающие окна.';
+      if (err.code === 'auth/popup-blocked') {
+        errorMessage = language === 'ru' ? 'Всплывающее окно заблокировано браузером. Пожалуйста, разрешите всплывающие окна.' : 'Popup was blocked by the browser. Please allow popups.';
+      } else if (err.message.includes('Missing or insufficient permissions')) {
+        errorMessage = language === 'ru' ? 'Ошибка доступа к базе данных. Пожалуйста, попробуйте еще раз.' : 'Database access error. Please try again.';
       }
       setError(errorMessage);
     } finally {

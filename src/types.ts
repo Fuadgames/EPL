@@ -24,6 +24,8 @@ export interface AppData {
   allowCopy?: boolean;
   originalAppId?: string;
   originalAppName?: string;
+  status?: 'pending' | 'verified';
+  price?: number;
   downloads: number;
   likes: number;
   dislikes: number;

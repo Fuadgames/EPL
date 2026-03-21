@@ -75,6 +75,8 @@ export const EPL_DICTIONARY: Record<string, TokenDef> = {
   'move_to': { word: 'move_to', type: 'action', color: 'text-blue-500', description: 'Moves an entity to specific coordinates.', schema: { target: 'string', x: 'number', y: 'number' } },
   'draggable': { word: 'draggable', type: 'action', color: 'text-blue-500', description: 'Makes an entity draggable by the cursor.', schema: { target: 'string' } },
   'wasd_controls': { word: 'wasd_controls', type: 'entity', color: 'text-emerald-500', description: 'Enables WASD movement for a target entity.', schema: { name: 'string', target: 'string', step: 'number', duration: 'number' } },
+  'terminal': { word: 'terminal', type: 'entity', color: 'text-emerald-500', description: 'A terminal UI component.', schema: { name: 'string', x: 'number', y: 'number', width: 'number', height: 'number', text: 'string' } },
+  'unlock_premium': { word: 'unlock_premium', type: 'action', color: 'text-purple-500', description: 'Cheat code to unlock premium features.', schema: {} },
 };
 
 // Sort keywords by length descending so longer phrases like "set up" match before "set"

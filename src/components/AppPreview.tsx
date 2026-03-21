@@ -236,6 +236,34 @@ export default function AppPreview({ entities, handleUIEvent }: AppPreviewProps)
             />
           );
         }
+        if (entity.type === 'terminal') {
+          return (
+            <motion.div
+              key={entity.id}
+              className="absolute bg-black text-green-500 font-mono p-4 rounded-lg shadow-lg overflow-y-auto border border-zinc-800"
+              style={{ 
+                left: entity.x || 0, 
+                top: entity.y || 0,
+                width: entity.width || 400,
+                height: entity.height || 300,
+              }}
+              drag={entity.isDraggable}
+              dragMomentum={false}
+              onDragEnd={(e, info) => {
+                if (entity.isDraggable) {
+                  handleUIEvent('dragged?', entity.name);
+                }
+              }}
+            >
+              <div className="flex items-center gap-2 mb-2 border-b border-zinc-800 pb-2">
+                <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
+                <div className="w-3 h-3 rounded-full bg-green-500"></div>
+              </div>
+              <pre className="whitespace-pre-wrap text-sm">{entity.text || 'Welcome to Terminal...'}</pre>
+            </motion.div>
+          );
+        }
         return null;
       })}
     </div>

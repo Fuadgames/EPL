@@ -26,13 +26,19 @@ export class EPLInterpreter {
   onOutput: (msg: string) => void;
   onUIUpdate: (entities: Record<string, EPLEntity>) => void;
   aiSettings: { answerMode: 'text' | 'console', changesEnabled: boolean };
+  purchasedItems: string[];
+  uploadedFiles: { name: string; url: string }[];
+  isPremium: boolean;
   keysPressed: Set<string> = new Set();
   animationFrameId: number | null = null;
 
   constructor(
     onOutput: (msg: string) => void, 
     onUIUpdate: (entities: Record<string, EPLEntity>) => void,
-    aiSettings: { answerMode: 'text' | 'console', changesEnabled: boolean }
+    aiSettings: { answerMode: 'text' | 'console', changesEnabled: boolean },
+    purchasedItems: string[] = [],
+    isPremium: boolean = false,
+    uploadedFiles: { name: string; url: string }[] = []
   ) {
     this.context = {
       variables: {},
@@ -48,6 +54,15 @@ export class EPLInterpreter {
     this.onOutput = onOutput;
     this.onUIUpdate = onUIUpdate;
     this.aiSettings = aiSettings;
+    this.purchasedItems = purchasedItems;
+    this.isPremium = isPremium;
+    this.uploadedFiles = uploadedFiles;
+  }
+
+  resolveUrl(value: string): string {
+    if (typeof value !== 'string') return value;
+    const file = this.uploadedFiles.find(f => f.name === value);
+    return file ? file.url : value;
   }
 
   log(msg: string) {
@@ -77,6 +92,9 @@ export class EPLInterpreter {
           val = true;
         } else if (val === 'false') {
           val = false;
+        } else {
+          // Resolve file names to URLs
+          val = this.resolveUrl(val);
         }
         
         obj[key] = val;
@@ -173,13 +191,37 @@ export class EPLInterpreter {
         if (keyword === 'stop') {
           return true; // Stop execution of current block and propagate
         }
+        else if (keyword === 'unlock_premium') {
+          this.log("Cheat code activated: Premium Unlocked!");
+          this.isPremium = true;
+          // We can't easily update the global store from here without passing a callback,
+          // but we can trigger a UI event that the EditorView can listen to.
+          this.triggerEvent('premium_unlocked?', 'world');
+          executed = true;
+        }
         else if (keyword === 'create') {
           // Look ahead for the entity type
           const nextKeyword = parts[j+4];
           const nextSettingsStr = parts[j+5] || '';
           const nextSettings = this.parseSettings(nextSettingsStr);
           
-          if (['world', 'button', 'block', '3Dblock', 'sprite', 'png', 'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox', 'circle', 'line', 'wasd_controls'].includes(nextKeyword)) {
+          if (['world', 'button', 'block', '3Dblock', 'sprite', 'png', 'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox', 'circle', 'line', 'wasd_controls', 'terminal'].includes(nextKeyword)) {
+            
+            // Premium/Purchased checks
+            if (nextKeyword === 'terminal' && !this.isPremium && !this.purchasedItems.includes('terminal')) {
+              this.log(`Error: 'terminal' component requires purchase from the Editor Store or Premium Access.`);
+              j += 4;
+              executed = true;
+              continue;
+            }
+            if (nextKeyword === '3Dblock' && !this.isPremium && !this.purchasedItems.includes('3d_engine')) {
+              this.log(`Error: '3Dblock' component requires 3D Engine purchase from the Editor Store or Premium Access.`);
+              j += 4;
+              executed = true;
+              continue;
+            }
+            // Add physics check if needed later (e.g. for physics properties)
+
             const id = nextSettings.name || `entity_${Date.now()}_${Math.random()}`;
             this.context.entities[id] = { id, type: nextKeyword, ...nextSettings };
             this.onUIUpdate({ ...this.context.entities });
@@ -205,7 +247,7 @@ export class EPLInterpreter {
           }
           executed = true;
         } 
-        else if (['world', 'button', 'block', '3Dblock', 'sprite', 'png', 'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox', 'circle', 'line', 'wasd_controls'].includes(keyword)) {
+        else if (['world', 'button', 'block', '3Dblock', 'sprite', 'png', 'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox', 'circle', 'line', 'wasd_controls', 'terminal'].includes(keyword)) {
           // If used without 'create', it updates an existing entity
           const targetName = settings.name || settings.target || (keyword === 'world' ? 'world' : null);
           const target = Object.values(this.context.entities).find(e => e.name === targetName || (keyword === 'world' && e.type === 'world'));

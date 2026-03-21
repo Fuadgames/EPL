@@ -2,13 +2,27 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { User } from 'firebase/auth';
 
-type View = 'store' | 'editor' | 'my-apps' | 'profile' | 'settings' | 'player' | 'premium';
+type View = 'store' | 'editor' | 'my-apps' | 'profile' | 'settings' | 'player' | 'premium' | 'control';
+
+export interface UserData {
+  uid?: string;
+  name?: string;
+  email?: string;
+  photoUrl?: string;
+  role: 'user' | 'admin' | 'moderator' | 'developer';
+  eplCoins: number;
+  purchasedItems: string[];
+  uploadedFiles?: { name: string; url: string }[];
+  createdAt?: string;
+}
 
 interface AppState {
   currentView: View;
   setCurrentView: (view: View) => void;
   user: User | null;
   setUser: (user: User | null) => void;
+  userData: UserData | null;
+  setUserData: (userData: UserData | null) => void;
   theme: 'light' | 'dark' | 'gradient';
   toggleTheme: () => void;
   setTheme: (theme: 'light' | 'dark' | 'gradient') => void;
@@ -44,6 +58,10 @@ interface AppState {
   setRequestCount: (count: number) => void;
   lastResetTime: string;
   setLastResetTime: (time: string) => void;
+  computerStyle: boolean;
+  setComputerStyle: (enabled: boolean) => void;
+  selectedExtraCategory: 'Normal' | 'OS' | null;
+  setSelectedExtraCategory: (category: 'Normal' | 'OS' | null) => void;
 }
 
 export const useStore = create<AppState>()(persist((set) => ({
@@ -51,6 +69,8 @@ export const useStore = create<AppState>()(persist((set) => ({
   setCurrentView: (view) => set({ currentView: view }),
   user: null,
   setUser: (user) => set({ user }),
+  userData: null,
+  setUserData: (userData) => set({ userData }),
   theme: 'dark',
   toggleTheme: () => set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
   setTheme: (theme) => set({ theme }),
@@ -86,6 +106,10 @@ export const useStore = create<AppState>()(persist((set) => ({
   setRequestCount: (count) => set({ requestCount: count }),
   lastResetTime: new Date().toISOString(),
   setLastResetTime: (time) => set({ lastResetTime: time }),
+  computerStyle: false,
+  setComputerStyle: (enabled) => set({ computerStyle: enabled }),
+  selectedExtraCategory: null,
+  setSelectedExtraCategory: (category) => set({ selectedExtraCategory: category }),
 }), {
   name: 'app-storage',
   partialize: (state) => ({ 
@@ -97,6 +121,9 @@ export const useStore = create<AppState>()(persist((set) => ({
     isPremium: state.isPremium,
     aiMode: state.aiMode,
     requestCount: state.requestCount,
-    lastResetTime: state.lastResetTime
+    lastResetTime: state.lastResetTime,
+    computerStyle: state.computerStyle,
+    selectedExtraCategory: state.selectedExtraCategory,
+    userData: state.userData
   }),
 }));

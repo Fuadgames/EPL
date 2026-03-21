@@ -131,6 +131,7 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
           5. Do not include any explanations, markdown code blocks, or extra text. Return ONLY the code.
           6. If there is existing code, you MUST modify it and return the FULL, complete updated code.
           7. If the user asks to save the app, append [SAVE] at the very end of your response.
+          8. NEVER generate code with placeholders, comments like "fix this", or incomplete configurations. You MUST provide all necessary configuration values for every component you create.
 
           EXAMPLE OF CORRECT SYNTAX:
           create block "my_block"

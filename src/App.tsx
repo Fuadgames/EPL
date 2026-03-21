@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import Layout from './components/Layout';
 import { useStore } from './store/useStore';
-import { auth } from './firebase';
+import { auth, subscribeToUserData } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 
 // Lazy load components
@@ -12,16 +12,30 @@ const ProfileView = React.lazy(() => import('./components/ProfileView'));
 const PlayerView = React.lazy(() => import('./components/PlayerView'));
 const SettingsView = React.lazy(() => import('./components/SettingsView'));
 const PremiumView = React.lazy(() => import('./components/PremiumView'));
+const ControlView = React.lazy(() => import('./components/ControlView'));
 
 export default function App() {
   const currentView = useStore(state => state.currentView);
   const setUser = useStore(state => state.setUser);
+  const user = useStore(state => state.user);
+  const userData = useStore(state => state.userData);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
+    let unsubscribeUser: (() => void) | undefined;
+    
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       setUser(user);
+      if (user) {
+        unsubscribeUser = subscribeToUserData(user.uid);
+      } else {
+        if (unsubscribeUser) unsubscribeUser();
+      }
     });
-    return () => unsubscribe();
+    
+    return () => {
+      unsubscribeAuth();
+      if (unsubscribeUser) unsubscribeUser();
+    };
   }, [setUser]);
 
   const renderView = () => {
@@ -33,6 +47,11 @@ export default function App() {
       case 'player': return <PlayerView />;
       case 'settings': return <SettingsView />;
       case 'premium': return <PremiumView />;
+      case 'control': 
+        if ((user?.email === 'fufazada@gmail.com' && user?.displayName === 'Fuadgames') || userData?.role === 'admin') {
+          return <ControlView />;
+        }
+        return <StoreView />;
       default: return <StoreView />;
     }
   };

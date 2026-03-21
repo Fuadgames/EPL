@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store/useStore';
 import { auth, logOut } from '../firebase';
-import { User, Mail, LogOut, Package, ExternalLink, Settings as SettingsIcon } from 'lucide-react';
+import { User, Mail, LogOut, Package, ExternalLink, Settings as SettingsIcon, Shield, Search } from 'lucide-react';
 import { clsx } from 'clsx';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
 interface AppData {
@@ -12,8 +12,143 @@ interface AppData {
   downloads: number;
 }
 
+interface UserData {
+  id: string;
+  email: string;
+  displayName: string;
+  role: string;
+}
+
+function RoleManager({ theme }: { theme: string }) {
+  const [searchEmail, setSearchEmail] = useState('');
+  const [foundUser, setFoundUser] = useState<UserData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
+  const handleSearch = async () => {
+    if (!searchEmail.trim()) return;
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    setFoundUser(null);
+    try {
+      const q = query(collection(db, 'users'), where('email', '==', searchEmail.trim()));
+      const snapshot = await getDocs(q);
+      if (snapshot.empty) {
+        setError('User not found.');
+      } else {
+        const docSnap = snapshot.docs[0];
+        setFoundUser({ id: docSnap.id, ...docSnap.data() } as UserData);
+      }
+    } catch (err: any) {
+      setError('Error searching for user: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAssignRole = async (role: string) => {
+    if (!foundUser) return;
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    try {
+      await updateDoc(doc(db, 'users', foundUser.id), { role });
+      setFoundUser({ ...foundUser, role });
+      setSuccess(`Successfully assigned ${role} role to ${foundUser.email}`);
+    } catch (err: any) {
+      setError('Error assigning role: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className={clsx(
+      "p-6 rounded-3xl border mt-8",
+      theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
+    )}>
+      <h3 className="text-xl font-bold flex items-center gap-2 mb-4">
+        <Shield className="w-5 h-5 text-emerald-500" />
+        Role Management
+      </h3>
+      <p className="text-sm text-zinc-500 mb-4">Assign Admin or Moderator roles to other users.</p>
+      
+      <div className="flex gap-2 mb-4">
+        <div className="relative flex-1">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+          <input 
+            type="email"
+            placeholder="User Email"
+            value={searchEmail}
+            onChange={(e) => setSearchEmail(e.target.value)}
+            className={clsx(
+              "w-full pl-9 pr-4 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500/50",
+              theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-zinc-50 border-zinc-200 text-black'
+            )}
+            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+          />
+        </div>
+        <button 
+          onClick={handleSearch}
+          disabled={loading || !searchEmail.trim()}
+          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium transition-colors disabled:opacity-50"
+        >
+          {loading ? 'Searching...' : 'Search'}
+        </button>
+      </div>
+
+      {error && <p className="text-red-500 text-sm mb-4">{error}</p>}
+      {success && <p className="text-emerald-500 text-sm mb-4">{success}</p>}
+
+      {foundUser && (
+        <div className={clsx(
+          "p-4 rounded-xl border flex flex-col gap-4",
+          theme !== 'light' ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+        )}>
+          <div className="flex justify-between items-center">
+            <div>
+              <p className="font-bold">{foundUser.displayName || 'Anonymous'}</p>
+              <p className="text-xs text-zinc-500">{foundUser.email}</p>
+            </div>
+            <div className="text-xs font-bold px-2 py-1 rounded bg-zinc-800 text-zinc-300 uppercase">
+              {foundUser.role || 'user'}
+            </div>
+          </div>
+          
+          <div className="flex gap-2">
+            <button 
+              onClick={() => handleAssignRole('admin')}
+              disabled={loading || foundUser.role === 'admin'}
+              className="flex-1 py-2 bg-purple-500/10 text-purple-500 hover:bg-purple-500 hover:text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              Make Admin
+            </button>
+            <button 
+              onClick={() => handleAssignRole('moderator')}
+              disabled={loading || foundUser.role === 'moderator'}
+              className="flex-1 py-2 bg-blue-500/10 text-blue-500 hover:bg-blue-500 hover:text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              Make Moderator
+            </button>
+            <button 
+              onClick={() => handleAssignRole('user')}
+              disabled={loading || foundUser.role === 'user' || !foundUser.role}
+              className="flex-1 py-2 bg-zinc-500/10 text-zinc-500 hover:bg-zinc-500 hover:text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            >
+              Make User
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ProfileView() {
   const user = useStore(state => state.user);
+  const userData = useStore(state => state.userData);
   const theme = useStore(state => state.theme);
   const setCurrentView = useStore(state => state.setCurrentView);
   const setEditingAppId = useStore(state => state.setEditingAppId);
@@ -92,6 +227,24 @@ export default function ProfileView() {
               <span className="truncate max-w-[200px]">{user.email}</span>
             </div>
 
+            {/* Role and EPLCoins Display */}
+            <div className="w-full flex flex-col gap-2 mb-8">
+              <div className={clsx(
+                "px-4 py-2 rounded-xl border flex items-center justify-between",
+                theme !== 'light' ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+              )}>
+                <span className="text-xs font-bold text-zinc-500 uppercase">Role</span>
+                <span className="font-bold capitalize">{userData?.role || 'User'}</span>
+              </div>
+              <div className={clsx(
+                "px-4 py-2 rounded-xl border flex items-center justify-between",
+                theme !== 'light' ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+              )}>
+                <span className="text-xs font-bold text-zinc-500 uppercase">EPLCoins</span>
+                <span className="font-bold text-emerald-500">{userData?.eplCoins || 0}</span>
+              </div>
+            </div>
+
             <div className="w-full grid grid-cols-2 gap-4 mb-8">
               <div className={clsx(
                 "p-4 rounded-2xl border flex flex-col items-center justify-center",
@@ -115,6 +268,10 @@ export default function ProfileView() {
             >
               <LogOut className="w-5 h-5" /> Sign Out
             </button>
+            
+            {(userData?.role === 'developer' || userData?.role === 'admin') && (
+              <RoleManager theme={theme} />
+            )}
           </div>
 
           {/* My Projects Section */}

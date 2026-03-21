@@ -5,7 +5,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'firebase/firestore';
 import { EPLInterpreter } from '../lib/epl-interpreter';
 import { EPL_DICTIONARY } from '../lib/epl-dictionary';
-import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move } from 'lucide-react';
+import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload } from 'lucide-react';
 import { clsx } from 'clsx';
 import { GoogleGenAI } from "@google/genai";
 import VisualEditor from './VisualEditor';
@@ -19,6 +19,8 @@ const DEFAULT_CODE = ``;
 export default function EditorView() {
   const theme = useStore(state => state.theme);
   const user = useStore(state => state.user);
+  const userData = useStore(state => state.userData);
+  const setUserData = useStore(state => state.setUserData);
   const editingAppId = useStore(state => state.editingAppId);
   const setEditingAppId = useStore(state => state.setEditingAppId);
   const copiedAppData = useStore(state => state.copiedAppData);
@@ -36,6 +38,10 @@ export default function EditorView() {
   const tutorialCheckRequested = useStore(state => state.tutorialCheckRequested);
   const setTutorialCheckRequested = useStore(state => state.setTutorialCheckRequested);
   const isPremium = useStore(state => state.isPremium);
+  const setIsPremium = useStore(state => state.setIsPremium);
+  const computerStyle = useStore(state => state.computerStyle);
+  const selectedExtraCategory = useStore(state => state.selectedExtraCategory);
+  const setSelectedExtraCategory = useStore(state => state.setSelectedExtraCategory);
   const t = translations[language];
   const [code, setCode] = useState(DEFAULT_CODE);
   const [history, setHistory] = useState<string[]>([DEFAULT_CODE]);
@@ -156,7 +162,7 @@ export default function EditorView() {
   }, [tutorialCheckRequested, language, tutorialLevel, tutorialStep, tutorialMinimized, setTutorialStepCompleted, setTutorialMinimized, setOutput]);
   const imageInputRef = useRef<HTMLInputElement>(null);
   
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'icon' | 'banner' | 'screenshot' | 'general' = 'general') => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'icon' | 'banner' | 'screenshot' | 'general' = 'general') => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
 
@@ -170,11 +176,17 @@ export default function EditorView() {
       else if (type === 'banner') setAppBannerUrl(url);
       else if (type === 'screenshot') setAppScreenshotUrl(url);
       else {
-        alert(`Image uploaded! URL: ${url}\n\nCopy this URL to use in your EPL code: image=${url}`);
+        // Update uploadedFiles in Firestore
+        const userRef = doc(db, 'users', user.uid);
+        const newFile = { name: file.name, url: url };
+        const updatedFiles = [...(userData?.uploadedFiles || []), newFile];
+        await updateDoc(userRef, { uploadedFiles: updatedFiles });
+        setUserData({ ...userData!, uploadedFiles: updatedFiles });
+        alert(`${translations[language].uploadSuccess}\n\n${translations[language].copyUrl} ${url}\n\n${language === 'en' ? 'Or use the file name directly in your code: image=' : 'Или используйте имя файла прямо в коде: image='}${file.name}`);
       }
     } catch (error) {
-      console.error('Error uploading image:', error);
-      alert("Failed to upload image.");
+      console.error('Error uploading file:', error);
+      alert(translations[language].uploadFailed);
     } finally {
       setIsUploading(false);
     }
@@ -185,13 +197,75 @@ export default function EditorView() {
   const [showHelpModal, setShowHelpModal] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
+  const [showExtraCategoryModal, setShowExtraCategoryModal] = useState(false);
+
+  const handleNewFile = () => {
+    setShowExtraCategoryModal(true);
+    setActiveMenu(null);
+  };
+
+  useEffect(() => {
+    if (selectedExtraCategory === null) {
+      setShowExtraCategoryModal(true);
+    }
+  }, []);
+
+  const confirmNewFile = (category: 'Normal' | 'OS') => {
+    setCode('');
+    setEditingAppId(null);
+    setSelectedExtraCategory(category);
+    setShowExtraCategoryModal(false);
+  };
+
+  const handleBuyStoreItem = async (itemId: string, price: number) => {
+    if (!user || !userData) return;
+    if (userData.eplCoins < price) {
+      alert("Not enough EPLCoins!");
+      return;
+    }
+
+    try {
+      const userRef = doc(db, 'users', user.uid);
+      const newCoins = userData.eplCoins - price;
+      const newPurchasedItems = [...(userData.purchasedItems || []), itemId];
+      
+      await updateDoc(userRef, {
+        eplCoins: newCoins,
+        purchasedItems: newPurchasedItems
+      });
+
+      setUserData({
+        ...userData,
+        eplCoins: newCoins,
+        purchasedItems: newPurchasedItems
+      });
+
+      if (itemId === 'premium') {
+        setIsPremium(true);
+      } else if (itemId === 'template_rpg') {
+        setCode(`started?\n  create{type=world, background=black}\n  create{type=player, x=100, y=100, color=blue}\n  create{type=text_label, text="RPG Template", x=10, y=10, color=white}\nend`);
+        setShowEditorStoreModal(false);
+      } else if (itemId === 'template_platformer') {
+        setCode(`started?\n  create{type=world, background=skyblue}\n  create{type=player, x=50, y=300, color=red}\n  create{type=block, name=ground, x=0, y=350, width=800, height=50, color=green}\nend`);
+        setShowEditorStoreModal(false);
+      }
+
+      alert(`Successfully purchased ${itemId}!`);
+    } catch (error) {
+      console.error("Error purchasing item:", error);
+      alert("Failed to purchase item.");
+    }
+  };
+
   // Publish Modal State
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [showFileControlModal, setShowFileControlModal] = useState(false);
+  const [showEditorStoreModal, setShowEditorStoreModal] = useState(false);
   const [appTitle, setAppTitle] = useState('My EPL App');
   const [appDesc, setAppDesc] = useState('A cool app written in EPL.');
   const [appVersion, setAppVersion] = useState('1.0.0');
   const [appCategory, setAppCategory] = useState<string>('Other');
+  const [appPrice, setAppPrice] = useState<number>(0);
   const [supportedPlatforms, setSupportedPlatforms] = useState<string[]>(['web', 'windows', 'macos', 'linux', 'apk']);
   const [windowsUrl, setWindowsUrl] = useState('');
   const [macosUrl, setMacosUrl] = useState('');
@@ -254,6 +328,7 @@ export default function EditorView() {
       setAppDesc(copiedAppData.description);
       setAppVersion('1.0.0');
       setAppCategory(copiedAppData.category || 'Other');
+      setAppPrice(copiedAppData.price || 0);
       setIsAiGenerated(copiedAppData.isAiGenerated || false);
       setIsPrivate(true); // Default to private when copying
       setIsLocked(false);
@@ -278,6 +353,7 @@ export default function EditorView() {
           setAppDesc(data.description);
           setAppVersion(data.version);
           setAppCategory(data.category || 'Other');
+          setAppPrice(data.price || 0);
           setIsAiGenerated(data.isAiGenerated || false);
           setIsPrivate(data.isPrivate || false);
           setIsLocked(data.isLocked || false);
@@ -302,6 +378,7 @@ export default function EditorView() {
       setAppDesc('A cool app written in EPL.');
       setAppVersion('1.0.0');
       setAppCategory('Other');
+      setAppPrice(0);
       setIsAiGenerated(false);
       setIsPrivate(false);
       setIsLocked(false);
@@ -392,11 +469,74 @@ export default function EditorView() {
     setOutput([]);
     setUiState({ entities: {} });
     setIsRunning(true);
+
+    if (selectedExtraCategory === 'OS') {
+      // Set background to black
+      setUiState({ entities: { 'world_bios': { id: 'world_bios', type: 'world', name: 'world', background: '#000000' } } });
+      
+      // AllBIOS simulation in UI
+      setUiState(prev => ({
+        entities: {
+          ...prev.entities,
+          'bios_text': { id: 'bios_text', type: 'text_label', name: 'bios_text', text: 'AllBIOS: Running from disk', x: 10, y: 10, color: '#FFFFFF' }
+        }
+      }));
+      
+      if (!code.trim()) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        setUiState(prev => ({
+          entities: {
+            ...prev.entities,
+            'bios_text': { ...prev.entities['bios_text'], text: 'AllBIOS: Could not start, no OS code found.', color: '#FFFFFF' }
+          }
+        }));
+        setIsRunning(false);
+        return;
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      setUiState(prev => ({
+        entities: {
+          ...prev.entities,
+          'bios_text': { ...prev.entities['bios_text'], text: 'AllBIOS: Copying files', color: '#FFFFFF' }
+        }
+      }));
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      setUiState(prev => ({
+        entities: {
+          ...prev.entities,
+          'bios_text': { ...prev.entities['bios_text'], text: 'AllBIOS: Running Code', color: '#FFFFFF' }
+        }
+      }));
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      setUiState(prev => ({
+        entities: {
+          ...prev.entities,
+          'bios_text': { ...prev.entities['bios_text'], text: 'AllBIOS: EPL opening', color: '#FFFFFF' }
+        }
+      }));
+
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      setUiState(prev => ({
+        entities: {
+          ...prev.entities,
+          'bios_text': { ...prev.entities['bios_text'], text: 'AllBIOS: Loading OS', color: '#FFFFFF' }
+        }
+      }));
+      
+      // Final delay before running
+      await new Promise(resolve => setTimeout(resolve, 1000));
+    }
     
     interpreterRef.current = new EPLInterpreter(
       (msg) => setOutput((prev) => [...prev, msg]),
       (entities) => setUiState({ entities }),
-      { answerMode: aiAnswerMode, changesEnabled: aiChangesEnabled }
+      { answerMode: aiAnswerMode, changesEnabled: aiChangesEnabled },
+      userData?.purchasedItems || [],
+      isPremium,
+      userData?.uploadedFiles || []
     );
 
     try {
@@ -438,6 +578,7 @@ export default function EditorView() {
     setIsPublishing(true);
     try {
       const appId = editingAppId || doc(collection(db, 'apps')).id;
+      const finalPrice = isPremium ? appPrice : 0;
       const appData: any = {
         id: appId,
         title: appTitle,
@@ -445,6 +586,7 @@ export default function EditorView() {
         code,
         version: appVersion,
         category: appCategory,
+        price: finalPrice,
         supportedPlatforms,
         windowsUrl,
         macosUrl,
@@ -491,6 +633,7 @@ export default function EditorView() {
     setIsSavingLocally(true);
     try {
       const appId = editingAppId || doc(collection(db, 'apps')).id;
+      const finalPrice = isPremium ? appPrice : 0;
       const appData: any = {
         id: appId,
         title: appTitle,
@@ -498,6 +641,7 @@ export default function EditorView() {
         code,
         version: appVersion,
         category: appCategory,
+        price: finalPrice,
         supportedPlatforms,
         windowsUrl,
         macosUrl,
@@ -621,13 +765,17 @@ export default function EditorView() {
   };
 
   const handleUIEvent = useCallback((eventName: string, target?: string) => {
+    if (eventName === 'premium_unlocked?') {
+      setIsPremium(true);
+      return;
+    }
     if (interpreterRef.current && isRunning) {
       interpreterRef.current.triggerEvent(eventName, target);
     }
-  }, [isRunning]);
+  }, [isRunning, setIsPremium]);
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className={clsx("h-full flex flex-col overflow-hidden", computerStyle && "font-mono bg-zinc-950 text-emerald-500")}>
       {/* Menu Bar */}
       <div 
         ref={menuRef}
@@ -645,7 +793,7 @@ export default function EditorView() {
           </button>
           {activeMenu === 'file' && (
             <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl py-1">
-              <button onClick={() => { setCode(''); setEditingAppId(null); setActiveMenu(null); }} className="w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2">
+              <button onClick={handleNewFile} className="w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2">
                 <FileText className="w-4 h-4" /> {t.newFile}
               </button>
               <button onClick={handleSaveAs} className="w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2">
@@ -778,7 +926,7 @@ export default function EditorView() {
           >
             <UploadCloud className="w-4 h-4" /> <span className="hidden sm:inline">{isUploading ? t.publishing : t.uploadFile}</span>
           </button>
-          <input type="file" ref={imageInputRef} className="hidden" onChange={handleImageUpload} />
+          <input type="file" ref={imageInputRef} className="hidden" onChange={handleFileUpload} />
           {user && (
             <button 
               onClick={() => setShowPublishModal(true)}
@@ -787,6 +935,12 @@ export default function EditorView() {
               <UploadCloud className="w-4 h-4" /> <span className="hidden sm:inline">{t.publish}</span>
             </button>
           )}
+          <button 
+            onClick={() => setShowEditorStoreModal(true)}
+            className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            <Sparkles className="w-4 h-4" /> <span className="hidden sm:inline">Editor Store</span>
+          </button>
           <button 
             onClick={() => setShowFileControlModal(true)}
             className="flex items-center gap-2 px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg text-sm font-medium transition-colors"
@@ -855,7 +1009,7 @@ export default function EditorView() {
             theme !== 'light' ? 'border-zinc-800' : 'border-zinc-200'
           )}>
             <div className="px-4 py-2 text-xs font-medium uppercase tracking-wider flex items-center gap-2 text-zinc-500 border-b border-zinc-800/50 z-10 bg-zinc-900/80 backdrop-blur-sm">
-              <LayoutTemplate className="w-3.5 h-3.5" /> {t.appUi}
+              <LayoutTemplate className="w-3.5 h-3.5" /> {selectedExtraCategory === 'OS' ? 'AllVM' : t.appUi}
             </div>
             <div 
               className="flex-1 relative overflow-hidden"
@@ -888,6 +1042,40 @@ export default function EditorView() {
           </div>
         </div>
       </div>
+
+      {/* Extra Category Modal */}
+      {showExtraCategoryModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className={clsx(
+            "w-full max-w-md rounded-2xl p-6 shadow-2xl",
+            theme !== 'light' ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'
+          )}>
+            <h2 className="text-xl font-bold mb-4">Select Extra Category</h2>
+            <div className="space-y-3">
+              <button 
+                onClick={() => confirmNewFile('Normal')}
+                className="w-full text-left p-4 rounded-xl border border-zinc-700 hover:bg-zinc-800 transition-colors"
+              >
+                <div className="font-bold">Normal</div>
+                <div className="text-sm text-zinc-500">Absolutely normal editor as usual</div>
+              </button>
+              <button 
+                onClick={() => confirmNewFile('OS')}
+                className="w-full text-left p-4 rounded-xl border border-zinc-700 hover:bg-zinc-800 transition-colors"
+              >
+                <div className="font-bold">OS</div>
+                <div className="text-sm text-zinc-500">AllVM environment with AllBIOS and OS-specific components</div>
+              </button>
+            </div>
+            <button 
+              onClick={() => setShowExtraCategoryModal(false)}
+              className="mt-6 w-full p-3 bg-zinc-800 rounded-xl hover:bg-zinc-700 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Publish Modal */}
       {showPublishModal && (
@@ -1016,7 +1204,7 @@ export default function EditorView() {
                           type="file"
                           accept="image/*"
                           className="hidden"
-                          onChange={(e) => handleImageUpload(e, 'icon')}
+                          onChange={(e) => handleFileUpload(e, 'icon')}
                         />
                       </div>
                     </div>
@@ -1053,7 +1241,7 @@ export default function EditorView() {
                           type="file"
                           accept="image/*"
                           className="hidden"
-                          onChange={(e) => handleImageUpload(e, 'screenshot')}
+                          onChange={(e) => handleFileUpload(e, 'screenshot')}
                         />
                       </div>
                     </div>
@@ -1089,7 +1277,7 @@ export default function EditorView() {
                         type="file"
                         accept="image/*"
                         className="hidden"
-                        onChange={(e) => handleImageUpload(e, 'banner')}
+                        onChange={(e) => handleFileUpload(e, 'banner')}
                       />
                     </div>
                   </div>
@@ -1210,6 +1398,32 @@ export default function EditorView() {
                     {language === 'ru' ? 'Разрешить копирование проекта' : 'Allow copying project'} {!isPremium && <Lock className="w-3 h-3" />}
                   </span>
                 </label>
+                
+                <div className="mb-3">
+                  <label className="block text-sm font-medium mb-1 text-zinc-400 flex items-center gap-2">
+                    {language === 'ru' ? 'Цена (в EPLCoins)' : 'Price (in EPLCoins)'}
+                    {!isPremium && <Lock className="w-3 h-3 text-yellow-500" />}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={appPrice}
+                    onChange={(e) => isPremium && setAppPrice(Math.max(0, parseInt(e.target.value) || 0))}
+                    disabled={!isPremium}
+                    placeholder={!isPremium ? (language === 'ru' ? 'Только для Премиум' : 'Premium Only') : ''}
+                    className={clsx(
+                      "w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors font-mono",
+                      !isPremium && "opacity-50 cursor-not-allowed"
+                    )}
+                  />
+                  <p className="text-xs text-zinc-500 mt-1">
+                    {isPremium 
+                      ? (language === 'ru' ? 'Установите 0 для бесплатного доступа. Пользователи будут платить эту сумму за доступ.' : 'Set to 0 for free. Users will pay this amount to access your app.')
+                      : (language === 'ru' ? 'Установка цены доступна только для Премиум пользователей.' : 'Setting a price is only available for Premium users.')
+                    }
+                  </p>
+                </div>
+
                 {(!isPremium || isLocked) && (
                   <div>
                     <input
@@ -1299,15 +1513,151 @@ export default function EditorView() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(
             "w-full max-w-2xl rounded-2xl p-6 shadow-2xl max-h-[80vh] flex flex-col",
-            theme !== 'light' ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'
+            theme !== 'light' ? 'bg-zinc-900 border border-zinc-800 text-zinc-200' : 'bg-white border border-zinc-200 text-zinc-800'
           )}>
-            <h3 className="text-xl font-bold mb-4">Image Control</h3>
-            <p className="text-sm text-zinc-500 mb-4">Manage your uploaded files here. Click to copy URL.</p>
-            <div className="flex-1 overflow-y-auto space-y-2 border border-zinc-800 rounded-lg p-2">
-              <div className="p-4 text-center text-zinc-500">No files uploaded yet.</div>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold flex items-center gap-2">
+                <FileCode className="w-5 h-5 text-emerald-500" />
+                {translations[language].fileControl}
+              </h3>
+              <button onClick={() => setShowFileControlModal(false)} className="text-zinc-500 hover:text-zinc-300">
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => setShowFileControlModal(false)} className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors">Close</button>
+            <p className="text-sm text-zinc-500 mb-4">{translations[language].fileControlDesc}</p>
+            
+            <div className="flex-1 overflow-y-auto space-y-2 border border-zinc-800 rounded-lg p-2">
+              {userData?.uploadedFiles && userData.uploadedFiles.length > 0 ? (
+                userData.uploadedFiles.map((file, idx) => (
+                  <div 
+                    key={idx} 
+                    className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg border border-zinc-700 hover:border-emerald-500/50 transition-colors group"
+                  >
+                    <div className="flex items-center gap-3 overflow-hidden">
+                      <div className="w-10 h-10 rounded bg-zinc-700 flex items-center justify-center flex-shrink-0">
+                        {file.name.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                          <img src={file.url} alt={file.name} className="w-full h-full object-cover rounded" referrerPolicy="no-referrer" />
+                        ) : (
+                          <FileCode className="w-6 h-6 text-zinc-400" />
+                        )}
+                      </div>
+                      <div className="overflow-hidden">
+                        <div className="text-sm font-medium truncate text-zinc-200">{file.name}</div>
+                        <div className="text-xs text-zinc-500 truncate">{file.url}</div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button 
+                        onClick={() => {
+                          navigator.clipboard.writeText(file.name);
+                          alert(language === 'en' ? 'File name copied!' : 'Имя файла скопировано!');
+                        }}
+                        className="p-2 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-emerald-400 transition-colors"
+                        title={language === 'en' ? 'Copy Name' : 'Копировать имя'}
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+                      <button 
+                        onClick={() => {
+                          navigator.clipboard.writeText(file.url);
+                          alert(language === 'en' ? 'URL copied!' : 'URL скопирован!');
+                        }}
+                        className="p-2 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-emerald-400 transition-colors"
+                        title={language === 'en' ? 'Copy URL' : 'Копировать URL'}
+                      >
+                        <LinkIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div className="p-8 text-center text-zinc-500 flex flex-col items-center gap-3">
+                  <FileCode className="w-12 h-12 opacity-20" />
+                  <div>No files uploaded yet.</div>
+                </div>
+              )}
+            </div>
+            
+            <div className="mt-6 flex justify-between items-center">
+              <button
+                onClick={() => imageInputRef.current?.click()}
+                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                <Upload className="w-4 h-4" />
+                {translations[language].uploadFile}
+              </button>
+              <button onClick={() => setShowFileControlModal(false)} className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors">
+                {translations[language].cancel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Editor Store Modal */}
+      {showEditorStoreModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className={clsx(
+            "w-full max-w-3xl rounded-2xl p-6 shadow-2xl max-h-[80vh] flex flex-col",
+            theme !== 'light' ? 'bg-zinc-900 border border-zinc-800 text-zinc-200' : 'bg-white border border-zinc-200 text-zinc-800'
+          )}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-bold flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-emerald-500" />
+                Editor Store
+              </h3>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2 px-3 py-1 bg-zinc-800 rounded-full border border-zinc-700">
+                  <span className="text-yellow-400 font-bold text-sm">EPL</span>
+                  <span className="text-zinc-200 font-mono text-sm">{userData?.eplCoins || 0}</span>
+                </div>
+                <button onClick={() => setShowEditorStoreModal(false)} className="text-zinc-500 hover:text-zinc-300">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto pr-2 space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {[
+                  { id: 'premium', title: 'Premium Access', desc: 'Unlock all premium features including app locking and copying.', price: 100, type: 'feature', icon: Sparkles },
+                  { id: 'terminal', title: 'Terminal Component', desc: 'Advanced terminal UI component for your apps.', price: 20, type: 'component', icon: Terminal },
+                  { id: '3d_engine', title: '3D Engine (Big File)', desc: 'Unlock 3D rendering capabilities.', price: 50, type: 'engine', icon: Code2 },
+                  { id: 'physics', title: 'Physics Engine', desc: 'Advanced 2D physics for your games.', price: 40, type: 'engine', icon: Move },
+                  { id: 'template_rpg', title: 'RPG Template', desc: 'A complete RPG game starter template.', price: 15, type: 'template', icon: LayoutTemplate },
+                  { id: 'template_platformer', title: 'Platformer Template', desc: 'A complete platformer game starter template.', price: 15, type: 'template', icon: LayoutTemplate },
+                ].map(item => {
+                  const isPurchased = userData?.purchasedItems?.includes(item.id) || (item.id === 'premium' && isPremium);
+                  const Icon = item.icon;
+                  return (
+                    <div key={item.id} className="p-4 rounded-xl border border-zinc-800 bg-zinc-800/30 flex flex-col gap-3">
+                      <div className="flex items-start justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="p-2 bg-zinc-800 rounded-lg">
+                            <Icon className="w-5 h-5 text-emerald-500" />
+                          </div>
+                          <div>
+                            <h4 className="font-bold">{item.title}</h4>
+                            <span className="text-xs text-zinc-500 uppercase tracking-wider">{item.type}</span>
+                          </div>
+                        </div>
+                        <div className="font-mono text-sm font-bold text-yellow-400">{item.price} EPL</div>
+                      </div>
+                      <p className="text-sm text-zinc-400 flex-1">{item.desc}</p>
+                      <button 
+                        onClick={() => handleBuyStoreItem(item.id, item.price)}
+                        disabled={isPurchased || (userData?.eplCoins || 0) < item.price}
+                        className={clsx(
+                          "w-full py-2 rounded-lg text-sm font-medium transition-colors",
+                          isPurchased ? "bg-zinc-800 text-emerald-500 cursor-not-allowed" :
+                          (userData?.eplCoins || 0) < item.price ? "bg-zinc-800 text-zinc-500 cursor-not-allowed" :
+                          "bg-emerald-500 hover:bg-emerald-600 text-white"
+                        )}
+                      >
+                        {isPurchased ? 'Purchased' : 'Buy Now'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
