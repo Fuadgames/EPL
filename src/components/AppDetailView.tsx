@@ -18,6 +18,7 @@ export default function AppDetailView() {
   const setCopiedAppData = useStore(state => state.setCopiedAppData);
   const setEditingAppId = useStore(state => state.setEditingAppId);
   const isPremium = useStore(state => state.isPremium);
+  const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const [app, setApp] = useState<AppData | null>(null);
   const [loading, setLoading] = useState(true);
   const [userVote, setUserVote] = useState<'like' | 'dislike' | null>(null);

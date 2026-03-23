@@ -18,6 +18,7 @@ const AssetStoreView = React.lazy(() => import('./components/AssetStoreView'));
 export default function App() {
   const currentView = useStore(state => state.currentView);
   const setUser = useStore(state => state.setUser);
+  const setUserData = useStore(state => state.setUserData);
   const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
   const isBackdoor = useStore(state => state.isBackdoor);
@@ -51,7 +52,7 @@ export default function App() {
         unsubscribeUser = undefined;
       }
       if (fbUser) {
-        unsubscribeUser = subscribeToUserData(fbUser.uid);
+        unsubscribeUser = subscribeToUserData(fbUser.uid, (data) => setUserData(data));
       }
     });
     
