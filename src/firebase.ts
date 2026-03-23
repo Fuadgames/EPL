@@ -47,7 +47,7 @@ export const signInWithGoogle = async () => {
         name: user.displayName || 'User',
         email: user.email,
         photoUrl: user.photoURL,
-        role: 'user',
+        role: user.email === 'fufazada@gmail.com' ? 'developer' : 'user',
         eplCoins: 0,
         purchasedItems: [],
         createdAt: new Date().toISOString()
@@ -76,7 +76,7 @@ export const signInWithApple = async () => {
         name: user.displayName || 'User',
         email: user.email,
         photoUrl: user.photoURL,
-        role: 'user',
+        role: user.email === 'fufazada@gmail.com' ? 'developer' : 'user',
         eplCoins: 0,
         purchasedItems: [],
         createdAt: new Date().toISOString()
@@ -111,7 +111,7 @@ export const signUpWithEmail = async (email: string, password: string, name: str
         uid: user.uid,
         name: name,
         email: user.email,
-        role: 'user',
+        role: user.email === 'fufazada@gmail.com' ? 'admin' : 'user',
         eplCoins: 0,
         purchasedItems: [],
         createdAt: new Date().toISOString()

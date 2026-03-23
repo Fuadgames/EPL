@@ -3,6 +3,7 @@ import { useStore } from '../store/useStore';
 import { db, auth, storage } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'firebase/firestore';
+import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { EPLInterpreter } from '../lib/epl-interpreter';
 import { EPL_DICTIONARY } from '../lib/epl-dictionary';
 import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize } from 'lucide-react';
@@ -661,6 +662,7 @@ export default function EditorView() {
         originalAppId,
         originalAppName,
         events,
+        isVerified: false,
         updatedAt: new Date().toISOString()
       };
 
@@ -675,10 +677,10 @@ export default function EditorView() {
       await setDoc(doc(db, 'apps', appId), appData, { merge: true });
       setEditingAppId(appId);
       setShowPublishModal(false);
-      alert("App published successfully!");
+      console.log("App published successfully!");
     } catch (error) {
+      const errInfo = handleFirestoreError(error, OperationType.WRITE, `apps/${editingAppId || 'new'}`);
       console.error("Error publishing app", error);
-      alert("Failed to publish app.");
     } finally {
       setIsPublishing(false);
     }
@@ -716,6 +718,7 @@ export default function EditorView() {
         originalAppId,
         originalAppName,
         events,
+        isVerified: false,
         updatedAt: new Date().toISOString()
       };
 
@@ -731,10 +734,9 @@ export default function EditorView() {
       setEditingAppId(appId);
       setIsPrivate(true);
       setActiveMenu(null);
-      alert(language === 'ru' ? 'Проект сохранен локально в "Мои приложения".' : 'App saved locally to your account!');
+      console.log(language === 'ru' ? 'Проект сохранен локально в "Мои приложения".' : 'App saved locally to your account!');
     } catch (error) {
       console.error("Error saving app locally", error);
-      alert("Failed to save app locally.");
     } finally {
       setIsSavingLocally(false);
     }

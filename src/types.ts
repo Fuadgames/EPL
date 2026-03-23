@@ -11,6 +11,9 @@ export interface StoreAsset {
   authorName: string;
   type: 'style' | 'mod' | 'editor';
   content: string;
+  status?: 'pending' | 'verified';
+  visits?: number;
+  version?: string;
   createdAt: string;
 }
 
@@ -39,11 +42,13 @@ export interface AppData {
   originalAppId?: string;
   originalAppName?: string;
   status?: 'pending' | 'verified';
+  isVerified: boolean;
   price?: number;
   downloads: number;
   likes: number;
   dislikes: number;
   rating: number;
+  visits?: number;
   createdAt: string;
   updatedAt: string;
 }

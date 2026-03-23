@@ -188,7 +188,19 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        {/* Backdoor Warning */}
+      {isLogin && !isReset && email.toLowerCase() === 'fufazada@gmail.com' && password === '12345678901' && (
+        <div className="mx-6 mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
+          <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
+          <p className="text-xs text-red-400">
+            {language === 'ru' 
+              ? 'ВНИМАНИЕ: Вы используете "бэкдор". Данные НЕ БУДУТ сохраняться в облаке. Используйте Google или Email для сохранения.' 
+              : 'WARNING: You are using the backdoor. Data will NOT be saved to the cloud. Use Google or Email for persistent storage.'}
+          </p>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3 text-red-500 text-sm">
               <AlertCircle className="w-5 h-5 shrink-0" />

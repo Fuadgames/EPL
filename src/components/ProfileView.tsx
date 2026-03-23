@@ -125,6 +125,16 @@ function RoleManager({ theme, isFrutigerAero }: { theme: string, isFrutigerAero?
           
           <div className="flex gap-2">
             <button 
+              onClick={() => handleAssignRole('developer')}
+              disabled={loading || foundUser.role === 'developer'}
+              className={clsx(
+                "flex-1 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50",
+                isFrutigerAero ? "bg-emerald-500/20 text-emerald-700 hover:bg-emerald-500 hover:text-white border border-emerald-500/30" : "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white"
+              )}
+            >
+              Make Developer
+            </button>
+            <button 
               onClick={() => handleAssignRole('admin')}
               disabled={loading || foundUser.role === 'admin'}
               className={clsx(

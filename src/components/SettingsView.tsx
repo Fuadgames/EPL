@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useStore } from '../store/useStore';
 import { auth } from '../firebase';
 import { updateProfile } from 'firebase/auth';
-import { Sun, Moon, User, Save, CheckCircle2, AlertCircle, Bot, Lock, Sparkles } from 'lucide-react';
+import { Sun, Moon, User, Save, CheckCircle2, AlertCircle, Bot, Lock, Sparkles, ShieldCheck } from 'lucide-react';
 import { clsx } from 'clsx';
 
 export default function SettingsView() {
@@ -18,6 +18,8 @@ export default function SettingsView() {
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const setIsFrutigerAero = useStore(state => state.setIsFrutigerAero);
   const userData = useStore(state => state.userData);
+  const simulatedRole = useStore(state => state.simulatedRole);
+  const setSimulatedRole = useStore(state => state.setSimulatedRole);
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [isUpdating, setIsUpdating] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
@@ -44,6 +46,30 @@ export default function SettingsView() {
         <h1 className={clsx("text-3xl font-bold tracking-tight mb-8", isFrutigerAero ? "text-blue-900" : "")}>Settings</h1>
 
         <div className="space-y-6">
+          {/* Developer Simulation Section */}
+          {userData?.role === 'developer' && simulatedRole && (
+            <section className={clsx(
+              "p-6 rounded-3xl border border-amber-500/50 bg-amber-500/5",
+              isFrutigerAero ? "backdrop-blur-md shadow-sm" : ""
+            )}>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 rounded-lg bg-amber-500/20 text-amber-500">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <h2 className={clsx("text-xl font-bold", isFrutigerAero ? "text-blue-900" : "")}>Developer Simulation</h2>
+              </div>
+              <p className={clsx("text-sm mb-4", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>
+                You are currently simulating the <strong>{simulatedRole}</strong> role.
+              </p>
+              <button
+                onClick={() => setSimulatedRole(null)}
+                className="w-full py-3 rounded-xl font-bold bg-amber-500 hover:bg-amber-600 text-white transition-all shadow-lg shadow-amber-500/20"
+              >
+                Revert to Developer Mode
+              </button>
+            </section>
+          )}
+
           {/* Appearance Section */}
           <section className={clsx(
             "p-6 rounded-3xl border",

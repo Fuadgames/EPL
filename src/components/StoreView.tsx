@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { collection, getDocs, query, orderBy, limit, where, doc, updateDoc, increment, setDoc, getDoc, deleteDoc } from 'firebase/firestore';
 import { db, sendProjectToVerify } from '../firebase';
 import { useStore } from '../store/useStore';
+import { translations } from '../lib/translations';
 import { Search, Star, Download, Play, Monitor, Smartphone, Apple, Terminal, Lock, ThumbsUp, ThumbsDown, RefreshCw, Flame, Clock, Coins } from 'lucide-react';
 import { clsx } from 'clsx';
 import { AppData, AppCategory, UserVote } from '../types';
@@ -23,8 +24,11 @@ export default function StoreView() {
   const setSelectedAppId = useStore(state => state.setSelectedAppId);
   const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
+  const simulatedRole = useStore(state => state.simulatedRole);
+  const effectiveRole = (userData?.role === 'developer' && simulatedRole) ? simulatedRole : userData?.role;
   const isPremium = useStore(state => state.isPremium);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
+  const language = useStore(state => state.language);
 
   const fetchApps = useCallback(async () => {
     setLoading(true);
@@ -110,7 +114,28 @@ export default function StoreView() {
     }
   };
 
-  const handlePlay = (app: AppData) => {
+  const handlePlay = async (app: AppData) => {
+    // Increment visits
+    try {
+      await updateDoc(doc(db, 'apps', app.id), {
+        visits: increment(1)
+      });
+    } catch (error) {
+      console.error("Error incrementing visits", error);
+    }
+
+    // Check if update is needed
+    const installedAppVersion = userData?.installedApps?.[app.id];
+    if (installedAppVersion && installedAppVersion !== app.version) {
+      // Update logic
+      if (userData?.uid) {
+        await updateDoc(doc(db, 'users', userData.uid), {
+          [`installedApps.${app.id}`]: app.version
+        });
+        alert(language === 'ru' ? "Приложение обновлено!" : "App updated!");
+      }
+    }
+
     setPlayingAppId(app.id);
     setCurrentView('player');
   };
@@ -334,7 +359,11 @@ export default function StoreView() {
                     
                     <div className={clsx("flex flex-col gap-3 pt-3 sm:pt-4 border-t", isFrutigerAero ? "border-white/30" : "border-zinc-800/50")}>
                       <div className={clsx("flex items-center justify-between text-[10px] sm:text-xs", isFrutigerAero ? "text-blue-700/70" : "text-zinc-500")}>
-                        <span className="truncate max-w-[100px]">by {app.authorName}</span>
+                        <div className="flex items-center gap-2 truncate max-w-[150px]">
+                          <span>by {app.authorName}</span>
+                          <span className="opacity-50">•</span>
+                          <span>{app.visits || 0} {language === 'ru' ? 'визитов' : 'visits'}</span>
+                        </div>
                         <div className="flex items-center gap-3">
                           <button 
                             onClick={() => handleVote(app.id, 'like')}
@@ -358,7 +387,10 @@ export default function StoreView() {
                           onClick={() => handlePlay(app)}
                           className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-xs sm:text-sm font-medium transition-colors"
                         >
-                          <Play className="w-3.5 h-3.5" /> Play
+                          <Play className="w-3.5 h-3.5" />
+                          {userData?.installedApps?.[app.id] && userData.installedApps[app.id] !== app.version
+                            ? (translations[language].update || 'Update') 
+                            : (translations[language].play || 'Play')}
                         </button>
                         
                         {['windows', 'macos', 'linux', 'apk'].map(platform => {
@@ -375,7 +407,7 @@ export default function StoreView() {
                             </button>
                           );
                         })}
-                        {userData?.role === 'moderator' && app.status !== 'pending' && app.status !== 'verified' && (
+                        {(effectiveRole === 'moderator' || effectiveRole === 'admin' || effectiveRole === 'developer') && app.status !== 'pending' && app.status !== 'verified' && (
                           <button
                             onClick={async () => {
                               await sendProjectToVerify(app.id);

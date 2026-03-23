@@ -3,7 +3,7 @@ import Layout from './components/Layout';
 import { useStore } from './store/useStore';
 import { auth, subscribeToUserData, db } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { setDoc, doc } from 'firebase/firestore';
+import { setDoc, doc, updateDoc } from 'firebase/firestore';
 
 // Lazy load components
 const StoreView = React.lazy(() => import('./components/StoreView'));
@@ -63,7 +63,7 @@ export default function App() {
                 name: fbUser.displayName || 'User',
                 email: fbUser.email,
                 photoUrl: fbUser.photoURL,
-                role: 'user',
+                role: fbUser.email === 'fufazada@gmail.com' ? 'developer' : 'user',
                 eplCoins: 0,
                 purchasedItems: [],
                 createdAt: new Date().toISOString()
@@ -72,6 +72,14 @@ export default function App() {
               console.error("Error creating user document in App.tsx", err);
             }
           } else {
+            // Force developer role for fufazada@gmail.com if not already set
+            if (fbUser.email === 'fufazada@gmail.com' && data.role !== 'developer') {
+              try {
+                await updateDoc(doc(db, 'users', fbUser.uid), { role: 'developer' });
+              } catch (err) {
+                console.error("Error updating developer role for fufazada@gmail.com", err);
+              }
+            }
             setUserData(data);
           }
         });

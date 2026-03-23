@@ -4,16 +4,30 @@ import { User } from 'firebase/auth';
 
 type View = 'store' | 'editor' | 'my-apps' | 'profile' | 'settings' | 'player' | 'premium' | 'control' | 'asset-store';
 
+export interface UserPermissions {
+  accessRecent: boolean;
+  accessAssetStore: boolean;
+  accessPremium: boolean;
+  accessControl: boolean;
+  sellInAssetStore: boolean;
+  publishApps: boolean;
+  premiumFeatures: boolean;
+}
+
+export type UserRole = 'user' | 'admin' | 'moderator' | 'developer' | 'shopkeeper';
+
 export interface UserData {
   uid?: string;
   name?: string;
   email?: string;
   photoUrl?: string;
-  role: 'user' | 'admin' | 'moderator' | 'developer' | 'shopkeeper';
+  role: UserRole;
   isVerifiedAuthor?: boolean;
   eplCoins: number;
   purchasedItems: string[];
   uploadedFiles?: { name: string; url: string }[];
+  permissions?: UserPermissions;
+  installedApps?: { [appId: string]: string }; // appId -> version
   createdAt?: string;
 }
 
@@ -69,6 +83,8 @@ interface AppState {
   setIsFrutigerAero: (enabled: boolean) => void;
   isAuthModalOpen: boolean;
   setIsAuthModalOpen: (isOpen: boolean) => void;
+  simulatedRole: UserRole | null;
+  setSimulatedRole: (role: UserRole | null) => void;
 }
 
 export const useStore = create<AppState>()(persist((set) => ({
@@ -123,6 +139,8 @@ export const useStore = create<AppState>()(persist((set) => ({
   setIsFrutigerAero: (enabled) => set({ isFrutigerAero: enabled }),
   isAuthModalOpen: false,
   setIsAuthModalOpen: (isOpen) => set({ isAuthModalOpen: isOpen }),
+  simulatedRole: null,
+  setSimulatedRole: (role) => set({ simulatedRole: role }),
 }), {
   name: 'app-storage',
   partialize: (state) => ({ 
@@ -139,6 +157,7 @@ export const useStore = create<AppState>()(persist((set) => ({
     selectedExtraCategory: state.selectedExtraCategory,
     userData: state.userData,
     isBackdoor: state.isBackdoor,
-    isFrutigerAero: state.isFrutigerAero
+    isFrutigerAero: state.isFrutigerAero,
+    simulatedRole: state.simulatedRole
   }),
 }));

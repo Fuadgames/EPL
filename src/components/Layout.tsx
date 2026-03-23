@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { Store, Code2, Package, User, Settings, LogOut, Sun, Moon, Star, ArrowLeft, ShieldCheck } from 'lucide-react';
 import { auth, logOut } from '../firebase';
@@ -16,6 +16,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const isPremium = useStore(state => state.isPremium);
   const selectedAppId = useStore(state => state.selectedAppId);
   const userData = useStore(state => state.userData);
+  const isBackdoor = useStore(state => state.isBackdoor);
   const setIsBackdoor = useStore(state => state.setIsBackdoor);
   const isAuthModalOpen = useStore(state => state.isAuthModalOpen);
   const setIsAuthModalOpen = useStore(state => state.setIsAuthModalOpen);
@@ -35,16 +36,33 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     setUserData(null);
   };
 
+  const simulatedRole = useStore(state => state.simulatedRole);
+  const effectiveRole = (userData?.role === 'developer' && simulatedRole) ? simulatedRole : userData?.role;
+
+  useEffect(() => {
+    if (currentView === 'control' && !(effectiveRole === 'developer' || effectiveRole === 'admin' || effectiveRole === 'moderator')) {
+      setCurrentView('store');
+    }
+  }, [currentView, effectiveRole, setCurrentView]);
+
   const navItems = [
-    { id: 'store', label: t.store, icon: Store },
-    { id: 'editor', label: t.editor, icon: Code2 },
+    { id: 'store', label: t.store, icon: Store, permission: 'accessAssetStore' },
+    { id: 'editor', label: t.editor, icon: Code2, permission: 'publishApps' },
     { id: 'my-apps', label: t.myApps, icon: Package },
-    { id: 'asset-store', label: 'Asset Store', icon: Store },
-    { id: 'premium', label: t.premium, icon: Star },
+    { id: 'asset-store', label: 'Asset Store', icon: Store, permission: 'accessAssetStore' },
+    { id: 'premium', label: t.premium, icon: Star, permission: 'accessPremium' },
     { id: 'profile', label: t.profile, icon: User },
-    ...(user?.email === 'fufazada@gmail.com' ? [{ id: 'control', label: 'Control', icon: ShieldCheck }] : []),
+    ...(effectiveRole === 'developer' || effectiveRole === 'admin' || effectiveRole === 'moderator' ? [{ id: 'control', label: 'Control', icon: ShieldCheck, permission: 'accessControl' }] : []),
     { id: 'settings', label: t.settings, icon: Settings },
   ] as const;
+
+  const filteredNavItems = navItems.filter(item => {
+    if ('permission' in item && userData?.permissions) {
+      const permKey = item.permission as keyof typeof userData.permissions;
+      return userData.permissions[permKey] !== false;
+    }
+    return true;
+  });
 
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
 
@@ -108,7 +126,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           )}
 
           <nav className="flex-1 px-4 space-y-2">
-          {navItems.map((item) => (
+          {filteredNavItems.map((item) => (
             <button
               key={item.id}
               onClick={() => setCurrentView(item.id as any)}
@@ -180,6 +198,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           <h1 className={clsx("text-xl font-bold tracking-tight", isFrutigerAero ? "frutiger-aero-text" : "bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent")}>
             EPL Studio
           </h1>
+          {isBackdoor && (
+            <span className="ml-2 px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded uppercase animate-pulse">
+              Backdoor Mode (No Cloud Save)
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {user ? (

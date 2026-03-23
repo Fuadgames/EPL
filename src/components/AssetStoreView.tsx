@@ -1,15 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
+import { translations } from '../lib/translations';
 import { clsx } from 'clsx';
 import { ShoppingBag, Plus, Search, Coins, CheckCircle, Package } from 'lucide-react';
 import { collection, query, onSnapshot, doc, updateDoc, increment, getDoc, setDoc } from 'firebase/firestore';
+import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { db } from '../firebase';
 import { StoreAsset } from '../types';
+
+const FRUTIGER_AERO_ASSET: StoreAsset = {
+  id: 'frutiger-aero',
+  title: 'Frutiger Aero',
+  description: 'Enable the classic 2000s glass and aqua aesthetic across the entire app.',
+  price: 500,
+  stock: 'infinite',
+  authorId: 'system',
+  authorName: 'EPL Studio',
+  type: 'style',
+  content: '{"theme": "frutiger-aero"}',
+  coverUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop',
+  createdAt: '2024-01-01T00:00:00.000Z',
+  visits: 0
+};
 
 export default function AssetStoreView() {
   const theme = useStore(state => state.theme);
   const userData = useStore(state => state.userData);
   const language = useStore(state => state.language);
+  const simulatedRole = useStore(state => state.simulatedRole);
+  const effectiveRole = (userData?.role === 'developer' && simulatedRole) ? simulatedRole : userData?.role;
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const setIsFrutigerAero = useStore(state => state.setIsFrutigerAero);
   const setIsAuthModalOpen = useStore(state => state.setIsAuthModalOpen);
@@ -17,6 +36,7 @@ export default function AssetStoreView() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'style' | 'mod' | 'editor'>('all');
+  const [activeSection, setActiveSection] = useState<'all' | 'featured' | 'recent'>('all');
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [purchasing, setPurchasing] = useState<string | null>(null);
 
@@ -41,25 +61,39 @@ export default function AssetStoreView() {
       return;
     }
 
-    if (userData.eplCoins < asset.price) {
-      alert(language === 'ru' ? "Недостаточно EPLCoins! Создавайте приложения или участвуйте в сообществе, чтобы заработать больше." : "Not enough EPLCoins! Create apps or participate in the community to earn more.");
-      return;
-    }
-
     setPurchasing(asset.id);
     try {
+      // Increment visits only for assets that exist in Firestore
+      if (asset.id !== 'frutiger-aero') {
+        try {
+          await updateDoc(doc(db, 'assets', asset.id), {
+            visits: increment(1)
+          });
+        } catch (e) {
+          // Ignore visit increment errors
+        }
+      }
+
       const userRef = doc(db, 'users', userData.uid);
       
       // Deduct coins and add to purchased items
       const currentPurchased = Array.isArray(userData.purchasedItems) ? userData.purchasedItems : [];
       
       if (currentPurchased.includes(asset.id)) {
-        alert(language === 'ru' ? "Вы уже купили этот ассет!" : "You already owned this asset!");
+        console.log(language === 'ru' ? "Вы уже купили этот ассет!" : "You already owned this asset!");
+        return;
+      }
+
+      const isFree = effectiveRole === 'admin';
+      const priceToPay = isFree ? 0 : asset.price;
+
+      if (userData.eplCoins < priceToPay) {
+        console.warn(language === 'ru' ? "Недостаточно EPLCoins!" : "Not enough EPLCoins!");
         return;
       }
 
       await updateDoc(userRef, {
-        eplCoins: increment(-asset.price),
+        eplCoins: increment(-priceToPay),
         purchasedItems: [...currentPurchased, asset.id]
       });
 
@@ -79,28 +113,13 @@ export default function AssetStoreView() {
         setIsFrutigerAero(true);
       }
 
-      alert(language === 'ru' ? "Покупка прошла успешно!" : "Purchase successful!");
-
+      console.log(language === 'ru' ? "Покупка прошла успешно!" : "Purchase successful!");
     } catch (error) {
+      const errInfo = handleFirestoreError(error, OperationType.WRITE, `users/${userData.uid}`);
       console.error("Error purchasing asset", error);
-      alert(language === 'ru' ? "Не удалось совершить покупку. Пожалуйста, попробуйте позже." : "Failed to purchase asset. Please try again later.");
     } finally {
       setPurchasing(null);
     }
-  };
-
-  const FRUTIGER_AERO_ASSET: StoreAsset = {
-    id: 'frutiger-aero',
-    title: 'Frutiger Aero',
-    description: 'Enable the classic 2000s glass and aqua aesthetic across the entire app.',
-    price: 500,
-    stock: 'infinite',
-    authorId: 'system',
-    authorName: 'EPL Studio',
-    type: 'style',
-    content: '{"theme": "frutiger-aero"}',
-    coverUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop',
-    createdAt: new Date().toISOString()
   };
 
   const allAssets = [
@@ -111,7 +130,21 @@ export default function AssetStoreView() {
   const filteredAssets = allAssets.filter(asset => {
     const matchesSearch = asset.title.toLowerCase().includes(search.toLowerCase()) || asset.description.toLowerCase().includes(search.toLowerCase());
     const matchesTab = activeTab === 'all' || asset.type === activeTab;
+    
+    if (activeSection === 'featured') {
+      return matchesSearch && matchesTab && asset.status === 'verified' && (asset.visits || 0) > 10;
+    }
+    if (activeSection === 'recent') {
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      return matchesSearch && matchesTab && new Date(asset.createdAt) > oneWeekAgo;
+    }
+    
     return matchesSearch && matchesTab;
+  }).sort((a, b) => {
+    if (activeSection === 'recent') return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    if (activeSection === 'featured') return (b.visits || 0) - (a.visits || 0);
+    return 0;
   });
 
   const canPublish = userData?.role === 'admin' || userData?.role === 'developer' || userData?.role === 'shopkeeper';
@@ -155,6 +188,22 @@ export default function AssetStoreView() {
                 isFrutigerAero ? "bg-white/60 border-white/40 text-blue-900 placeholder-blue-400 focus:ring-blue-400 backdrop-blur-md shadow-inner" : theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-zinc-100 focus:ring-emerald-500' : 'bg-white border-zinc-200 text-zinc-900 focus:ring-emerald-500'
               )}
             />
+          </div>
+          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 sm:pb-0">
+            {['all', 'featured', 'recent'].map((section) => (
+              <button
+                key={section}
+                onClick={() => setActiveSection(section as any)}
+                className={clsx(
+                  "px-4 py-2 rounded-xl font-medium capitalize whitespace-nowrap transition-colors",
+                  activeSection === section 
+                    ? isFrutigerAero ? 'bg-blue-500 text-white shadow-md' : 'bg-emerald-500 text-white' 
+                    : isFrutigerAero ? 'bg-white/40 text-blue-800 hover:bg-white/60 backdrop-blur-sm' : theme !== 'light' ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700' : 'bg-zinc-200 text-zinc-600 hover:bg-zinc-300'
+                )}
+              >
+                {translations[language][section as keyof typeof translations['en']] || section}
+              </button>
+            ))}
           </div>
           <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 sm:pb-0">
             {['all', 'style', 'mod', 'editor'].map((tab) => (
@@ -214,10 +263,10 @@ export default function AssetStoreView() {
                     <div className="flex items-center justify-between mt-auto pt-4 border-t border-zinc-500/20">
                       <div className="flex flex-col">
                         <span className={clsx("font-bold flex items-center gap-1", isFrutigerAero ? "text-blue-600" : "text-emerald-500")}>
-                          <Coins className="w-4 h-4" /> {asset.price}
+                          <Coins className="w-4 h-4" /> {effectiveRole === 'admin' ? 0 : asset.price}
                         </span>
                         <span className="text-xs text-zinc-500">
-                          {asset.stock === 'infinite' ? 'Infinite stock' : `${asset.stock} left`}
+                          {asset.visits || 0} {language === 'ru' ? 'визитов' : 'visits'} • {asset.stock === 'infinite' ? 'Infinite stock' : `${asset.stock} left`}
                         </span>
                       </div>
                       
@@ -261,6 +310,7 @@ export default function AssetStoreView() {
 function PublishModal({ onClose }: { onClose: () => void }) {
   const theme = useStore(state => state.theme);
   const userData = useStore(state => state.userData);
+  const language = useStore(state => state.language);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -275,8 +325,8 @@ function PublishModal({ onClose }: { onClose: () => void }) {
     if (!title || !description || !content || !userData?.uid) return;
     
     setPublishing(true);
+    const newAssetRef = doc(collection(db, 'assets'));
     try {
-      const newAssetRef = doc(collection(db, 'assets'));
       const newAsset: StoreAsset = {
         id: newAssetRef.id,
         title,
@@ -288,14 +338,17 @@ function PublishModal({ onClose }: { onClose: () => void }) {
         coverUrl,
         authorId: userData.uid,
         authorName: userData.name || 'Unknown',
-        createdAt: new Date().toISOString()
+        createdAt: new Date().toISOString(),
+        visits: 0
       };
 
       await setDoc(newAssetRef, newAsset);
       onClose();
+      alert(language === 'ru' ? "Ассет опубликован!" : "Asset published!");
     } catch (error) {
+      const errInfo = handleFirestoreError(error, OperationType.WRITE, `assets/${newAssetRef.id}`);
       console.error("Error publishing asset", error);
-      alert("Failed to publish asset.");
+      alert(language === 'ru' ? `Ошибка при публикации: ${errInfo.error}` : `Error publishing asset: ${errInfo.error}`);
     } finally {
       setPublishing(false);
     }

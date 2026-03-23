@@ -63,7 +63,7 @@ service cloud.firestore {
     // Domain Validators
     // ===============================================================
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'name', 'email', 'photoUrl', 'role', 'isVerifiedAuthor', 'eplCoins', 'purchasedItems', 'createdAt']) &&
+      return hasOnlyAllowedFields(['uid', 'name', 'email', 'photoUrl', 'role', 'isVerifiedAuthor', 'eplCoins', 'purchasedItems', 'uploadedFiles', 'permissions', 'installedApps', 'createdAt']) &&
              (!('uid' in data) || (data.uid is string && data.uid.size() > 0 && data.uid.size() < 128)) &&
              (!('name' in data) || (data.name is string && data.name.size() > 0 && data.name.size() < 100)) &&
              (!('email' in data) || (data.email is string && isValidEmail(data.email))) &&
@@ -72,11 +72,14 @@ service cloud.firestore {
              (!('isVerifiedAuthor' in data) || data.isVerifiedAuthor is bool) &&
              (!('eplCoins' in data) || (data.eplCoins is number && data.eplCoins >= 0)) &&
              (!('purchasedItems' in data) || (data.purchasedItems is list && data.purchasedItems.size() <= 1000)) &&
+             (!('uploadedFiles' in data) || (data.uploadedFiles is list && data.uploadedFiles.size() <= 100)) &&
+             (!('permissions' in data) || data.permissions is map) &&
+             (!('installedApps' in data) || data.installedApps is map) &&
              (!('createdAt' in data) || data.createdAt is string);
     }
     
     function isValidAsset(data) {
-      return hasOnlyAllowedFields(['id', 'title', 'description', 'coverUrl', 'price', 'stock', 'authorId', 'authorName', 'type', 'content', 'createdAt']) &&
+      return hasOnlyAllowedFields(['id', 'title', 'description', 'coverUrl', 'price', 'stock', 'authorId', 'authorName', 'type', 'content', 'visits', 'status', 'createdAt']) &&
              hasRequiredFields(['id', 'title', 'description', 'price', 'stock', 'authorId', 'authorName', 'type', 'content', 'createdAt']) &&
              data.id is string && data.id.size() > 0 && data.id.size() < 128 &&
              data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
@@ -88,11 +91,13 @@ service cloud.firestore {
              data.authorName is string && data.authorName.size() > 0 && data.authorName.size() < 100 &&
              data.type in ['style', 'mod', 'editor'] &&
              data.content is string && data.content.size() < 1000000 &&
+             (!('visits' in data) || data.visits is number) &&
+             (!('status' in data) || data.status is string) &&
              data.createdAt is string;
     }
 
     function isValidApp(data) {
-      return hasOnlyAllowedFields(['id', 'title', 'description', 'code', 'version', 'category', 'supportedPlatforms', 'windowsUrl', 'macosUrl', 'linuxUrl', 'apkUrl', 'authorId', 'authorName', 'downloads', 'likes', 'dislikes', 'rating', 'isVerified', 'comments', 'createdAt', 'updatedAt']) &&
+      return hasOnlyAllowedFields(['id', 'title', 'description', 'code', 'version', 'category', 'supportedPlatforms', 'windowsUrl', 'macosUrl', 'linuxUrl', 'apkUrl', 'iconUrl', 'screenshotUrl', 'bannerUrl', 'authorId', 'authorName', 'downloads', 'likes', 'dislikes', 'rating', 'isVerified', 'isPrivate', 'isAiGenerated', 'isLocked', 'unlockCode', 'allowCopy', 'originalAppId', 'originalAppName', 'events', 'comments', 'price', 'status', 'visits', 'createdAt', 'updatedAt']) &&
              hasRequiredFields(['id', 'title', 'description', 'code', 'version', 'category', 'authorId', 'authorName', 'downloads', 'likes', 'dislikes', 'rating', 'isVerified', 'createdAt', 'updatedAt']) &&
              data.id is string && data.id.size() > 0 && data.id.size() < 128 &&
              data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
@@ -105,6 +110,9 @@ service cloud.firestore {
              (!('macosUrl' in data) || (data.macosUrl is string && data.macosUrl.size() < 1000)) &&
              (!('linuxUrl' in data) || (data.linuxUrl is string && data.linuxUrl.size() < 1000)) &&
              (!('apkUrl' in data) || (data.apkUrl is string && data.apkUrl.size() < 1000)) &&
+             (!('iconUrl' in data) || (data.iconUrl is string && data.iconUrl.size() < 1000)) &&
+             (!('screenshotUrl' in data) || (data.screenshotUrl is string && data.screenshotUrl.size() < 1000)) &&
+             (!('bannerUrl' in data) || (data.bannerUrl is string && data.bannerUrl.size() < 1000)) &&
              data.authorId is string && data.authorId.size() > 0 && data.authorId.size() < 128 &&
              data.authorName is string && data.authorName.size() > 0 && data.authorName.size() < 100 &&
              data.downloads is number && data.downloads >= 0 &&
@@ -112,7 +120,18 @@ service cloud.firestore {
              data.dislikes is number && data.dislikes >= 0 &&
              data.rating is number && data.rating >= 0 && data.rating <= 5 &&
              data.isVerified is bool &&
+             (!('isPrivate' in data) || data.isPrivate is bool) &&
+             (!('isAiGenerated' in data) || data.isAiGenerated is bool) &&
+             (!('isLocked' in data) || data.isLocked is bool) &&
+             (!('unlockCode' in data) || data.unlockCode is string) &&
+             (!('allowCopy' in data) || data.allowCopy is bool) &&
+             (!('originalAppId' in data) || data.originalAppId is string) &&
+             (!('originalAppName' in data) || data.originalAppName is string) &&
+             (!('events' in data) || data.events is list) &&
              (!('comments' in data) || (data.comments is list && data.comments.size() <= 1000)) &&
+             (!('price' in data) || data.price is number) &&
+             (!('status' in data) || data.status is string) &&
+             (!('visits' in data) || data.visits is number) &&
              data.createdAt is string &&
              data.updatedAt is string;
     }
@@ -161,19 +180,6 @@ service cloud.firestore {
       allow delete: if isAdmin() || isDeveloper();
     }
     
-    match /assets/{assetId} {
-      allow read: if true;
-      allow create: if isAuthenticated() && isValidAsset(request.resource.data) && request.resource.data.authorId == request.auth.uid && (
-        isAdmin() || isDeveloper() || (getUserRole() == 'shopkeeper' && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isVerifiedAuthor', false) == true)
-      );
-      allow update: if isAuthenticated() && isValidAsset(request.resource.data) && (
-        (request.auth.uid == resource.data.authorId && request.resource.data.authorId == resource.data.authorId && request.resource.data.createdAt == resource.data.createdAt) ||
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock']) && (request.resource.data.stock == 'infinite' || (request.resource.data.stock is number && request.resource.data.stock >= 0))) ||
-        isAdmin()
-      );
-      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorId || isAdmin());
-    }
-
     match /apps/{appId} {
       allow read: if true;
       allow create: if isAuthenticated() && isValidApp(request.resource.data) && request.resource.data.authorId == request.auth.uid;
@@ -184,9 +190,12 @@ service cloud.firestore {
          request.resource.data.downloads == resource.data.downloads &&
          request.resource.data.likes == resource.data.likes &&
          request.resource.data.dislikes == resource.data.dislikes &&
-         request.resource.data.rating == resource.data.rating) ||
+         request.resource.data.rating == resource.data.rating &&
+         request.resource.data.isVerified == resource.data.isVerified) ||
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['downloads']) &&
          request.resource.data.downloads == resource.data.downloads + 1) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visits']) &&
+         request.resource.data.visits == resource.data.get('visits', 0) + 1) ||
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'dislikes', 'rating']) &&
          request.resource.data.likes is number && request.resource.data.likes >= 0 &&
          request.resource.data.dislikes is number && request.resource.data.dislikes >= 0 &&
@@ -196,6 +205,20 @@ service cloud.firestore {
         isAdmin() || isDeveloper()
       );
       allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorId || isAdmin() || isDeveloper());
+    }
+    
+    match /assets/{assetId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidAsset(request.resource.data) && request.resource.data.authorId == request.auth.uid && (
+        isAdmin() || isDeveloper() || (getUserRole() == 'shopkeeper' && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isVerifiedAuthor', false) == true)
+      );
+      allow update: if isAuthenticated() && isValidAsset(request.resource.data) && (
+        (request.auth.uid == resource.data.authorId && request.resource.data.authorId == resource.data.authorId && request.resource.data.createdAt == resource.data.createdAt) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock']) && (request.resource.data.stock == 'infinite' || (request.resource.data.stock is number && request.resource.data.stock >= 0))) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['visits']) && request.resource.data.visits == resource.data.get('visits', 0) + 1) ||
+        isAdmin()
+      );
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorId || isAdmin());
     }
     
     match /votes/{voteId} {
