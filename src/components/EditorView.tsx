@@ -780,7 +780,7 @@ export default function EditorView() {
       <div 
         ref={menuRef}
         className={clsx(
-          "flex items-center gap-1 px-2 py-1 border-b text-sm relative z-50 overflow-x-auto no-scrollbar whitespace-nowrap",
+          "flex items-center gap-1 px-2 py-1 border-b text-sm relative z-50 whitespace-nowrap",
           theme !== 'light' ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : 'bg-zinc-100 border-zinc-200 text-zinc-700'
         )}
       >
