@@ -11,6 +11,7 @@ interface VisualEditorProps {
 
 export default function VisualEditor({ code, onChange }: VisualEditorProps) {
   const theme = useStore(state => state.theme);
+  const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const lines = code.split('\n');
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const [cursorPos, setCursorPos] = useState<number | null>(null);
@@ -62,7 +63,11 @@ export default function VisualEditor({ code, onChange }: VisualEditorProps) {
 
   return (
     <div 
-      className={clsx("flex-1 h-full overflow-y-auto p-6 font-mono text-sm cursor-text", theme !== 'light' ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-50 text-zinc-800')}
+      className={clsx(
+        "flex-1 h-full overflow-y-auto p-6 font-mono text-sm cursor-text", 
+        isFrutigerAero && "frutiger-aero-bg",
+        !isFrutigerAero && (theme !== 'light' ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-50 text-zinc-800')
+      )}
       onClick={(e) => {
         if (e.target === e.currentTarget) {
           if (lines.length === 0 || lines[lines.length - 1] !== '') {
@@ -122,6 +127,7 @@ function VisualLine({
   text, index, entityNames, isFocused, initialCursorPos,
   onChange, onSplit, onMerge, onMoveFocus, onFocus, onBlur
 }: VisualLineProps) {
+  const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const [isEditing, setIsEditing] = useState(false);
   const [inputValue, setInputValue] = useState(text);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -299,7 +305,7 @@ function VisualLine({
   if (isEditing) {
     return (
       <div className="flex items-center gap-2 my-1 relative">
-        <span className="text-zinc-600 w-6 text-right select-none">{index + 1}</span>
+        <span className={clsx("w-6 text-right select-none", isFrutigerAero ? "text-blue-800/60" : "text-zinc-600")}>{index + 1}</span>
         <div className="flex-1 relative">
           <input
             ref={inputRef}
@@ -309,12 +315,15 @@ function VisualLine({
             onKeyUp={handleKeyUp}
             onClick={(e) => updateSuggestions(inputValue, e.currentTarget.selectionStart)}
             onBlur={handleBlur}
-            className="w-full bg-zinc-900 border border-emerald-500/50 rounded px-2 py-1 outline-none text-zinc-200 font-mono"
+            className={clsx(
+              "w-full border rounded px-2 py-1 outline-none font-mono",
+              isFrutigerAero ? "bg-white/50 border-blue-400 text-blue-900" : "bg-zinc-900 border-emerald-500/50 text-zinc-200"
+            )}
             autoComplete="off"
             spellCheck="false"
           />
           {suggestions.length > 0 && (
-            <div className="absolute top-full left-0 mt-1 w-64 bg-zinc-800 border border-zinc-700 rounded-lg shadow-xl z-50 overflow-hidden">
+            <div className={clsx("absolute top-full left-0 mt-1 w-64 border rounded-lg shadow-xl z-50 overflow-hidden", isFrutigerAero ? "bg-white/80 border-blue-400" : "bg-zinc-800 border-zinc-700")}>
               {suggestions.map((s, i) => {
                 const def = EPL_DICTIONARY[s];
                 return (
@@ -323,11 +332,13 @@ function VisualLine({
                     onMouseDown={(e) => { e.preventDefault(); applySuggestion(s); }}
                     className={clsx(
                       "px-3 py-1.5 cursor-pointer flex items-center justify-between text-sm",
-                      i === selectedIndex ? "bg-emerald-500/20 text-emerald-400" : "text-zinc-300 hover:bg-zinc-700/50"
+                      i === selectedIndex 
+                        ? (isFrutigerAero ? "bg-blue-500/30 text-blue-900" : "bg-emerald-500/20 text-emerald-400") 
+                        : (isFrutigerAero ? "text-blue-800 hover:bg-white/50" : "text-zinc-300 hover:bg-zinc-700/50")
                     )}
                   >
                     <span className="font-mono">{s}</span>
-                    <span className="text-xs opacity-50 capitalize">{def?.type || 'Entity'}</span>
+                    <span className={clsx("text-xs opacity-50 capitalize", isFrutigerAero ? "text-blue-800" : "")}>{def?.type || 'Entity'}</span>
                   </div>
                 );
               })}
@@ -343,19 +354,22 @@ function VisualLine({
   
   return (
     <div className="flex items-start gap-2 my-1 min-h-[28px] group">
-      <span className="text-zinc-600 w-6 text-right select-none pt-1">{index + 1}</span>
+      <span className={clsx("w-6 text-right select-none pt-1", isFrutigerAero ? "text-blue-800/60" : "text-zinc-600")}>{index + 1}</span>
       <div 
-        className="flex-1 flex flex-wrap items-center gap-x-1 gap-y-2 py-1 px-2 rounded hover:bg-zinc-800/30 cursor-text min-h-[28px]"
+        className={clsx(
+          "flex-1 flex flex-wrap items-center gap-x-1 gap-y-2 py-1 px-2 rounded cursor-text min-h-[28px]",
+          isFrutigerAero ? "hover:bg-white/30 text-blue-900" : "hover:bg-zinc-800/30 text-zinc-300"
+        )}
         onClick={() => onFocus()}
       >
         {parts.length === 1 && !parts[0] ? (
-          <span className="text-zinc-600 italic opacity-50">Empty line... (click to edit)</span>
+          <span className={clsx("italic opacity-50", isFrutigerAero ? "text-blue-800" : "text-zinc-600")}>Empty line... (click to edit)</span>
         ) : (
           parts.map((part, i) => {
             const mod = i % 4;
             if (mod === 0) {
               // Plain text
-              return part ? <span key={i} className="whitespace-pre">{part}</span> : null;
+              return part ? <span key={i} className={clsx("whitespace-pre", isFrutigerAero ? "text-blue-900" : "text-zinc-300")}>{part}</span> : null;
             } else if (mod === 1) {
               // Keyword
               const keyword = part;
@@ -391,7 +405,7 @@ function VisualLine({
               );
             } else if (mod === 3) {
               // Comment
-              return part ? <span key={i} className="text-zinc-500 italic">{part}</span> : null;
+              return part ? <span key={i} className={clsx("italic", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>{part}</span> : null;
             }
             return null;
           })

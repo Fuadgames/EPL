@@ -193,7 +193,8 @@ export default function AppDetailView() {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 sm:p-8">
       <div className={clsx(
         "w-full max-w-4xl h-full max-h-[90vh] rounded-3xl overflow-hidden flex flex-col relative shadow-2xl border",
-        theme !== 'light' ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200'
+        isFrutigerAero && "frutiger-aero-bg",
+        !isFrutigerAero && (theme !== 'light' ? 'bg-zinc-950 border-zinc-800' : 'bg-white border-zinc-200')
       )}>
         <button 
           onClick={() => setSelectedAppId(null)}

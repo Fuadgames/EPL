@@ -403,15 +403,28 @@ function PublishModal({ onClose }: { onClose: () => void }) {
 
           <div>
             <label className="block text-sm font-medium mb-1 opacity-70">Content (EPL Code or JSON)</label>
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className={clsx(
-                "w-full px-4 py-2 rounded-xl border focus:outline-none focus:ring-2 font-mono text-sm min-h-[150px]",
-                isFrutigerAero ? "bg-white/60 border-white/40 focus:ring-blue-400" : theme !== 'light' ? 'bg-zinc-800 border-zinc-700 focus:ring-emerald-500' : 'bg-zinc-50 border-zinc-200 focus:ring-emerald-500'
-              )}
-              placeholder={type === 'style' ? '{"colors": {...}}' : '// Write EPL code here...'}
-            />
+            {content ? (
+              <div className={clsx(
+                "w-full px-4 py-2 rounded-xl border font-mono text-sm min-h-[150px] flex items-center justify-between",
+                isFrutigerAero ? "bg-white/60 border-white/40" : theme !== 'light' ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-50 border-zinc-200'
+              )}>
+                <span className="truncate">EPL Code Added</span>
+                <button onClick={() => setContent('')} className="text-red-500 hover:text-red-600">Remove</button>
+              </div>
+            ) : (
+              <button
+                onClick={() => {
+                  // TODO: Implement workflow
+                  alert("Workflow not yet implemented");
+                }}
+                className={clsx(
+                  "w-full px-4 py-4 rounded-xl border-2 border-dashed font-medium transition-colors",
+                  isFrutigerAero ? "bg-white/30 border-blue-400 text-blue-900 hover:bg-white/50" : theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700' : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100'
+                )}
+              >
+                Add EPL Code
+              </button>
+            )}
           </div>
         </div>
 

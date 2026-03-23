@@ -41,31 +41,34 @@ export default function SettingsView() {
   return (
     <div className="h-full flex flex-col p-4 sm:p-8 overflow-y-auto">
       <div className="max-w-2xl mx-auto w-full">
-        <h1 className="text-3xl font-bold tracking-tight mb-8">Settings</h1>
+        <h1 className={clsx("text-3xl font-bold tracking-tight mb-8", isFrutigerAero ? "text-blue-900" : "")}>Settings</h1>
 
         <div className="space-y-6">
           {/* Appearance Section */}
           <section className={clsx(
             "p-6 rounded-3xl border",
+            isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm" :
             theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
           )}>
             <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 bg-emerald-500/10 text-emerald-500 rounded-lg">
+              <div className={clsx("p-2 rounded-lg", isFrutigerAero ? "bg-blue-500/20 text-blue-600 shadow-inner" : "bg-emerald-500/10 text-emerald-500")}>
                 <Sun className="w-5 h-5" />
               </div>
-              <h2 className="text-xl font-bold">Appearance</h2>
+              <h2 className={clsx("text-xl font-bold", isFrutigerAero ? "text-blue-900" : "")}>Appearance</h2>
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <p className="font-medium">Theme Mode</p>
-                <p className="text-sm text-zinc-500">Switch between light, dark, and gradient themes</p>
+                <p className={clsx("font-medium", isFrutigerAero ? "text-blue-900" : "")}>Theme Mode</p>
+                <p className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>Switch between light, dark, and gradient themes</p>
               </div>
               <div className="flex gap-2">
                 <button
                   onClick={() => setTheme('light')}
                   className={clsx(
                     "flex items-center gap-2 px-4 py-2 rounded-xl border transition-all",
+                    isFrutigerAero && theme === 'light' ? "bg-blue-500 text-white border-blue-600 shadow-md" :
+                    isFrutigerAero ? "bg-white/50 border-white/40 text-blue-800 hover:bg-white/70" :
                     theme === 'light'
                       ? 'bg-zinc-800 border-zinc-700 text-zinc-200'
                       : 'bg-zinc-100 border-zinc-200 text-zinc-800 hover:bg-zinc-200'
@@ -77,6 +80,8 @@ export default function SettingsView() {
                   onClick={() => setTheme('dark')}
                   className={clsx(
                     "flex items-center gap-2 px-4 py-2 rounded-xl border transition-all",
+                    isFrutigerAero && theme === 'dark' ? "bg-blue-500 text-white border-blue-600 shadow-md" :
+                    isFrutigerAero ? "bg-white/50 border-white/40 text-blue-800 hover:bg-white/70" :
                     theme === 'dark'
                       ? 'bg-zinc-800 border-zinc-700 text-zinc-200'
                       : 'bg-zinc-100 border-zinc-200 text-zinc-800 hover:bg-zinc-200'
@@ -89,6 +94,9 @@ export default function SettingsView() {
                   disabled={!isPremium}
                   className={clsx(
                     "flex items-center gap-2 px-4 py-2 rounded-xl border transition-all",
+                    isFrutigerAero && theme === 'gradient' ? "bg-blue-500 text-white border-blue-600 shadow-md" :
+                    isFrutigerAero && !isPremium ? "bg-white/30 border-white/20 text-blue-800/50 cursor-not-allowed" :
+                    isFrutigerAero ? "bg-white/50 border-white/40 text-blue-800 hover:bg-white/70" :
                     theme === 'gradient'
                       ? 'bg-gradient-to-r from-emerald-500 to-cyan-500 border-emerald-500 text-white'
                       : !isPremium 
@@ -103,13 +111,13 @@ export default function SettingsView() {
 
             {/* Frutiger Aero Toggle */}
             {userData?.purchasedItems?.includes('frutiger-aero') && (
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-6 pt-6 border-t border-zinc-800/50">
+              <div className={clsx("flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-6 pt-6 border-t", isFrutigerAero ? "border-white/30" : "border-zinc-800/50")}>
                 <div>
-                  <p className="font-medium flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-blue-500" />
+                  <p className={clsx("font-medium flex items-center gap-2", isFrutigerAero ? "text-blue-900" : "")}>
+                    <Sparkles className={clsx("w-4 h-4", isFrutigerAero ? "text-blue-500" : "text-blue-500")} />
                     Frutiger Aero Style
                   </p>
-                  <p className="text-sm text-zinc-500">Enable the classic glass and aqua aesthetic</p>
+                  <p className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>Enable the classic glass and aqua aesthetic</p>
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -142,26 +150,29 @@ export default function SettingsView() {
           {/* AI Section */}
           <section className={clsx(
             "p-6 rounded-3xl border",
+            isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm" :
             theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
           )}>
             <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 bg-purple-500/10 text-purple-500 rounded-lg">
+              <div className={clsx("p-2 rounded-lg", isFrutigerAero ? "bg-purple-500/20 text-purple-600 shadow-inner" : "bg-purple-500/10 text-purple-500")}>
                 <Bot className="w-5 h-5" />
               </div>
-              <h2 className="text-xl font-bold">AI Settings</h2>
+              <h2 className={clsx("text-xl font-bold", isFrutigerAero ? "text-blue-900" : "")}>AI Settings</h2>
             </div>
 
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium">Answer Mode</p>
-                  <p className="text-sm text-zinc-500">How the AI should output answers</p>
+                  <p className={clsx("font-medium", isFrutigerAero ? "text-blue-900" : "")}>Answer Mode</p>
+                  <p className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>How the AI should output answers</p>
                 </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => setAiAnswerMode('text')}
                     className={clsx(
                       "px-4 py-2 rounded-xl border transition-all",
+                      isFrutigerAero && aiAnswerMode === 'text' ? "bg-purple-500 text-white border-purple-600 shadow-md" :
+                      isFrutigerAero ? "bg-white/50 border-white/40 text-purple-800 hover:bg-white/70" :
                       aiAnswerMode === 'text'
                         ? 'bg-purple-500 text-white border-purple-600'
                         : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'
@@ -173,6 +184,8 @@ export default function SettingsView() {
                     onClick={() => setAiAnswerMode('console')}
                     className={clsx(
                       "px-4 py-2 rounded-xl border transition-all",
+                      isFrutigerAero && aiAnswerMode === 'console' ? "bg-purple-500 text-white border-purple-600 shadow-md" :
+                      isFrutigerAero ? "bg-white/50 border-white/40 text-purple-800 hover:bg-white/70" :
                       aiAnswerMode === 'console'
                         ? 'bg-purple-500 text-white border-purple-600'
                         : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'
@@ -185,18 +198,18 @@ export default function SettingsView() {
 
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="font-medium">AI Changes</p>
-                  <p className="text-sm text-zinc-500">Allow AI to modify app entities</p>
+                  <p className={clsx("font-medium", isFrutigerAero ? "text-blue-900" : "")}>AI Changes</p>
+                  <p className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>Allow AI to modify app entities</p>
                 </div>
                 <button
                   onClick={() => setAiChangesEnabled(!aiChangesEnabled)}
                   className={clsx(
                     "w-12 h-6 rounded-full transition-all relative",
-                    aiChangesEnabled ? 'bg-purple-500' : 'bg-zinc-700'
+                    aiChangesEnabled ? 'bg-purple-500' : (isFrutigerAero ? 'bg-white/50 border border-white/60' : 'bg-zinc-700')
                   )}
                 >
                   <div className={clsx(
-                    "w-4 h-4 rounded-full bg-white absolute top-1 transition-all",
+                    "w-4 h-4 rounded-full bg-white absolute top-1 transition-all shadow-sm",
                     aiChangesEnabled ? 'left-7' : 'left-1'
                   )} />
                 </button>
@@ -208,25 +221,27 @@ export default function SettingsView() {
           {user && (
             <section className={clsx(
               "p-6 rounded-3xl border",
+              isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm" :
               theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
             )}>
               <div className="flex items-center gap-3 mb-6">
-                <div className="p-2 bg-blue-500/10 text-blue-500 rounded-lg">
+                <div className={clsx("p-2 rounded-lg", isFrutigerAero ? "bg-blue-500/20 text-blue-600 shadow-inner" : "bg-blue-500/10 text-blue-500")}>
                   <User className="w-5 h-5" />
                 </div>
-                <h2 className="text-xl font-bold">Account Settings</h2>
+                <h2 className={clsx("text-xl font-bold", isFrutigerAero ? "text-blue-900" : "")}>Account Settings</h2>
               </div>
 
               <div className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-zinc-500 mb-1">Display Name</label>
+                  <label className={clsx("block text-sm font-medium mb-1", isFrutigerAero ? "text-blue-800/80" : "text-zinc-500")}>Display Name</label>
                   <input
                     type="text"
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
                     className={clsx(
-                      "w-full px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500/50 transition-all",
-                      theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white' : 'bg-zinc-50 border-zinc-200 text-zinc-900'
+                      "w-full px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 transition-all",
+                      isFrutigerAero ? "bg-white/60 border-white/40 text-blue-900 focus:ring-blue-400 shadow-inner" :
+                      theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white focus:ring-emerald-500/50' : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:ring-emerald-500/50'
                     )}
                     placeholder="Enter your name"
                   />
@@ -235,7 +250,9 @@ export default function SettingsView() {
                 {status && (
                   <div className={clsx(
                     "flex items-center gap-2 p-3 rounded-xl text-sm",
-                    status.type === 'success' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-red-500/10 text-red-500'
+                    status.type === 'success' 
+                      ? (isFrutigerAero ? 'bg-emerald-500/20 text-emerald-700 border border-emerald-500/30' : 'bg-emerald-500/10 text-emerald-500') 
+                      : (isFrutigerAero ? 'bg-red-500/20 text-red-700 border border-red-500/30' : 'bg-red-500/10 text-red-500')
                   )}>
                     {status.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
                     {status.message}
@@ -245,7 +262,10 @@ export default function SettingsView() {
                 <button
                   onClick={handleUpdateProfile}
                   disabled={isUpdating || displayName === user.displayName}
-                  className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 disabled:hover:bg-emerald-500 text-white rounded-xl font-medium transition-all"
+                  className={clsx(
+                    "w-full flex items-center justify-center gap-2 px-6 py-3 disabled:opacity-50 rounded-xl font-medium transition-all",
+                    isFrutigerAero ? "frutiger-aero-button" : "bg-emerald-500 hover:bg-emerald-600 disabled:hover:bg-emerald-500 text-white"
+                  )}
                 >
                   <Save className="w-5 h-5" />
                   {isUpdating ? 'Updating...' : 'Save Changes'}
@@ -255,7 +275,7 @@ export default function SettingsView() {
           )}
 
           {!user && (
-            <div className="text-center p-8 text-zinc-500 italic">
+            <div className={clsx("text-center p-8 italic", isFrutigerAero ? "text-blue-800/60" : "text-zinc-500")}>
               Sign in to access account settings.
             </div>
           )}

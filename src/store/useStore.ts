@@ -61,8 +61,8 @@ interface AppState {
   setLastResetTime: (time: string) => void;
   computerStyle: boolean;
   setComputerStyle: (enabled: boolean) => void;
-  selectedExtraCategory: 'Normal' | 'OS' | null;
-  setSelectedExtraCategory: (category: 'Normal' | 'OS' | null) => void;
+  selectedExtraCategory: 'Normal' | 'OS' | 'Asset' | null;
+  setSelectedExtraCategory: (category: 'Normal' | 'OS' | 'Asset' | null) => void;
   isBackdoor: boolean;
   setIsBackdoor: (isBackdoor: boolean) => void;
   isFrutigerAero: boolean;

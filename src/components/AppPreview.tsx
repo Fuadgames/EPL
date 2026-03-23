@@ -5,14 +5,15 @@ import { motion } from 'framer-motion';
 interface AppPreviewProps {
   entities: any;
   handleUIEvent: (eventName: string, target?: string) => void;
+  isFullScreen?: boolean;
 }
 
-export default function AppPreview({ entities, handleUIEvent }: AppPreviewProps) {
+export default function AppPreview({ entities, handleUIEvent, isFullScreen }: AppPreviewProps) {
   return (
     <div 
-      className="w-full h-full relative overflow-hidden"
+      className={clsx("w-full h-full relative overflow-hidden", isFullScreen && "fixed inset-0 z-[100] w-screen h-screen")}
       style={{
-        backgroundColor: (Object.values(entities).find((e: any) => e.type === 'world') as any)?.background || '#ffffff',
+        backgroundColor: isFullScreen ? '#ffffff' : ((Object.values(entities).find((e: any) => e.type === 'world') as any)?.background || '#ffffff'),
         backgroundImage: (Object.values(entities).find((e: any) => e.type === 'world') as any)?.backgroundImage ? `url(${(Object.values(entities).find((e: any) => e.type === 'world') as any)?.backgroundImage})` : 'none',
         backgroundSize: 'cover',
         backgroundPosition: 'center'

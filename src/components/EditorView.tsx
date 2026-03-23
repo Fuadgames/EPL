@@ -5,7 +5,7 @@ import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'firebase/firestore';
 import { EPLInterpreter } from '../lib/epl-interpreter';
 import { EPL_DICTIONARY } from '../lib/epl-dictionary';
-import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload } from 'lucide-react';
+import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize } from 'lucide-react';
 import { clsx } from 'clsx';
 import { GoogleGenAI } from "@google/genai";
 import VisualEditor from './VisualEditor';
@@ -18,6 +18,7 @@ const DEFAULT_CODE = ``;
 
 export default function EditorView() {
   const theme = useStore(state => state.theme);
+  const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
   const setUserData = useStore(state => state.setUserData);
@@ -56,6 +57,17 @@ export default function EditorView() {
   const [allowCopy, setAllowCopy] = useState(true);
   const [originalAppId, setOriginalAppId] = useState<string | null>(null);
   const [originalAppName, setOriginalAppName] = useState<string | null>(null);
+  const [isFullScreen, setIsFullScreen] = useState(false);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsFullScreen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
   const [isMobilePlayerOpen, setIsMobilePlayerOpen] = useState(false);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
@@ -210,11 +222,34 @@ export default function EditorView() {
     }
   }, []);
 
-  const confirmNewFile = (category: 'Normal' | 'OS') => {
+  const confirmNewFile = (category: 'Normal' | 'OS' | 'Asset') => {
     setCode('');
     setEditingAppId(null);
     setSelectedExtraCategory(category);
     setShowExtraCategoryModal(false);
+    
+    if (category === 'Asset') {
+      setUiState({
+        entities: {
+          'world': { id: 'world', type: 'world', name: 'world', background: '#09090b' },
+          // Sidebar
+          'sidebar': { id: 'sidebar', type: 'block', name: 'sidebar', x: 0, y: 0, width: 256, height: 600, color: '#18181b' },
+          'title': { id: 'title', type: 'text_label', name: 'Title', text: 'EPL Studio', x: 20, y: 30, color: '#10b981', size: 24 },
+          'subtitle': { id: 'subtitle', type: 'text_label', name: 'Subtitle', text: 'Easy Programming Language', x: 20, y: 60, color: '#a1a1aa', size: 12 },
+          'nav_store': { id: 'nav_store', type: 'button', name: 'Store', text: 'Store', x: 20, y: 100, color: '#27272a', width: 216 },
+          'nav_editor': { id: 'nav_editor', type: 'button', name: 'Editor', text: 'Editor', x: 20, y: 140, color: '#27272a', width: 216 },
+          'nav_myapps': { id: 'nav_myapps', type: 'button', name: 'MyApps', text: 'My Apps', x: 20, y: 180, color: '#27272a', width: 216 },
+          'nav_asset': { id: 'nav_asset', type: 'button', name: 'AssetStore', text: 'Asset Store', x: 20, y: 220, color: '#27272a', width: 216 },
+          'fullscreen_button': { id: 'fullscreen_button', type: 'button', name: 'FullScreen', text: 'Full Screen', x: 20, y: 260, color: '#3b82f6', width: 216 },
+          // Main Content
+          'main': { id: 'main', type: 'block', name: 'main', x: 256, y: 0, width: 544, height: 600, color: '#09090b' },
+          'toolbar': { id: 'toolbar', type: 'block', name: 'toolbar', x: 256, y: 0, width: 544, height: 50, color: '#18181b' },
+          'run_button': { id: 'run_button', type: 'button', name: 'RunButton', text: 'Run', x: 270, y: 10, color: '#10b981', width: 80 },
+          'main_title': { id: 'main_title', type: 'text_label', name: 'MainTitle', text: 'Welcome to EPL Studio', x: 276, y: 80, color: '#ffffff', size: 20 },
+          'main_desc': { id: 'main_desc', type: 'text_label', name: 'MainDesc', text: 'Start building your app by adding assets.', x: 276, y: 110, color: '#a1a1aa', size: 14 }
+        }
+      });
+    }
   };
 
   const handleBuyStoreItem = async (itemId: string, price: number) => {
@@ -528,6 +563,27 @@ export default function EditorView() {
       
       // Final delay before running
       await new Promise(resolve => setTimeout(resolve, 1000));
+    } else if (selectedExtraCategory === 'Asset') {
+      // EPL Studio Clone UI
+      setUiState({
+        entities: {
+          'world': { id: 'world', type: 'world', name: 'world', background: '#09090b' },
+          // Sidebar
+          'sidebar': { id: 'sidebar', type: 'block', name: 'sidebar', x: 0, y: 0, width: 256, height: 600, color: '#18181b' },
+          'title': { id: 'title', type: 'text_label', name: 'Title', text: 'EPL Studio', x: 20, y: 30, color: '#10b981', size: 24 },
+          'nav_store': { id: 'nav_store', type: 'button', name: 'Store', text: 'Store', x: 20, y: 100, color: '#27272a', width: 216 },
+          'nav_editor': { id: 'nav_editor', type: 'button', name: 'Editor', text: 'Editor', x: 20, y: 140, color: '#27272a', width: 216 },
+          'nav_myapps': { id: 'nav_myapps', type: 'button', name: 'MyApps', text: 'My Apps', x: 20, y: 180, color: '#27272a', width: 216 },
+          'nav_asset': { id: 'nav_asset', type: 'button', name: 'AssetStore', text: 'Asset Store', x: 20, y: 220, color: '#27272a', width: 216 },
+          'fullscreen_button': { id: 'fullscreen_button', type: 'button', name: 'FullScreen', text: 'Full Screen', x: 20, y: 260, color: '#3b82f6', width: 216 },
+          // Main Content
+          'main': { id: 'main', type: 'block', name: 'main', x: 256, y: 0, width: 544, height: 600, color: '#09090b' },
+          'toolbar': { id: 'toolbar', type: 'block', name: 'toolbar', x: 256, y: 0, width: 544, height: 50, color: '#18181b' },
+          'run_button': { id: 'run_button', type: 'button', name: 'RunButton', text: 'Run', x: 270, y: 10, color: '#10b981', width: 80 },
+          'main_title': { id: 'main_title', type: 'text_label', name: 'MainTitle', text: 'Welcome to EPL Studio', x: 276, y: 80, color: '#ffffff', size: 20 },
+          'main_desc': { id: 'main_desc', type: 'text_label', name: 'MainDesc', text: 'Start building your app by adding assets.', x: 276, y: 110, color: '#a1a1aa', size: 14 }
+        }
+      });
     }
     
     interpreterRef.current = new EPLInterpreter(
@@ -769,19 +825,43 @@ export default function EditorView() {
       setIsPremium(true);
       return;
     }
+    
+    // Handle navigation for Asset UI clone
+    if (eventName === 'clicked?') {
+      if (target === 'Store') {
+        useStore.getState().setCurrentView('store');
+        return;
+      } else if (target === 'Editor') {
+        useStore.getState().setCurrentView('editor');
+        return;
+      } else if (target === 'MyApps') {
+        useStore.getState().setCurrentView('my-apps');
+        return;
+      } else if (target === 'AssetStore') {
+        useStore.getState().setCurrentView('asset-store');
+        return;
+      } else if (target === 'FullScreen') {
+        setIsFullScreen(!isFullScreen);
+        return;
+      } else if (target === 'RunButton') {
+        handleRun();
+        return;
+      }
+    }
+
     if (interpreterRef.current && isRunning) {
       interpreterRef.current.triggerEvent(eventName, target);
     }
-  }, [isRunning, setIsPremium]);
+  }, [isRunning, setIsPremium, handleRun, isFullScreen, setIsFullScreen]);
 
   return (
-    <div className={clsx("h-full flex flex-col overflow-hidden", computerStyle && "font-mono bg-zinc-950 text-emerald-500")}>
+    <div className={clsx("h-full flex flex-col overflow-hidden", isFrutigerAero && "frutiger-aero-bg", computerStyle && "font-mono bg-zinc-950 text-emerald-500")}>
       {/* Menu Bar */}
       <div 
         ref={menuRef}
         className={clsx(
           "flex items-center gap-1 px-2 py-1 border-b text-sm relative z-50 whitespace-nowrap",
-          theme !== 'light' ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : 'bg-zinc-100 border-zinc-200 text-zinc-700'
+          isFrutigerAero ? "frutiger-aero-glass" : (theme !== 'light' ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : 'bg-zinc-100 border-zinc-200 text-zinc-700')
         )}
       >
         <div className="relative">
@@ -792,14 +872,14 @@ export default function EditorView() {
             {t.file}
           </button>
           {activeMenu === 'file' && (
-            <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl py-1">
-              <button onClick={handleNewFile} className="w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2">
+            <div className={clsx("absolute top-full left-0 mt-1 w-48 border rounded-lg shadow-xl py-1 z-50", isFrutigerAero ? "frutiger-aero-glass" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800")}>
+              <button onClick={handleNewFile} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
                 <FileText className="w-4 h-4" /> {t.newFile}
               </button>
-              <button onClick={handleSaveAs} className="w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2">
+              <button onClick={handleSaveAs} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
                 <Save className="w-4 h-4" /> {t.saveAs} (.epl)
               </button>
-              <button onClick={handleLoadAs} className="w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2">
+              <button onClick={handleLoadAs} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
                 <UploadCloud className="w-4 h-4" /> {t.loadAs} (.epl)
               </button>
               <button onClick={() => { 
@@ -807,14 +887,14 @@ export default function EditorView() {
                   else setShowPublishModal(true); 
                   setActiveMenu(null); 
                 }} 
-                className="w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2"
+                className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}
               >
                 <UploadCloud className="w-4 h-4" /> {t.publish}
               </button>
               <button 
                 onClick={handleSaveLocally}
                 disabled={isSavingLocally}
-                className="w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2"
+                className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}
               >
                 <Save className="w-4 h-4" /> {isSavingLocally ? t.publishing : t.saveLocally}
               </button>
@@ -831,8 +911,8 @@ export default function EditorView() {
             {t.edit}
           </button>
           {activeMenu === 'edit' && (
-            <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl py-1">
-              <button onClick={() => { setCode(''); setActiveMenu(null); }} className="w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2 text-red-500">
+            <div className={clsx("absolute top-full left-0 mt-1 w-48 border rounded-lg shadow-xl py-1 z-50", isFrutigerAero ? "frutiger-aero-glass" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800")}>
+              <button onClick={() => { setCode(''); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2 text-red-500", isFrutigerAero ? "hover:bg-white/50" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
                 <Trash2 className="w-4 h-4" /> {t.clearCode}
               </button>
             </div>
@@ -847,14 +927,14 @@ export default function EditorView() {
             {t.help}
           </button>
           {activeMenu === 'help' && (
-            <div className="absolute top-full left-0 mt-1 w-48 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl py-1">
-              <button onClick={() => { setShowHelpModal(true); setActiveMenu(null); }} className="w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2">
+            <div className={clsx("absolute top-full left-0 mt-1 w-48 border rounded-lg shadow-xl py-1 z-50", isFrutigerAero ? "frutiger-aero-glass" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800")}>
+              <button onClick={() => { setShowHelpModal(true); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
                 <HelpCircle className="w-4 h-4" /> {t.syntaxGuide}
               </button>
-              <button onClick={() => { setShowTutorial(true); setActiveMenu(null); }} className="w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2">
+              <button onClick={() => { setShowTutorial(true); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
                 <Play className="w-4 h-4" /> {t.startTutorial}
               </button>
-              <button onClick={() => { setShowTutorial(true); setActiveMenu(null); }} className="w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 flex items-center gap-2">
+              <button onClick={() => { setShowTutorial(true); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
                 <Play className="w-4 h-4" /> {language === 'ru' ? 'Продолжить обучение' : 'Continue Tutorial'}
               </button>
             </div>
@@ -869,11 +949,11 @@ export default function EditorView() {
             <Languages className="w-4 h-4" />
           </button>
           {activeMenu === 'lang' && (
-            <div className="absolute top-full left-0 mt-1 w-32 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-xl py-1">
-              <button onClick={() => { setLanguage('en'); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800", language === 'en' && "text-emerald-500 font-bold")}>
+            <div className={clsx("absolute top-full left-0 mt-1 w-32 border rounded-lg shadow-xl py-1 z-50", isFrutigerAero ? "frutiger-aero-glass" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800")}>
+              <button onClick={() => { setLanguage('en'); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800", language === 'en' && "text-emerald-500 font-bold")}>
                 English
               </button>
-              <button onClick={() => { setLanguage('ru'); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 hover:bg-zinc-100 dark:hover:bg-zinc-800", language === 'ru' && "text-emerald-500 font-bold")}>
+              <button onClick={() => { setLanguage('ru'); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800", language === 'ru' && "text-emerald-500 font-bold")}>
                 Русский
               </button>
             </div>
@@ -884,27 +964,37 @@ export default function EditorView() {
       {/* Toolbar */}
       <div className={clsx(
         "flex items-center justify-between gap-4 px-4 sm:px-6 py-4 border-b overflow-x-auto no-scrollbar",
+        isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm" :
         theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
       )}>
         <div className="flex items-center gap-4 min-w-max">
-          <h2 className="text-xl font-bold flex items-center gap-2">
-            <Code2 className="w-5 h-5 text-emerald-500" />
+          <h2 className={clsx("text-xl font-bold flex items-center gap-2", isFrutigerAero ? "text-blue-900" : "")}>
+            <Code2 className={clsx("w-5 h-5", isFrutigerAero ? "text-blue-600" : "text-emerald-500")} />
             <span className="hidden sm:inline">EPL Editor</span>
           </h2>
-          <div className="h-6 w-px bg-zinc-700/50 mx-2 hidden sm:block"></div>
+          <div className={clsx("h-6 w-px mx-2 hidden sm:block", isFrutigerAero ? "bg-blue-800/20" : "bg-zinc-700/50")}></div>
           <div className="flex items-center gap-2">
             {!isRunning ? (
-              <button onClick={handleRun} className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap">
+              <button onClick={handleRun} className={clsx(
+                "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+                isFrutigerAero ? "frutiger-aero-button" : "bg-emerald-500 hover:bg-emerald-600 text-white"
+              )}>
                 <Play className="w-4 h-4" /> {t.run}
               </button>
             ) : (
-              <button onClick={handleStop} className="flex items-center gap-2 px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap">
+              <button onClick={handleStop} className={clsx(
+                "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+                isFrutigerAero ? "bg-red-500/80 hover:bg-red-500 text-white border border-red-500/50 shadow-sm backdrop-blur-sm" : "bg-red-500 hover:bg-red-600 text-white"
+              )}>
                 <StopCircle className="w-4 h-4" /> {t.stop}
               </button>
             )}
             <button 
               onClick={handleRestart} 
-              className="flex items-center justify-center p-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl transition-colors"
+              className={clsx(
+                "flex items-center justify-center p-1.5 rounded-xl transition-colors",
+                isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
+              )}
               title={language === 'ru' ? 'Перезагрузить' : 'Restart'}
             >
               <RefreshCw className="w-4 h-4" />
@@ -915,14 +1005,20 @@ export default function EditorView() {
         <div className="flex items-center gap-3 min-w-max">
           <button 
             onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
-            className="sm:hidden px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap"
+            className={clsx(
+              "sm:hidden px-3 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+              isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
+            )}
           >
             {isRightPanelOpen ? 'Hide UI' : 'Show UI'}
           </button>
           <button 
             onClick={() => imageInputRef.current?.click()}
             disabled={isUploading}
-            className="flex items-center gap-2 px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap"
+            className={clsx(
+              "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+              isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
+            )}
           >
             <UploadCloud className="w-4 h-4" /> <span className="hidden sm:inline">{isUploading ? t.publishing : t.uploadFile}</span>
           </button>
@@ -930,20 +1026,29 @@ export default function EditorView() {
           {user && (
             <button 
               onClick={() => setShowPublishModal(true)}
-              className="flex items-center gap-2 px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap"
+              className={clsx(
+                "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+                isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
+              )}
             >
               <UploadCloud className="w-4 h-4" /> <span className="hidden sm:inline">{t.publish}</span>
             </button>
           )}
           <button 
             onClick={() => setShowEditorStoreModal(true)}
-            className="flex items-center gap-2 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap"
+            className={clsx(
+              "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+              isFrutigerAero ? "frutiger-aero-button" : "bg-emerald-500 hover:bg-emerald-600 text-white"
+            )}
           >
             <Sparkles className="w-4 h-4" /> <span className="hidden sm:inline">Editor Store</span>
           </button>
           <button 
             onClick={() => setShowFileControlModal(true)}
-            className="flex items-center gap-2 px-4 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap"
+            className={clsx(
+              "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+              isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
+            )}
           >
             <FolderOpen className="w-4 h-4" /> <span className="hidden sm:inline">Image Control</span>
           </button>
@@ -966,7 +1071,7 @@ export default function EditorView() {
               )}
             </div>
           </div>
-          <div className="flex-1 relative overflow-hidden">
+          <div className={clsx("flex-1 relative overflow-hidden", isFullScreen && "fixed inset-0 z-[100] bg-black")}>
             <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} />
           </div>
         </div>
@@ -974,72 +1079,101 @@ export default function EditorView() {
 
       {/* Main Editor Area */}
       <div className="flex-1 flex flex-col sm:flex-row overflow-y-auto sm:overflow-hidden">
-        {/* Code Input */}
-        <div className={clsx(
-          "flex-1 flex flex-col sm:border-r min-h-[50vh] sm:min-h-0",
-          theme !== 'light' ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-zinc-50'
-        )}>
-          <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            <VisualEditor code={code} onChange={handleCodeChange} />
-          </div>
-          <AIAgent 
-            onCodeGenerated={handleCodeGenerated}
-            currentCode={code} 
-            onSave={handleSaveLocally}
-          />
-        </div>
+        {!isFullScreen && (
+          <>
+            {/* Code Input */}
+            <div className={clsx(
+              "flex-1 flex flex-col sm:border-r min-h-[50vh] sm:min-h-0",
+              isFrutigerAero ? "bg-white/20 border-white/30 backdrop-blur-sm" :
+              theme !== 'light' ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-zinc-50'
+            )}>
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+                <VisualEditor code={code} onChange={handleCodeChange} />
+              </div>
+              <AIAgent 
+                onCodeGenerated={handleCodeGenerated}
+                currentCode={code} 
+                onSave={handleSaveLocally}
+              />
+            </div>
 
-        {/* Resize Handle */}
-        <div 
-          className="hidden sm:block w-2 hover:w-3 bg-zinc-800 hover:bg-emerald-500 cursor-col-resize transition-all z-20"
-          onMouseDown={handleMouseDown}
-        />
+            {/* Resize Handle */}
+            <div 
+              className={clsx(
+                "hidden sm:block w-2 hover:w-3 cursor-col-resize transition-all z-20",
+                isFrutigerAero ? "bg-blue-500/20 hover:bg-blue-500/50 border-x border-white/20" : "bg-zinc-800 hover:bg-emerald-500"
+              )}
+              onMouseDown={handleMouseDown}
+            />
+          </>
+        )}
 
         {/* Right Panel: UI Preview & Console */}
         <div 
           className={clsx(
-            "w-full sm:flex flex-col bg-zinc-900/20 min-h-[50vh] sm:min-h-0 border-t sm:border-t-0 border-zinc-800",
-            !isRightPanelOpen && "hidden sm:flex"
+            "w-full sm:flex flex-col min-h-[50vh] sm:min-h-0 border-t sm:border-t-0",
+            isFrutigerAero ? "bg-white/30 border-white/30 backdrop-blur-md" : "bg-zinc-900/20 border-zinc-800",
+            !isRightPanelOpen && "hidden sm:flex",
+            isFullScreen && "fixed inset-0 z-[100] w-screen h-screen border-0"
           )}
-          style={{ width: typeof window !== 'undefined' && window.innerWidth > 640 ? rightPanelWidth : undefined }}
+          style={{ width: isFullScreen ? '100%' : (typeof window !== 'undefined' && window.innerWidth > 640 ? rightPanelWidth : undefined) }}
         >
           {/* UI Preview */}
           <div className={clsx(
             "flex-1 flex flex-col border-b relative",
-            theme !== 'light' ? 'border-zinc-800' : 'border-zinc-200'
+            isFrutigerAero ? "border-white/30" :
+            theme !== 'light' ? 'border-zinc-800' : 'border-zinc-200',
+            isFullScreen && "border-0"
           )}>
-            <div className="px-4 py-2 text-xs font-medium uppercase tracking-wider flex items-center gap-2 text-zinc-500 border-b border-zinc-800/50 z-10 bg-zinc-900/80 backdrop-blur-sm">
-              <LayoutTemplate className="w-3.5 h-3.5" /> {selectedExtraCategory === 'OS' ? 'AllVM' : t.appUi}
+            <div className={clsx(
+              "px-4 py-2 text-xs font-medium uppercase tracking-wider flex items-center justify-between border-b z-10",
+              isFrutigerAero ? "bg-white/50 border-white/30 text-blue-900 backdrop-blur-md" : "text-zinc-500 border-zinc-800/50 bg-zinc-900/80 backdrop-blur-sm",
+              isFullScreen && "hidden"
+            )}>
+              <div className="flex items-center gap-2">
+                <LayoutTemplate className="w-3.5 h-3.5" /> {selectedExtraCategory === 'OS' ? 'AllVM' : t.appUi}
+              </div>
+              <button onClick={() => setIsFullScreen(!isFullScreen)} className="p-1 rounded hover:bg-zinc-800">
+                {isFullScreen ? <Minimize className="w-3.5 h-3.5" /> : <Maximize className="w-3.5 h-3.5" />}
+              </button>
             </div>
             <div 
               className="flex-1 relative overflow-hidden"
             >
               {Object.keys(uiState.entities).length === 0 ? (
-                <div className="h-full flex items-center justify-center text-zinc-500 text-sm italic">
+                <div className={clsx("h-full flex items-center justify-center text-sm italic", isFrutigerAero ? "text-blue-800/60" : "text-zinc-500")}>
                   {t.noEntities}
                 </div>
               ) : (
-                <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} />
+                <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} isFullScreen={isFullScreen} />
               )}
             </div>
           </div>
 
           {/* Console */}
-          <div className="h-64 flex flex-col bg-black/90 text-zinc-300 font-mono text-xs">
-            <div className="px-4 py-2 flex items-center gap-2 border-b border-zinc-800 text-zinc-500 uppercase tracking-wider font-sans font-medium">
-              <Terminal className="w-3.5 h-3.5" /> {t.console}
+          {!isFullScreen && (
+            <div className={clsx(
+              "h-64 flex flex-col font-mono text-xs",
+              isFrutigerAero ? "bg-black/70 text-green-400 backdrop-blur-md" : "bg-black/90 text-zinc-300"
+            )}>
+              <div className={clsx(
+                "px-4 py-2 flex items-center gap-2 border-b uppercase tracking-wider font-sans font-medium",
+                isFrutigerAero ? "border-white/20 text-green-500 bg-black/50" : "border-zinc-800 text-zinc-500"
+              )}>
+                <Terminal className="w-3.5 h-3.5" /> {t.console}
+              </div>
+              <div className="flex-1 p-4 overflow-y-auto">
+                {output.length === 0 ? (
+                  <div className={clsx("italic", isFrutigerAero ? "text-green-700/50" : "text-zinc-600")}>{t.ready}</div>
+                ) : (
+                  output.map((line, i) => (
+                    <div key={i} className="mb-1">{line}</div>
+                  ))
+                )}
+                <div ref={outputEndRef} />
+              </div>
             </div>
-            <div className="flex-1 p-4 overflow-y-auto">
-              {output.length === 0 ? (
-                <div className="text-zinc-600 italic">{t.ready}</div>
-              ) : (
-                output.map((line, i) => (
-                  <div key={i} className="mb-1">{line}</div>
-                ))
-              )}
-              <div ref={outputEndRef} />
-            </div>
-          </div>
+          )}
         </div>
       </div>
 
@@ -1048,28 +1182,48 @@ export default function EditorView() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(
             "w-full max-w-md rounded-2xl p-6 shadow-2xl",
+            isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
             theme !== 'light' ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'
           )}>
-            <h2 className="text-xl font-bold mb-4">Select Extra Category</h2>
+            <h2 className={clsx("text-xl font-bold mb-4", isFrutigerAero ? "text-blue-900" : "")}>Select Extra Category</h2>
             <div className="space-y-3">
               <button 
                 onClick={() => confirmNewFile('Normal')}
-                className="w-full text-left p-4 rounded-xl border border-zinc-700 hover:bg-zinc-800 transition-colors"
+                className={clsx(
+                  "w-full text-left p-4 rounded-xl border transition-colors",
+                  isFrutigerAero ? "bg-white/50 border-white/60 hover:bg-white/70 shadow-sm" : "border-zinc-700 hover:bg-zinc-800"
+                )}
               >
-                <div className="font-bold">Normal</div>
-                <div className="text-sm text-zinc-500">Absolutely normal editor as usual</div>
+                <div className={clsx("font-bold", isFrutigerAero ? "text-blue-900" : "")}>Normal</div>
+                <div className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>Absolutely normal editor as usual</div>
               </button>
               <button 
                 onClick={() => confirmNewFile('OS')}
-                className="w-full text-left p-4 rounded-xl border border-zinc-700 hover:bg-zinc-800 transition-colors"
+                className={clsx(
+                  "w-full text-left p-4 rounded-xl border transition-colors",
+                  isFrutigerAero ? "bg-white/50 border-white/60 hover:bg-white/70 shadow-sm" : "border-zinc-700 hover:bg-zinc-800"
+                )}
               >
-                <div className="font-bold">OS</div>
-                <div className="text-sm text-zinc-500">AllVM environment with AllBIOS and OS-specific components</div>
+                <div className={clsx("font-bold", isFrutigerAero ? "text-blue-900" : "")}>OS</div>
+                <div className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>AllVM environment with AllBIOS and OS-specific components</div>
+              </button>
+              <button 
+                onClick={() => confirmNewFile('Asset')}
+                className={clsx(
+                  "w-full text-left p-4 rounded-xl border transition-colors",
+                  isFrutigerAero ? "bg-white/50 border-white/60 hover:bg-white/70 shadow-sm" : "border-zinc-700 hover:bg-zinc-800"
+                )}
+              >
+                <div className={clsx("font-bold", isFrutigerAero ? "text-blue-900" : "")}>Asset</div>
+                <div className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>EPL Asset for the Asset Store</div>
               </button>
             </div>
             <button 
               onClick={() => setShowExtraCategoryModal(false)}
-              className="mt-6 w-full p-3 bg-zinc-800 rounded-xl hover:bg-zinc-700 transition-colors"
+              className={clsx(
+                "mt-6 w-full p-3 rounded-xl transition-colors font-medium",
+                isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700"
+              )}
             >
               Cancel
             </button>
@@ -1082,22 +1236,23 @@ export default function EditorView() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(
             "w-full max-w-md rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto",
+            isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
             theme !== 'light' ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'
           )}>
-            <h3 className="text-xl font-bold mb-4">{t.publishButton}</h3>
-            <p className="text-sm text-zinc-500 mb-6">
+            <h3 className={clsx("text-xl font-bold mb-4", isFrutigerAero ? "text-blue-900" : "")}>{t.publishButton}</h3>
+            <p className={clsx("text-sm mb-6", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>
               Publishing your app will make it publicly visible in the App Store for everyone to see and play.
             </p>
-            <div className="flex gap-2 mb-4 border-b border-zinc-800">
+            <div className={clsx("flex gap-2 mb-4 border-b", isFrutigerAero ? "border-white/30" : "border-zinc-800")}>
               <button
                 onClick={() => setPublishTab('general')}
-                className={clsx("px-4 py-2 text-sm font-medium border-b-2 transition-colors", publishTab === 'general' ? "border-emerald-500 text-emerald-500" : "border-transparent text-zinc-400 hover:text-zinc-200")}
+                className={clsx("px-4 py-2 text-sm font-medium border-b-2 transition-colors", publishTab === 'general' ? (isFrutigerAero ? "border-blue-500 text-blue-600" : "border-emerald-500 text-emerald-500") : (isFrutigerAero ? "border-transparent text-blue-800/60 hover:text-blue-800" : "border-transparent text-zinc-400 hover:text-zinc-200"))}
               >
                 {language === 'ru' ? 'Общие' : 'General'}
               </button>
               <button
                 onClick={() => setPublishTab('events')}
-                className={clsx("px-4 py-2 text-sm font-medium border-b-2 transition-colors", publishTab === 'events' ? "border-emerald-500 text-emerald-500" : "border-transparent text-zinc-400 hover:text-zinc-200")}
+                className={clsx("px-4 py-2 text-sm font-medium border-b-2 transition-colors", publishTab === 'events' ? (isFrutigerAero ? "border-blue-500 text-blue-600" : "border-emerald-500 text-emerald-500") : (isFrutigerAero ? "border-transparent text-blue-800/60 hover:text-blue-800" : "border-transparent text-zinc-400 hover:text-zinc-200"))}
               >
                 {language === 'ru' ? 'События' : 'Events'}
               </button>
@@ -1513,37 +1668,41 @@ export default function EditorView() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(
             "w-full max-w-2xl rounded-2xl p-6 shadow-2xl max-h-[80vh] flex flex-col",
+            isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
             theme !== 'light' ? 'bg-zinc-900 border border-zinc-800 text-zinc-200' : 'bg-white border border-zinc-200 text-zinc-800'
           )}>
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold flex items-center gap-2">
-                <FileCode className="w-5 h-5 text-emerald-500" />
+              <h3 className={clsx("text-xl font-bold flex items-center gap-2", isFrutigerAero ? "text-blue-900" : "")}>
+                <FileCode className={clsx("w-5 h-5", isFrutigerAero ? "text-blue-600" : "text-emerald-500")} />
                 {translations[language].fileControl}
               </h3>
-              <button onClick={() => setShowFileControlModal(false)} className="text-zinc-500 hover:text-zinc-300">
+              <button onClick={() => setShowFileControlModal(false)} className={clsx("hover:text-zinc-300", isFrutigerAero ? "text-blue-800/60 hover:text-blue-800" : "text-zinc-500")}>
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-sm text-zinc-500 mb-4">{translations[language].fileControlDesc}</p>
+            <p className={clsx("text-sm mb-4", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>{translations[language].fileControlDesc}</p>
             
-            <div className="flex-1 overflow-y-auto space-y-2 border border-zinc-800 rounded-lg p-2">
+            <div className={clsx("flex-1 overflow-y-auto space-y-2 border rounded-lg p-2", isFrutigerAero ? "border-white/40 bg-white/20" : "border-zinc-800")}>
               {userData?.uploadedFiles && userData.uploadedFiles.length > 0 ? (
                 userData.uploadedFiles.map((file, idx) => (
                   <div 
                     key={idx} 
-                    className="flex items-center justify-between p-3 bg-zinc-800/50 rounded-lg border border-zinc-700 hover:border-emerald-500/50 transition-colors group"
+                    className={clsx(
+                      "flex items-center justify-between p-3 rounded-lg border transition-colors group",
+                      isFrutigerAero ? "bg-white/40 border-white/50 hover:border-blue-400/50" : "bg-zinc-800/50 border-zinc-700 hover:border-emerald-500/50"
+                    )}
                   >
                     <div className="flex items-center gap-3 overflow-hidden">
-                      <div className="w-10 h-10 rounded bg-zinc-700 flex items-center justify-center flex-shrink-0">
+                      <div className={clsx("w-10 h-10 rounded flex items-center justify-center flex-shrink-0", isFrutigerAero ? "bg-blue-500/20" : "bg-zinc-700")}>
                         {file.name.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
                           <img src={file.url} alt={file.name} className="w-full h-full object-cover rounded" referrerPolicy="no-referrer" />
                         ) : (
-                          <FileCode className="w-6 h-6 text-zinc-400" />
+                          <FileCode className={clsx("w-6 h-6", isFrutigerAero ? "text-blue-600" : "text-zinc-400")} />
                         )}
                       </div>
                       <div className="overflow-hidden">
-                        <div className="text-sm font-medium truncate text-zinc-200">{file.name}</div>
-                        <div className="text-xs text-zinc-500 truncate">{file.url}</div>
+                        <div className={clsx("text-sm font-medium truncate", isFrutigerAero ? "text-blue-900" : "text-zinc-200")}>{file.name}</div>
+                        <div className={clsx("text-xs truncate", isFrutigerAero ? "text-blue-800/60" : "text-zinc-500")}>{file.url}</div>
                       </div>
                     </div>
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -1552,7 +1711,7 @@ export default function EditorView() {
                           navigator.clipboard.writeText(file.name);
                           alert(language === 'en' ? 'File name copied!' : 'Имя файла скопировано!');
                         }}
-                        className="p-2 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-emerald-400 transition-colors"
+                        className={clsx("p-2 rounded-lg transition-colors", isFrutigerAero ? "hover:bg-white/50 text-blue-800/60 hover:text-blue-600" : "hover:bg-zinc-700 text-zinc-400 hover:text-emerald-400")}
                         title={language === 'en' ? 'Copy Name' : 'Копировать имя'}
                       >
                         <Copy className="w-4 h-4" />
@@ -1562,7 +1721,7 @@ export default function EditorView() {
                           navigator.clipboard.writeText(file.url);
                           alert(language === 'en' ? 'URL copied!' : 'URL скопирован!');
                         }}
-                        className="p-2 hover:bg-zinc-700 rounded-lg text-zinc-400 hover:text-emerald-400 transition-colors"
+                        className={clsx("p-2 rounded-lg transition-colors", isFrutigerAero ? "hover:bg-white/50 text-blue-800/60 hover:text-blue-600" : "hover:bg-zinc-700 text-zinc-400 hover:text-emerald-400")}
                         title={language === 'en' ? 'Copy URL' : 'Копировать URL'}
                       >
                         <LinkIcon className="w-4 h-4" />
@@ -1571,7 +1730,7 @@ export default function EditorView() {
                   </div>
                 ))
               ) : (
-                <div className="p-8 text-center text-zinc-500 flex flex-col items-center gap-3">
+                <div className={clsx("p-8 text-center flex flex-col items-center gap-3", isFrutigerAero ? "text-blue-800/50" : "text-zinc-500")}>
                   <FileCode className="w-12 h-12 opacity-20" />
                   <div>No files uploaded yet.</div>
                 </div>
@@ -1581,12 +1740,21 @@ export default function EditorView() {
             <div className="mt-6 flex justify-between items-center">
               <button
                 onClick={() => imageInputRef.current?.click()}
-                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+                className={clsx(
+                  "px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2",
+                  isFrutigerAero ? "frutiger-aero-button" : "bg-emerald-500 hover:bg-emerald-600 text-white"
+                )}
               >
                 <Upload className="w-4 h-4" />
                 {translations[language].uploadFile}
               </button>
-              <button onClick={() => setShowFileControlModal(false)} className="px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors">
+              <button 
+                onClick={() => setShowFileControlModal(false)} 
+                className={clsx(
+                  "px-4 py-2 rounded-lg transition-colors",
+                  isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700"
+                )}
+              >
                 {translations[language].cancel}
               </button>
             </div>
@@ -1598,19 +1766,20 @@ export default function EditorView() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(
             "w-full max-w-3xl rounded-2xl p-6 shadow-2xl max-h-[80vh] flex flex-col",
+            isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
             theme !== 'light' ? 'bg-zinc-900 border border-zinc-800 text-zinc-200' : 'bg-white border border-zinc-200 text-zinc-800'
           )}>
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold flex items-center gap-2">
-                <Sparkles className="w-5 h-5 text-emerald-500" />
+              <h3 className={clsx("text-xl font-bold flex items-center gap-2", isFrutigerAero ? "text-blue-900" : "")}>
+                <Sparkles className={clsx("w-5 h-5", isFrutigerAero ? "text-blue-500" : "text-emerald-500")} />
                 Editor Store
               </h3>
               <div className="flex items-center gap-4">
-                <div className="flex items-center gap-2 px-3 py-1 bg-zinc-800 rounded-full border border-zinc-700">
-                  <span className="text-yellow-400 font-bold text-sm">EPL</span>
-                  <span className="text-zinc-200 font-mono text-sm">{userData?.eplCoins || 0}</span>
+                <div className={clsx("flex items-center gap-2 px-3 py-1 rounded-full border", isFrutigerAero ? "bg-white/50 border-white/60 shadow-inner" : "bg-zinc-800 border-zinc-700")}>
+                  <span className={clsx("font-bold text-sm", isFrutigerAero ? "text-blue-600" : "text-yellow-400")}>EPL</span>
+                  <span className={clsx("font-mono text-sm", isFrutigerAero ? "text-blue-900" : "text-zinc-200")}>{userData?.eplCoins || 0}</span>
                 </div>
-                <button onClick={() => setShowEditorStoreModal(false)} className="text-zinc-500 hover:text-zinc-300">
+                <button onClick={() => setShowEditorStoreModal(false)} className={clsx("hover:text-zinc-300", isFrutigerAero ? "text-blue-800/60 hover:text-blue-800" : "text-zinc-500")}>
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -1628,28 +1797,28 @@ export default function EditorView() {
                   const isPurchased = userData?.purchasedItems?.includes(item.id) || (item.id === 'premium' && isPremium);
                   const Icon = item.icon;
                   return (
-                    <div key={item.id} className="p-4 rounded-xl border border-zinc-800 bg-zinc-800/30 flex flex-col gap-3">
+                    <div key={item.id} className={clsx("p-4 rounded-xl border flex flex-col gap-3", isFrutigerAero ? "bg-white/40 border-white/50 shadow-sm" : "border-zinc-800 bg-zinc-800/30")}>
                       <div className="flex items-start justify-between">
                         <div className="flex items-center gap-3">
-                          <div className="p-2 bg-zinc-800 rounded-lg">
-                            <Icon className="w-5 h-5 text-emerald-500" />
+                          <div className={clsx("p-2 rounded-lg", isFrutigerAero ? "bg-blue-500/20 shadow-inner" : "bg-zinc-800")}>
+                            <Icon className={clsx("w-5 h-5", isFrutigerAero ? "text-blue-600" : "text-emerald-500")} />
                           </div>
                           <div>
-                            <h4 className="font-bold">{item.title}</h4>
-                            <span className="text-xs text-zinc-500 uppercase tracking-wider">{item.type}</span>
+                            <h4 className={clsx("font-bold", isFrutigerAero ? "text-blue-900" : "")}>{item.title}</h4>
+                            <span className={clsx("text-xs uppercase tracking-wider", isFrutigerAero ? "text-blue-800/60" : "text-zinc-500")}>{item.type}</span>
                           </div>
                         </div>
-                        <div className="font-mono text-sm font-bold text-yellow-400">{item.price} EPL</div>
+                        <div className={clsx("font-mono text-sm font-bold", isFrutigerAero ? "text-blue-600" : "text-yellow-400")}>{item.price} EPL</div>
                       </div>
-                      <p className="text-sm text-zinc-400 flex-1">{item.desc}</p>
+                      <p className={clsx("text-sm flex-1", isFrutigerAero ? "text-blue-800/80" : "text-zinc-400")}>{item.desc}</p>
                       <button 
                         onClick={() => handleBuyStoreItem(item.id, item.price)}
                         disabled={isPurchased || (userData?.eplCoins || 0) < item.price}
                         className={clsx(
                           "w-full py-2 rounded-lg text-sm font-medium transition-colors",
-                          isPurchased ? "bg-zinc-800 text-emerald-500 cursor-not-allowed" :
-                          (userData?.eplCoins || 0) < item.price ? "bg-zinc-800 text-zinc-500 cursor-not-allowed" :
-                          "bg-emerald-500 hover:bg-emerald-600 text-white"
+                          isPurchased ? (isFrutigerAero ? "bg-white/50 text-blue-600 border border-white/60 cursor-not-allowed" : "bg-zinc-800 text-emerald-500 cursor-not-allowed") :
+                          (userData?.eplCoins || 0) < item.price ? (isFrutigerAero ? "bg-white/30 text-blue-800/40 border border-white/40 cursor-not-allowed" : "bg-zinc-800 text-zinc-500 cursor-not-allowed") :
+                          (isFrutigerAero ? "frutiger-aero-button" : "bg-emerald-500 hover:bg-emerald-600 text-white")
                         )}
                       >
                         {isPurchased ? 'Purchased' : 'Buy Now'}
@@ -1668,31 +1837,35 @@ export default function EditorView() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(
             "w-full max-w-2xl rounded-2xl p-6 shadow-2xl max-h-[80vh] flex flex-col",
+            isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
             theme !== 'light' ? 'bg-zinc-900 border border-zinc-800 text-zinc-200' : 'bg-white border border-zinc-200 text-zinc-800'
           )}>
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-bold flex items-center gap-2">
-                <HelpCircle className="w-5 h-5 text-emerald-500" />
+              <h3 className={clsx("text-xl font-bold flex items-center gap-2", isFrutigerAero ? "text-blue-900" : "")}>
+                <HelpCircle className={clsx("w-5 h-5", isFrutigerAero ? "text-blue-600" : "text-emerald-500")} />
                 {t.syntaxGuide}
               </h3>
-              <button onClick={() => setShowHelpModal(false)} className="text-zinc-500 hover:text-zinc-300">
+              <button onClick={() => setShowHelpModal(false)} className={clsx("hover:text-zinc-300", isFrutigerAero ? "text-blue-800/60 hover:text-blue-800" : "text-zinc-500")}>
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="flex-1 overflow-y-auto space-y-6 pr-2">
               {/* Tutorial Section */}
               <section>
-                <h4 className="font-bold text-emerald-500 mb-2 border-b border-zinc-800 pb-1">{t.gettingStarted}</h4>
-                <p className="text-sm text-zinc-400 mb-2">EPL is a simple event-driven language. Here is how to build your first app:</p>
-                <ol className="list-decimal pl-5 text-sm space-y-1 text-zinc-300">
-                  <li>Define what happens when the app starts using <code>started?</code>.</li>
-                  <li>Use <code>create</code> to add entities like <code>sprite</code> or <code>button</code>.</li>
-                  <li>Use events like <code>clicked?</code> to make your app interactive.</li>
-                  <li>Always end your blocks with <code>end</code>.</li>
+                <h4 className={clsx("font-bold mb-2 border-b pb-1", isFrutigerAero ? "text-blue-800 border-white/30" : "text-emerald-500 border-zinc-800")}>{t.gettingStarted}</h4>
+                <p className={clsx("text-sm mb-2", isFrutigerAero ? "text-blue-800/70" : "text-zinc-400")}>EPL is a simple event-driven language. Here is how to build your first app:</p>
+                <ol className={clsx("list-decimal pl-5 text-sm space-y-1", isFrutigerAero ? "text-blue-900/80" : "text-zinc-300")}>
+                  <li>Define what happens when the app starts using <code className={clsx("px-1 rounded", isFrutigerAero ? "bg-white/50" : "bg-zinc-800")}>started?</code>.</li>
+                  <li>Use <code className={clsx("px-1 rounded", isFrutigerAero ? "bg-white/50" : "bg-zinc-800")}>create</code> to add entities like <code className={clsx("px-1 rounded", isFrutigerAero ? "bg-white/50" : "bg-zinc-800")}>sprite</code> or <code className={clsx("px-1 rounded", isFrutigerAero ? "bg-white/50" : "bg-zinc-800")}>button</code>.</li>
+                  <li>Use events like <code className={clsx("px-1 rounded", isFrutigerAero ? "bg-white/50" : "bg-zinc-800")}>clicked?</code> to make your app interactive.</li>
+                  <li>Always end your blocks with <code className={clsx("px-1 rounded", isFrutigerAero ? "bg-white/50" : "bg-zinc-800")}>end</code>.</li>
                 </ol>
                 <button 
                   onClick={() => { setShowTutorial(true); setShowHelpModal(false); }}
-                  className="mt-4 w-full py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-sm font-medium transition-colors border border-emerald-500/20 flex items-center justify-center gap-2"
+                  className={clsx(
+                    "mt-4 w-full py-2 rounded-lg text-sm font-medium transition-colors border flex items-center justify-center gap-2",
+                    isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border-white/60 shadow-sm" : "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border-emerald-500/20"
+                  )}
                 >
                   <Play className="w-4 h-4" /> {t.launchTutorial}
                 </button>
@@ -1700,19 +1873,19 @@ export default function EditorView() {
 
               {/* Common Patterns Section */}
               <section>
-                <h4 className="font-bold text-emerald-500 mb-2 border-b border-zinc-800 pb-1">{t.commonPatterns}</h4>
+                <h4 className={clsx("font-bold mb-2 border-b pb-1", isFrutigerAero ? "text-blue-800 border-white/30" : "text-emerald-500 border-zinc-800")}>{t.commonPatterns}</h4>
                 <div className="space-y-4">
-                  <div className="bg-zinc-800/30 p-3 rounded-xl border border-zinc-800/50">
-                    <h5 className="text-sm font-bold text-zinc-200 mb-1">Click to Move</h5>
-                    <pre className="text-[11px] text-zinc-400 bg-black/30 p-2 rounded overflow-x-auto">
+                  <div className={clsx("p-3 rounded-xl border", isFrutigerAero ? "bg-white/40 border-white/50 shadow-sm" : "bg-zinc-800/30 border-zinc-800/50")}>
+                    <h5 className={clsx("text-sm font-bold mb-1", isFrutigerAero ? "text-blue-900" : "text-zinc-200")}>Click to Move</h5>
+                    <pre className={clsx("text-[11px] p-2 rounded overflow-x-auto", isFrutigerAero ? "bg-white/60 text-blue-900 border border-white/40" : "text-zinc-400 bg-black/30")}>
 {`clicked?{target=MyBtn}
   move{target=Player, x=+10}
 end`}
                     </pre>
                   </div>
-                  <div className="bg-zinc-800/30 p-3 rounded-xl border border-zinc-800/50">
-                    <h5 className="text-sm font-bold text-zinc-200 mb-1">Score System</h5>
-                    <pre className="text-[11px] text-zinc-400 bg-black/30 p-2 rounded overflow-x-auto">
+                  <div className={clsx("p-3 rounded-xl border", isFrutigerAero ? "bg-white/40 border-white/50 shadow-sm" : "bg-zinc-800/30 border-zinc-800/50")}>
+                    <h5 className={clsx("text-sm font-bold mb-1", isFrutigerAero ? "text-blue-900" : "text-zinc-200")}>Score System</h5>
+                    <pre className={clsx("text-[11px] p-2 rounded overflow-x-auto", isFrutigerAero ? "bg-white/60 text-blue-900 border border-white/40" : "text-zinc-400 bg-black/30")}>
 {`started?
   variable{name=Score, value=0}
 end
@@ -1723,9 +1896,9 @@ clicked?{target=Enemy}
 end`}
                     </pre>
                   </div>
-                  <div className="bg-zinc-800/30 p-3 rounded-xl border border-zinc-800/50">
-                    <h5 className="text-sm font-bold text-zinc-200 mb-1">Collision & Health</h5>
-                    <pre className="text-[11px] text-zinc-400 bg-black/30 p-2 rounded overflow-x-auto">
+                  <div className={clsx("p-3 rounded-xl border", isFrutigerAero ? "bg-white/40 border-white/50 shadow-sm" : "bg-zinc-800/30 border-zinc-800/50")}>
+                    <h5 className={clsx("text-sm font-bold mb-1", isFrutigerAero ? "text-blue-900" : "text-zinc-200")}>Collision & Health</h5>
+                    <pre className={clsx("text-[11px] p-2 rounded overflow-x-auto", isFrutigerAero ? "bg-white/60 text-blue-900 border border-white/40" : "text-zinc-400 bg-black/30")}>
 {`collided?{target=Player}
   math{target=Health, op=subtract, value=10}
   if
@@ -1741,20 +1914,20 @@ end`}
 
               {/* Components Section */}
               <section>
-                <h4 className="font-bold text-emerald-500 mb-2 border-b border-zinc-800 pb-1">{t.allComponents}</h4>
+                <h4 className={clsx("font-bold mb-2 border-b pb-1", isFrutigerAero ? "text-blue-800 border-white/30" : "text-emerald-500 border-zinc-800")}>{t.allComponents}</h4>
                 <div className="space-y-3">
                   {Object.entries(EPL_DICTIONARY).filter(([_, def]) => def.type === 'entity').map(([name, def]) => (
-                    <div key={name} className="bg-zinc-800/50 p-3 rounded-xl border border-zinc-800/50">
+                    <div key={name} className={clsx("p-3 rounded-xl border", isFrutigerAero ? "bg-white/40 border-white/50 shadow-sm" : "bg-zinc-800/50 border-zinc-800/50")}>
                       <div className="flex items-center justify-between mb-1">
-                        <code className="text-emerald-400 font-bold text-base">{name}</code>
-                        <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-bold">Entity</span>
+                        <code className={clsx("font-bold text-base", isFrutigerAero ? "text-blue-600" : "text-emerald-400")}>{name}</code>
+                        <span className={clsx("text-[10px] uppercase tracking-wider font-bold", isFrutigerAero ? "text-blue-800/60" : "text-zinc-500")}>Entity</span>
                       </div>
-                      <p className="text-sm text-zinc-300 mb-2">{def.description}</p>
+                      <p className={clsx("text-sm mb-2", isFrutigerAero ? "text-blue-900/80" : "text-zinc-300")}>{def.description}</p>
                       {def.schema && (
                         <div className="flex flex-wrap gap-1.5">
                           {Object.entries(def.schema).map(([prop, type]) => (
-                            <span key={prop} className="px-1.5 py-0.5 bg-zinc-900 rounded text-[10px] font-mono text-zinc-400 border border-zinc-800">
-                              {prop}: <span className="text-blue-400">{type}</span>
+                            <span key={prop} className={clsx("px-1.5 py-0.5 rounded text-[10px] font-mono border", isFrutigerAero ? "bg-white/50 border-white/40 text-blue-800/70" : "bg-zinc-900 text-zinc-400 border-zinc-800")}>
+                              {prop}: <span className={clsx(isFrutigerAero ? "text-blue-600" : "text-blue-400")}>{type}</span>
                             </span>
                           ))}
                         </div>
@@ -1766,37 +1939,37 @@ end`}
 
               {/* Syntax Guide Section */}
               <section>
-                <h4 className="font-bold text-emerald-500 mb-2 border-b border-zinc-800 pb-1">{t.syntaxReference}</h4>
+                <h4 className={clsx("font-bold mb-2 border-b pb-1", isFrutigerAero ? "text-blue-800 border-white/30" : "text-emerald-500 border-zinc-800")}>{t.syntaxReference}</h4>
                 <div className="space-y-4">
                   <div>
-                    <h5 className="font-semibold text-zinc-300 mb-2">Control Flow</h5>
+                    <h5 className={clsx("font-semibold mb-2", isFrutigerAero ? "text-blue-900" : "text-zinc-300")}>Control Flow</h5>
                     <div className="space-y-2">
                       {Object.entries(EPL_DICTIONARY).filter(([_, def]) => def.type === 'control').map(([name, def]) => (
                         <div key={name} className="text-sm">
-                          <code className="text-purple-400 font-bold">{name}</code>
-                          <span className="text-zinc-500 ml-2">— {def.description}</span>
+                          <code className={clsx("font-bold", isFrutigerAero ? "text-purple-600" : "text-purple-400")}>{name}</code>
+                          <span className={clsx("ml-2", isFrutigerAero ? "text-blue-800/60" : "text-zinc-500")}>— {def.description}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                   <div>
-                    <h5 className="font-semibold text-zinc-300 mb-2">Events</h5>
+                    <h5 className={clsx("font-semibold mb-2", isFrutigerAero ? "text-blue-900" : "text-zinc-300")}>Events</h5>
                     <div className="space-y-2">
                       {Object.entries(EPL_DICTIONARY).filter(([_, def]) => def.type === 'event').map(([name, def]) => (
                         <div key={name} className="text-sm">
-                          <code className="text-orange-400 font-bold">{name}</code>
-                          <span className="text-zinc-500 ml-2">— {def.description}</span>
+                          <code className={clsx("font-bold", isFrutigerAero ? "text-orange-600" : "text-orange-400")}>{name}</code>
+                          <span className={clsx("ml-2", isFrutigerAero ? "text-blue-800/60" : "text-zinc-500")}>— {def.description}</span>
                         </div>
                       ))}
                     </div>
                   </div>
                   <div>
-                    <h5 className="font-semibold text-zinc-300 mb-2">Actions</h5>
+                    <h5 className={clsx("font-semibold mb-2", isFrutigerAero ? "text-blue-900" : "text-zinc-300")}>Actions</h5>
                     <div className="space-y-2">
                       {Object.entries(EPL_DICTIONARY).filter(([_, def]) => def.type === 'action').map(([name, def]) => (
                         <div key={name} className="text-sm">
-                          <code className="text-blue-400 font-bold">{name}</code>
-                          <span className="text-zinc-500 ml-2">— {def.description}</span>
+                          <code className={clsx("font-bold", isFrutigerAero ? "text-blue-600" : "text-blue-400")}>{name}</code>
+                          <span className={clsx("ml-2", isFrutigerAero ? "text-blue-800/60" : "text-zinc-500")}>— {def.description}</span>
                         </div>
                       ))}
                     </div>

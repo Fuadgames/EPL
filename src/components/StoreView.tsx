@@ -24,6 +24,7 @@ export default function StoreView() {
   const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
   const isPremium = useStore(state => state.isPremium);
+  const isFrutigerAero = useStore(state => state.isFrutigerAero);
 
   const fetchApps = useCallback(async () => {
     setLoading(true);
@@ -155,35 +156,37 @@ export default function StoreView() {
       <div className="p-4 sm:p-8 pb-0">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">App Store</h1>
-            <p className={clsx("mt-1 text-xs sm:text-sm", theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>Discover programs written in EPL.</p>
+            <h1 className={clsx("text-2xl sm:text-3xl font-bold tracking-tight", isFrutigerAero ? "text-blue-900" : "")}>App Store</h1>
+            <p className={clsx("mt-1 text-xs sm:text-sm", isFrutigerAero ? "text-blue-800/70" : theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>Discover programs written in EPL.</p>
           </div>
           <div className="flex items-center gap-4 w-full sm:w-auto">
             {user && (
-              <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 text-amber-500 rounded-xl border border-amber-500/20">
+              <div className={clsx("flex items-center gap-2 px-3 py-1.5 rounded-xl border", isFrutigerAero ? "bg-white/50 text-blue-800 border-white/40 shadow-sm" : "bg-amber-500/10 text-amber-500 border-amber-500/20")}>
                 <Coins className="w-4 h-4" />
                 <span className="font-bold">{userData?.eplCoins || 0}</span>
               </div>
             )}
             <div className="relative flex-1 sm:w-72 flex gap-2">
               <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <Search className={clsx("absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4", isFrutigerAero ? "text-blue-500" : "text-zinc-400")} />
                 <input
                   type="text"
                   placeholder="Search apps..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className={clsx(
-                    "w-full pl-10 pr-4 py-2 rounded-xl border focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-colors",
-                    theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                    "w-full pl-10 pr-4 py-2 rounded-xl border focus:outline-none focus:ring-2 transition-colors",
+                    isFrutigerAero ? "bg-white/60 border-white/40 text-blue-900 placeholder-blue-400 focus:ring-blue-400 backdrop-blur-md shadow-inner" :
+                    theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-zinc-100 focus:ring-emerald-500' : 'bg-white border-zinc-200 text-zinc-900 focus:ring-emerald-500'
                   )}
                 />
               </div>
               <button 
                 onClick={fetchApps}
                 className={clsx(
-                  "p-2 rounded-xl border hover:bg-zinc-800 transition-all",
-                  theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-white' : 'bg-white border-zinc-200 text-zinc-900'
+                  "p-2 rounded-xl border transition-all",
+                  isFrutigerAero ? "frutiger-aero-button" :
+                  theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-white hover:bg-zinc-800' : 'bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-100'
                 )}
               >
                 <RefreshCw className={clsx("w-5 h-5", loading && "animate-spin")} />
@@ -199,8 +202,8 @@ export default function StoreView() {
             className={clsx(
               "px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors",
               selectedCategory === 'all' 
-                ? "bg-emerald-500 text-white" 
-                : theme !== 'light' ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                ? (isFrutigerAero ? 'bg-blue-500 text-white shadow-md' : 'bg-emerald-500 text-white') 
+                : (isFrutigerAero ? 'bg-white/40 text-blue-800 hover:bg-white/60 backdrop-blur-sm' : theme !== 'light' ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200')
             )}
           >
             All
@@ -212,8 +215,8 @@ export default function StoreView() {
               className={clsx(
                 "px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors capitalize",
                 selectedCategory === cat 
-                  ? "bg-emerald-500 text-white" 
-                  : theme !== 'light' ? "bg-zinc-800 text-zinc-400 hover:bg-zinc-700" : "bg-zinc-100 text-zinc-600 hover:bg-zinc-200"
+                  ? (isFrutigerAero ? 'bg-blue-500 text-white shadow-md' : 'bg-emerald-500 text-white') 
+                  : (isFrutigerAero ? 'bg-white/40 text-blue-800 hover:bg-white/60 backdrop-blur-sm' : theme !== 'light' ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200')
               )}
             >
               {cat}
@@ -233,12 +236,13 @@ export default function StoreView() {
             {/* Featured Section on Mobile */}
             {activeTab === 'featured' && filteredApps.length > 0 && (
               <section className="sm:hidden">
-                <h2 className="text-lg font-bold mb-4">Featured App</h2>
+                <h2 className={clsx("text-lg font-bold mb-4", isFrutigerAero ? "text-blue-900" : "")}>Featured App</h2>
                 <div 
                   onClick={() => setSelectedAppId(filteredApps[0].id)}
                   className={clsx(
-                    "relative aspect-[16/9] rounded-3xl overflow-hidden border border-zinc-800 shadow-2xl group cursor-pointer",
-                    theme !== 'light' ? 'bg-zinc-900' : 'bg-white'
+                    "relative aspect-[16/9] rounded-3xl overflow-hidden border shadow-2xl group cursor-pointer",
+                    isFrutigerAero ? "border-white/50 bg-white/40 backdrop-blur-md" :
+                    theme !== 'light' ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200'
                   )}
                 >
                   {filteredApps[0].bannerUrl ? (
@@ -281,12 +285,16 @@ export default function StoreView() {
                     key={app.id} 
                     className={clsx(
                       "p-4 sm:p-6 rounded-2xl border transition-all hover:shadow-lg group flex flex-col",
+                      isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm hover:bg-white/50" :
                       theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800 hover:border-zinc-700' : 'bg-white border-zinc-200 hover:border-zinc-300'
                     )}
                   >
                     <div className="flex justify-between items-start mb-3 sm:mb-4">
                       <div 
-                        className="w-12 h-12 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-gradient-to-br from-emerald-400 to-cyan-400 flex items-center justify-center text-white font-bold text-xl shadow-inner cursor-pointer overflow-hidden"
+                        className={clsx(
+                          "w-12 h-12 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl flex items-center justify-center text-white font-bold text-xl shadow-inner cursor-pointer overflow-hidden",
+                          isFrutigerAero ? "bg-gradient-to-br from-blue-400 to-cyan-400 border border-white/50 shadow-md" : "bg-gradient-to-br from-emerald-400 to-cyan-400"
+                        )}
                         onClick={() => setSelectedAppId(app.id)}
                       >
                         {app.iconUrl ? (
@@ -315,22 +323,22 @@ export default function StoreView() {
                     </div>
                     
                     <h3 
-                      className="text-base sm:text-lg font-semibold mb-1 truncate cursor-pointer hover:text-emerald-500 transition-colors"
+                      className={clsx("text-base sm:text-lg font-semibold mb-1 truncate cursor-pointer transition-colors", isFrutigerAero ? "text-blue-900 hover:text-blue-600" : "hover:text-emerald-500")}
                       onClick={() => setSelectedAppId(app.id)}
                     >
                       {app.title}
                     </h3>
-                    <p className={clsx("text-xs sm:text-sm mb-4 line-clamp-2 flex-1", theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>
+                    <p className={clsx("text-xs sm:text-sm mb-4 line-clamp-2 flex-1", isFrutigerAero ? "text-blue-800/80" : theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>
                       {app.description}
                     </p>
                     
-                    <div className="flex flex-col gap-3 pt-3 sm:pt-4 border-t border-zinc-800/50">
-                      <div className="flex items-center justify-between text-[10px] sm:text-xs text-zinc-500">
+                    <div className={clsx("flex flex-col gap-3 pt-3 sm:pt-4 border-t", isFrutigerAero ? "border-white/30" : "border-zinc-800/50")}>
+                      <div className={clsx("flex items-center justify-between text-[10px] sm:text-xs", isFrutigerAero ? "text-blue-700/70" : "text-zinc-500")}>
                         <span className="truncate max-w-[100px]">by {app.authorName}</span>
                         <div className="flex items-center gap-3">
                           <button 
                             onClick={() => handleVote(app.id, 'like')}
-                            className={clsx("flex items-center gap-1 transition-colors", userVotes[app.id] === 'like' ? 'text-emerald-500' : 'hover:text-emerald-400')}
+                            className={clsx("flex items-center gap-1 transition-colors", userVotes[app.id] === 'like' ? (isFrutigerAero ? 'text-blue-600' : 'text-emerald-500') : (isFrutigerAero ? 'hover:text-blue-500' : 'hover:text-emerald-400'))}
                           >
                             <ThumbsUp className={clsx("w-3 h-3 sm:w-3.5 sm:h-3.5", userVotes[app.id] === 'like' && "fill-current")} />
                             {app.likes || 0}

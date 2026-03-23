@@ -23,6 +23,20 @@ export default function App() {
   const isBackdoor = useStore(state => state.isBackdoor);
 
   useEffect(() => {
+    // Restore mock user if backdoor is active
+    if (isBackdoor && !user && userData) {
+      const mockUser = {
+        uid: userData.uid,
+        email: userData.email,
+        displayName: userData.name,
+        photoURL: null,
+        emailVerified: true,
+      } as any;
+      setUser(mockUser);
+    }
+  }, [isBackdoor, user, userData, setUser]);
+
+  useEffect(() => {
     let unsubscribeUser: (() => void) | undefined;
     
     const unsubscribeAuth = onAuthStateChanged(auth, (fbUser) => {
@@ -32,10 +46,12 @@ export default function App() {
       }
       
       setUser(fbUser);
+      if (unsubscribeUser) {
+        unsubscribeUser();
+        unsubscribeUser = undefined;
+      }
       if (fbUser) {
         unsubscribeUser = subscribeToUserData(fbUser.uid);
-      } else {
-        if (unsubscribeUser) unsubscribeUser();
       }
     });
     
@@ -43,7 +59,7 @@ export default function App() {
       unsubscribeAuth();
       if (unsubscribeUser) unsubscribeUser();
     };
-  }, [setUser]);
+  }, [setUser, isBackdoor]);
 
   const renderView = () => {
     switch (currentView) {
