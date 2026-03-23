@@ -9,8 +9,10 @@ import { StoreAsset } from '../types';
 export default function AssetStoreView() {
   const theme = useStore(state => state.theme);
   const userData = useStore(state => state.userData);
+  const language = useStore(state => state.language);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const setIsFrutigerAero = useStore(state => state.setIsFrutigerAero);
+  const setIsAuthModalOpen = useStore(state => state.setIsAuthModalOpen);
   const [assets, setAssets] = useState<StoreAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -34,25 +36,36 @@ export default function AssetStoreView() {
   }, []);
 
   const handlePurchase = async (asset: StoreAsset) => {
-    if (!userData || !userData.uid) return;
+    if (!userData || !userData.uid) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+
     if (userData.eplCoins < asset.price) {
-      alert("Not enough EPLCoins!");
+      alert(language === 'ru' ? "Недостаточно EPLCoins! Создавайте приложения или участвуйте в сообществе, чтобы заработать больше." : "Not enough EPLCoins! Create apps or participate in the community to earn more.");
       return;
     }
 
     setPurchasing(asset.id);
     try {
       const userRef = doc(db, 'users', userData.uid);
-      const assetRef = doc(db, 'assets', asset.id);
-
+      
       // Deduct coins and add to purchased items
+      const currentPurchased = Array.isArray(userData.purchasedItems) ? userData.purchasedItems : [];
+      
+      if (currentPurchased.includes(asset.id)) {
+        alert(language === 'ru' ? "Вы уже купили этот ассет!" : "You already owned this asset!");
+        return;
+      }
+
       await updateDoc(userRef, {
         eplCoins: increment(-asset.price),
-        purchasedItems: [...(userData.purchasedItems || []), asset.id]
+        purchasedItems: [...currentPurchased, asset.id]
       });
 
       // Update stock if not infinite
       if (asset.stock !== 'infinite') {
+        const assetRef = doc(db, 'assets', asset.id);
         const currentStock = typeof asset.stock === 'string' ? parseInt(asset.stock) : asset.stock;
         if (currentStock > 0) {
           await updateDoc(assetRef, {
@@ -62,13 +75,15 @@ export default function AssetStoreView() {
       }
 
       // If it's Frutiger Aero, enable it
-      if (asset.title.toLowerCase() === 'frutiger aero') {
+      if (asset.id === 'frutiger-aero' || asset.title.toLowerCase() === 'frutiger aero') {
         setIsFrutigerAero(true);
       }
 
+      alert(language === 'ru' ? "Покупка прошла успешно!" : "Purchase successful!");
+
     } catch (error) {
       console.error("Error purchasing asset", error);
-      alert("Failed to purchase asset.");
+      alert(language === 'ru' ? "Не удалось совершить покупку. Пожалуйста, попробуйте позже." : "Failed to purchase asset. Please try again later.");
     } finally {
       setPurchasing(null);
     }

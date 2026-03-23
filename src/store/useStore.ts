@@ -67,6 +67,8 @@ interface AppState {
   setIsBackdoor: (isBackdoor: boolean) => void;
   isFrutigerAero: boolean;
   setIsFrutigerAero: (enabled: boolean) => void;
+  isAuthModalOpen: boolean;
+  setIsAuthModalOpen: (isOpen: boolean) => void;
 }
 
 export const useStore = create<AppState>()(persist((set) => ({
@@ -119,6 +121,8 @@ export const useStore = create<AppState>()(persist((set) => ({
   setIsBackdoor: (isBackdoor) => set({ isBackdoor }),
   isFrutigerAero: false,
   setIsFrutigerAero: (enabled) => set({ isFrutigerAero: enabled }),
+  isAuthModalOpen: false,
+  setIsAuthModalOpen: (isOpen) => set({ isAuthModalOpen: isOpen }),
 }), {
   name: 'app-storage',
   partialize: (state) => ({ 

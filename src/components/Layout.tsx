@@ -17,8 +17,9 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const selectedAppId = useStore(state => state.selectedAppId);
   const userData = useStore(state => state.userData);
   const setIsBackdoor = useStore(state => state.setIsBackdoor);
+  const isAuthModalOpen = useStore(state => state.isAuthModalOpen);
+  const setIsAuthModalOpen = useStore(state => state.setIsAuthModalOpen);
   const t = translations[language];
-  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
   const setUser = useStore(state => state.setUser);
   const setUserData = useStore(state => state.setUserData);
