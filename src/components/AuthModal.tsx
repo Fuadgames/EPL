@@ -101,7 +101,9 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           errorMessage = language === 'ru' ? 'Некорректный email.' : 'Invalid email address.';
           break;
         case 'auth/operation-not-allowed':
-          errorMessage = language === 'ru' ? 'Вход через email/пароль не включен в консоли Firebase.' : 'Email/password sign-in is not enabled.';
+          errorMessage = language === 'ru' 
+            ? 'Вход через email/пароль не включен. Пожалуйста, включите "Email/Password" в разделе Authentication -> Sign-in method в консоли Firebase.' 
+            : 'Email/password sign-in is not enabled. Please enable "Email/Password" in the Authentication -> Sign-in method section of your Firebase Console.';
           break;
         case 'auth/weak-password':
           errorMessage = language === 'ru' ? 'Слишком слабый пароль.' : 'Password is too weak.';
