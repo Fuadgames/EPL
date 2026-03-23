@@ -60,6 +60,7 @@ export const translations = {
       hasAccount: 'Already have an account?',
       forgotPassword: 'Forgot Password?',
       googleSignIn: 'Sign In with Google',
+      appleSignIn: 'Sign In with Game Center',
       error: 'Authentication error',
       success: 'Success!'
     },
@@ -167,6 +168,7 @@ export const translations = {
       hasAccount: 'Уже есть аккаунт?',
       forgotPassword: 'Забыли пароль?',
       googleSignIn: 'Войти через Google',
+      appleSignIn: 'Войти через Game Center',
       error: 'Ошибка аутентификации',
       success: 'Успешно!'
     },

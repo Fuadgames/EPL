@@ -2,6 +2,7 @@ import { initializeApp } from "firebase/app";
 import { 
   getAuth, 
   GoogleAuthProvider, 
+  OAuthProvider,
   signInWithPopup, 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
@@ -32,6 +33,35 @@ export const logOut = () => signOut(auth);
 
 export const signInWithGoogle = async () => {
   const provider = new GoogleAuthProvider();
+  try {
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
+    
+    // Check if user document exists, if not create it
+    const userRef = doc(db, 'users', user.uid);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      await setDoc(userRef, {
+        uid: user.uid,
+        name: user.displayName || 'User',
+        email: user.email,
+        photoUrl: user.photoURL,
+        role: 'user',
+        eplCoins: 0,
+        purchasedItems: [],
+        createdAt: new Date().toISOString()
+      });
+    }
+    
+    return { user, error: null };
+  } catch (error: any) {
+    return { user: null, error };
+  }
+};
+
+export const signInWithApple = async () => {
+  const provider = new OAuthProvider('apple.com');
   try {
     const result = await signInWithPopup(auth, provider);
     const user = result.user;

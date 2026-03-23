@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Mail, Lock, User, X, Loader2, AlertCircle, Chrome } from 'lucide-react';
-import { signInWithGoogle, signInWithEmail, signUpWithEmail, resetPassword } from '../firebase';
+import { signInWithGoogle, signInWithApple, signInWithEmail, signUpWithEmail, resetPassword } from '../firebase';
 import { useStore } from '../store/useStore';
 import { translations } from '../lib/translations';
+import { Apple } from 'lucide-react';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -153,6 +154,28 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     }
   };
 
+  const handleAppleSignIn = async () => {
+    console.log("handleAppleSignIn called");
+    setLoading(true);
+    setError(null);
+    try {
+      const { error } = await signInWithApple();
+      if (error) throw error;
+      onClose();
+    } catch (err: any) {
+      console.error("Apple Auth error:", err);
+      let errorMessage = err.message;
+      if (err.code === 'auth/popup-blocked') {
+        errorMessage = language === 'ru' ? 'Всплывающее окно заблокировано браузером. Пожалуйста, разрешите всплывающие окна.' : 'Popup was blocked by the browser. Please allow popups.';
+      } else if (err.code === 'auth/operation-not-allowed') {
+        errorMessage = language === 'ru' ? 'Вход через Apple не включен в консоли Firebase.' : 'Apple sign-in is not enabled in Firebase Console.';
+      }
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
       <div className="bg-zinc-900 border border-zinc-800 w-full max-w-md rounded-2xl overflow-hidden shadow-2xl">
@@ -246,15 +269,27 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={handleGoogleSignIn}
-            disabled={loading}
-            className="w-full py-3 bg-white hover:bg-zinc-100 text-zinc-900 rounded-xl font-semibold transition-all flex items-center justify-center gap-2"
-          >
-            <Chrome className="w-5 h-5" />
-            {t.googleSignIn}
-          </button>
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={handleGoogleSignIn}
+              disabled={loading}
+              className="py-3 bg-white hover:bg-zinc-100 text-zinc-900 rounded-xl font-semibold transition-all flex items-center justify-center gap-2"
+            >
+              <Chrome className="w-5 h-5" />
+              Google
+            </button>
+
+            <button
+              type="button"
+              onClick={handleAppleSignIn}
+              disabled={loading}
+              className="py-3 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl font-semibold transition-all flex items-center justify-center gap-2"
+            >
+              <Apple className="w-5 h-5" />
+              Game Center
+            </button>
+          </div>
 
           <div className="pt-4 text-center space-y-2">
             {!isReset && (
