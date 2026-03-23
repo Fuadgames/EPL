@@ -32,7 +32,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { id: 'asset-store', label: 'Asset Store', icon: Store },
     { id: 'premium', label: t.premium, icon: Star },
     { id: 'profile', label: t.profile, icon: User },
-    ...(userData?.role === 'developer' || userData?.role === 'admin' ? [{ id: 'control', label: 'Control', icon: ShieldCheck }] : []),
+    ...(user?.email === 'fufazada@gmail.com' ? [{ id: 'control', label: 'Control', icon: ShieldCheck }] : []),
     { id: 'settings', label: t.settings, icon: Settings },
   ] as const;
 

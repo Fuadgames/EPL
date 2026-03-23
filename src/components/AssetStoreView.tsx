@@ -74,13 +74,32 @@ export default function AssetStoreView() {
     }
   };
 
-  const filteredAssets = assets.filter(asset => {
+  const FRUTIGER_AERO_ASSET: StoreAsset = {
+    id: 'frutiger-aero',
+    title: 'Frutiger Aero',
+    description: 'Enable the classic 2000s glass and aqua aesthetic across the entire app.',
+    price: 500,
+    stock: 'infinite',
+    authorId: 'system',
+    authorName: 'EPL Studio',
+    type: 'style',
+    content: '{"theme": "frutiger-aero"}',
+    coverUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop',
+    createdAt: new Date().toISOString()
+  };
+
+  const allAssets = [
+    FRUTIGER_AERO_ASSET,
+    ...assets.filter(a => a.id !== 'frutiger-aero' && a.title.toLowerCase() !== 'frutiger aero')
+  ];
+
+  const filteredAssets = allAssets.filter(asset => {
     const matchesSearch = asset.title.toLowerCase().includes(search.toLowerCase()) || asset.description.toLowerCase().includes(search.toLowerCase());
     const matchesTab = activeTab === 'all' || asset.type === activeTab;
     return matchesSearch && matchesTab;
   });
 
-  const canPublish = userData?.role === 'admin' || userData?.role === 'developer' || (userData?.role === 'shopkeeper' && userData?.isVerifiedAuthor);
+  const canPublish = userData?.role === 'admin' || userData?.role === 'developer' || userData?.role === 'shopkeeper';
 
   return (
     <div className={clsx("h-full flex flex-col p-4 sm:p-8 overflow-y-auto", isFrutigerAero ? "bg-gradient-to-br from-cyan-100 to-blue-200" : "")}>
@@ -306,7 +325,7 @@ function PublishModal({ onClose }: { onClose: () => void }) {
                 "w-full px-4 py-2 rounded-xl border focus:outline-none focus:ring-2",
                 isFrutigerAero ? "bg-white/60 border-white/40 focus:ring-blue-400" : theme !== 'light' ? 'bg-zinc-800 border-zinc-700 focus:ring-emerald-500' : 'bg-zinc-50 border-zinc-200 focus:ring-emerald-500'
               )}
-              placeholder="e.g., Frutiger Aero"
+              placeholder="e.g., Neon Cyberpunk Theme"
             />
           </div>
 

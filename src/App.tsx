@@ -56,7 +56,7 @@ export default function App() {
       case 'premium': return <PremiumView />;
       case 'asset-store': return <AssetStoreView />;
       case 'control': 
-        if (userData?.role === 'developer' || userData?.role === 'admin') {
+        if (user?.email === 'fufazada@gmail.com') {
           return <ControlView />;
         }
         return <StoreView />;
