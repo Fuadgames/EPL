@@ -13,6 +13,7 @@ const PlayerView = React.lazy(() => import('./components/PlayerView'));
 const SettingsView = React.lazy(() => import('./components/SettingsView'));
 const PremiumView = React.lazy(() => import('./components/PremiumView'));
 const ControlView = React.lazy(() => import('./components/ControlView'));
+const AssetStoreView = React.lazy(() => import('./components/AssetStoreView'));
 
 export default function App() {
   const currentView = useStore(state => state.currentView);
@@ -53,6 +54,7 @@ export default function App() {
       case 'player': return <PlayerView />;
       case 'settings': return <SettingsView />;
       case 'premium': return <PremiumView />;
+      case 'asset-store': return <AssetStoreView />;
       case 'control': 
         if (userData?.role === 'developer' || userData?.role === 'admin') {
           return <ControlView />;

@@ -15,6 +15,9 @@ export default function SettingsView() {
   const aiChangesEnabled = useStore(state => state.aiChangesEnabled);
   const setAiChangesEnabled = useStore(state => state.setAiChangesEnabled);
   const isPremium = useStore(state => state.isPremium);
+  const isFrutigerAero = useStore(state => state.isFrutigerAero);
+  const setIsFrutigerAero = useStore(state => state.setIsFrutigerAero);
+  const userData = useStore(state => state.userData);
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [isUpdating, setIsUpdating] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
@@ -97,6 +100,43 @@ export default function SettingsView() {
                 </button>
               </div>
             </div>
+
+            {/* Frutiger Aero Toggle */}
+            {userData?.purchasedItems?.includes('frutiger-aero') && (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-6 pt-6 border-t border-zinc-800/50">
+                <div>
+                  <p className="font-medium flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-blue-500" />
+                    Frutiger Aero Style
+                  </p>
+                  <p className="text-sm text-zinc-500">Enable the classic glass and aqua aesthetic</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setIsFrutigerAero(true)}
+                    className={clsx(
+                      "px-4 py-2 rounded-xl border transition-all font-medium",
+                      isFrutigerAero
+                        ? 'bg-blue-500 text-white border-blue-600 shadow-md'
+                        : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'
+                    )}
+                  >
+                    Yes
+                  </button>
+                  <button
+                    onClick={() => setIsFrutigerAero(false)}
+                    className={clsx(
+                      "px-4 py-2 rounded-xl border transition-all font-medium",
+                      !isFrutigerAero
+                        ? 'bg-zinc-800 border-zinc-700 text-white'
+                        : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'
+                    )}
+                  >
+                    No
+                  </button>
+                </div>
+              </div>
+            )}
           </section>
 
           {/* AI Section */}

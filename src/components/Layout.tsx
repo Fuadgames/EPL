@@ -29,6 +29,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { id: 'store', label: t.store, icon: Store },
     { id: 'editor', label: t.editor, icon: Code2 },
     { id: 'my-apps', label: t.myApps, icon: Package },
+    { id: 'asset-store', label: 'Asset Store', icon: Store },
     { id: 'premium', label: t.premium, icon: Star },
     { id: 'profile', label: t.profile, icon: User },
     ...(userData?.role === 'developer' || userData?.role === 'admin' ? [{ id: 'control', label: 'Control', icon: ShieldCheck }] : []),

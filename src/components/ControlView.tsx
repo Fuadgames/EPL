@@ -194,8 +194,20 @@ export default function ControlView() {
                       <option value="user">User</option>
                       <option value="moderator">Moderator</option>
                       <option value="admin">Admin</option>
+                      <option value="shopkeeper">Shopkeeper</option>
                       {userData?.role === 'developer' && <option value="developer">Developer</option>}
                     </select>
+                    <button
+                      onClick={() => {
+                        updateDoc(doc(db, 'users', u.id), { isVerifiedAuthor: !u.isVerifiedAuthor }).catch(console.error);
+                      }}
+                      className={clsx(
+                        "px-4 py-2 rounded-xl text-sm font-medium transition-colors",
+                        u.isVerifiedAuthor ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+                      )}
+                    >
+                      {u.isVerifiedAuthor ? 'Verified Author' : 'Verify Author'}
+                    </button>
                     <div className="flex items-center gap-2">
                       <input
                         type="number"

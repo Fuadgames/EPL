@@ -9,7 +9,8 @@
         "name": { "type": "string", "description": "The user's display name." },
         "email": { "type": "string", "format": "email", "description": "The user's email address." },
         "photoUrl": { "type": "string", "format": "uri", "description": "The user's profile picture URL." },
-        "role": { "type": "string", "enum": ["user", "admin", "moderator", "developer"], "description": "The user's role." },
+        "role": { "type": "string", "enum": ["user", "admin", "moderator", "developer", "shopkeeper"], "description": "The user's role." },
+        "isVerifiedAuthor": { "type": "boolean", "description": "Whether the user is a verified author." },
         "eplCoins": { "type": "number", "description": "The user's EPLCoins balance." },
         "purchasedItems": { "type": "array", "items": { "type": "string" }, "description": "List of purchased items." },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the user was created." }
@@ -82,6 +83,25 @@
         "createdAt": { "type": "string", "format": "date-time", "description": "When the review was posted." }
       },
       "required": ["appId", "userId", "userName", "rating", "comment", "createdAt"]
+    },
+    "Asset": {
+      "title": "Asset",
+      "description": "An item in the Asset Store.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The asset's unique ID." },
+        "title": { "type": "string", "description": "The name of the asset." },
+        "description": { "type": "string", "description": "A description of what the asset does." },
+        "coverUrl": { "type": "string", "format": "uri", "description": "Cover image URL." },
+        "price": { "type": "number", "description": "Price in EPLCoins." },
+        "stock": { "type": ["number", "string"], "description": "Number of items available or 'infinite'." },
+        "authorId": { "type": "string", "description": "The UID of the user who created the asset." },
+        "authorName": { "type": "string", "description": "The name of the author." },
+        "type": { "type": "string", "enum": ["style", "mod", "editor"], "description": "The type of asset." },
+        "content": { "type": "string", "description": "The code or JSON content of the asset." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the asset was published." }
+      },
+      "required": ["id", "title", "description", "price", "stock", "authorId", "authorName", "type", "content", "createdAt"]
     }
   },
   "firestore": {
@@ -100,6 +120,10 @@
     "/votes/{voteId}": {
       "schema": { "$ref": "#/entities/UserVote" },
       "description": "Stores user votes on apps."
+    },
+    "/assets/{assetId}": {
+      "schema": { "$ref": "#/entities/Asset" },
+      "description": "Stores assets in the Asset Store."
     }
   }
 }

@@ -1,5 +1,19 @@
 export type AppCategory = 'games' | 'apps' | 'work' | 'AI' | 'Programming Language' | 'Store' | 'Other';
 
+export interface StoreAsset {
+  id: string;
+  title: string;
+  description: string;
+  coverUrl?: string;
+  price: number;
+  stock: number | 'infinite';
+  authorId: string;
+  authorName: string;
+  type: 'style' | 'mod' | 'editor';
+  content: string;
+  createdAt: string;
+}
+
 export interface AppData {
   id: string;
   title: string;

@@ -63,17 +63,34 @@ service cloud.firestore {
     // Domain Validators
     // ===============================================================
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'name', 'email', 'photoUrl', 'role', 'eplCoins', 'purchasedItems', 'createdAt']) &&
+      return hasOnlyAllowedFields(['uid', 'name', 'email', 'photoUrl', 'role', 'isVerifiedAuthor', 'eplCoins', 'purchasedItems', 'createdAt']) &&
              (!('uid' in data) || (data.uid is string && data.uid.size() > 0 && data.uid.size() < 128)) &&
              (!('name' in data) || (data.name is string && data.name.size() > 0 && data.name.size() < 100)) &&
              (!('email' in data) || (data.email is string && isValidEmail(data.email))) &&
              (!('photoUrl' in data) || (data.photoUrl is string && data.photoUrl.size() < 1000)) &&
-             data.role in ['user', 'admin', 'moderator', 'developer'] &&
+             data.role in ['user', 'admin', 'moderator', 'developer', 'shopkeeper'] &&
+             (!('isVerifiedAuthor' in data) || data.isVerifiedAuthor is bool) &&
              (!('eplCoins' in data) || (data.eplCoins is number && data.eplCoins >= 0)) &&
              (!('purchasedItems' in data) || (data.purchasedItems is list && data.purchasedItems.size() <= 1000)) &&
              (!('createdAt' in data) || data.createdAt is string);
     }
     
+    function isValidAsset(data) {
+      return hasOnlyAllowedFields(['id', 'title', 'description', 'coverUrl', 'price', 'stock', 'authorId', 'authorName', 'type', 'content', 'createdAt']) &&
+             hasRequiredFields(['id', 'title', 'description', 'price', 'stock', 'authorId', 'authorName', 'type', 'content', 'createdAt']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 128 &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 100 &&
+             data.description is string && data.description.size() < 2000 &&
+             (!('coverUrl' in data) || (data.coverUrl is string && data.coverUrl.size() < 1000)) &&
+             data.price is number && data.price >= 0 &&
+             (data.stock is number || data.stock == 'infinite') &&
+             data.authorId is string && data.authorId.size() > 0 && data.authorId.size() < 128 &&
+             data.authorName is string && data.authorName.size() > 0 && data.authorName.size() < 100 &&
+             data.type in ['style', 'mod', 'editor'] &&
+             data.content is string && data.content.size() < 1000000 &&
+             data.createdAt is string;
+    }
+
     function isValidApp(data) {
       return hasOnlyAllowedFields(['id', 'title', 'description', 'code', 'version', 'category', 'supportedPlatforms', 'windowsUrl', 'macosUrl', 'linuxUrl', 'apkUrl', 'authorId', 'authorName', 'downloads', 'likes', 'dislikes', 'rating', 'isVerified', 'comments', 'createdAt', 'updatedAt']) &&
              hasRequiredFields(['id', 'title', 'description', 'code', 'version', 'category', 'authorId', 'authorName', 'downloads', 'likes', 'dislikes', 'rating', 'isVerified', 'createdAt', 'updatedAt']) &&
@@ -129,12 +146,12 @@ service cloud.firestore {
     // Collections
     // ===============================================================
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin() || isDeveloper();
+      allow read: if isOwner(userId) || isAdmin() || isDeveloper() || getUserRole() == 'shopkeeper';
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && (
         (isOwner(userId) && request.resource.data.role == 'user' && request.resource.data.eplCoins == 0 && request.resource.data.purchasedItems.size() == 0) || isAdmin() || isDeveloper()
       );
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && (
-        (isOwner(userId) && request.resource.data.role == resource.data.get('role', 'user') && (
+        (isOwner(userId) && request.resource.data.role == resource.data.get('role', 'user') && request.resource.data.get('isVerifiedAuthor', false) == resource.data.get('isVerifiedAuthor', false) && (
           (request.resource.data.get('eplCoins', 0) == resource.data.get('eplCoins', 0) && request.resource.data.get('purchasedItems', []) == resource.data.get('purchasedItems', [])) ||
           (request.resource.data.get('eplCoins', 0) <= resource.data.get('eplCoins', 0) && request.resource.data.get('purchasedItems', []).size() >= resource.data.get('purchasedItems', []).size())
         )) || 
@@ -144,6 +161,19 @@ service cloud.firestore {
       allow delete: if isAdmin() || isDeveloper();
     }
     
+    match /assets/{assetId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidAsset(request.resource.data) && request.resource.data.authorId == request.auth.uid && (
+        isAdmin() || isDeveloper() || (getUserRole() == 'shopkeeper' && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isVerifiedAuthor', false) == true)
+      );
+      allow update: if isAuthenticated() && isValidAsset(request.resource.data) && (
+        (request.auth.uid == resource.data.authorId && request.resource.data.authorId == resource.data.authorId && request.resource.data.createdAt == resource.data.createdAt) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock']) && (request.resource.data.stock == 'infinite' || (request.resource.data.stock is number && request.resource.data.stock >= 0))) ||
+        isAdmin()
+      );
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorId || isAdmin());
+    }
+
     match /apps/{appId} {
       allow read: if true;
       allow create: if isAuthenticated() && isValidApp(request.resource.data) && request.resource.data.authorId == request.auth.uid;

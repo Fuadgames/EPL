@@ -2,14 +2,15 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { User } from 'firebase/auth';
 
-type View = 'store' | 'editor' | 'my-apps' | 'profile' | 'settings' | 'player' | 'premium' | 'control';
+type View = 'store' | 'editor' | 'my-apps' | 'profile' | 'settings' | 'player' | 'premium' | 'control' | 'asset-store';
 
 export interface UserData {
   uid?: string;
   name?: string;
   email?: string;
   photoUrl?: string;
-  role: 'user' | 'admin' | 'moderator' | 'developer';
+  role: 'user' | 'admin' | 'moderator' | 'developer' | 'shopkeeper';
+  isVerifiedAuthor?: boolean;
   eplCoins: number;
   purchasedItems: string[];
   uploadedFiles?: { name: string; url: string }[];
@@ -64,6 +65,8 @@ interface AppState {
   setSelectedExtraCategory: (category: 'Normal' | 'OS' | null) => void;
   isBackdoor: boolean;
   setIsBackdoor: (isBackdoor: boolean) => void;
+  isFrutigerAero: boolean;
+  setIsFrutigerAero: (enabled: boolean) => void;
 }
 
 export const useStore = create<AppState>()(persist((set) => ({
@@ -114,6 +117,8 @@ export const useStore = create<AppState>()(persist((set) => ({
   setSelectedExtraCategory: (category) => set({ selectedExtraCategory: category }),
   isBackdoor: false,
   setIsBackdoor: (isBackdoor) => set({ isBackdoor }),
+  isFrutigerAero: false,
+  setIsFrutigerAero: (enabled) => set({ isFrutigerAero: enabled }),
 }), {
   name: 'app-storage',
   partialize: (state) => ({ 
@@ -129,6 +134,7 @@ export const useStore = create<AppState>()(persist((set) => ({
     computerStyle: state.computerStyle,
     selectedExtraCategory: state.selectedExtraCategory,
     userData: state.userData,
-    isBackdoor: state.isBackdoor
+    isBackdoor: state.isBackdoor,
+    isFrutigerAero: state.isFrutigerAero
   }),
 }));
