@@ -9,7 +9,7 @@ import {
   updateProfile,
   signOut
 } from "firebase/auth";
-import { getFirestore, doc, updateDoc, increment, onSnapshot } from "firebase/firestore";
+import { getFirestore, doc, updateDoc, increment, onSnapshot, getDoc, setDoc } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 // Your web app's Firebase configuration
@@ -34,7 +34,26 @@ export const signInWithGoogle = async () => {
   const provider = new GoogleAuthProvider();
   try {
     const result = await signInWithPopup(auth, provider);
-    return { user: result.user, error: null };
+    const user = result.user;
+    
+    // Check if user document exists, if not create it
+    const userRef = doc(db, 'users', user.uid);
+    const userSnap = await getDoc(userRef);
+    
+    if (!userSnap.exists()) {
+      await setDoc(userRef, {
+        uid: user.uid,
+        name: user.displayName || 'User',
+        email: user.email,
+        photoUrl: user.photoURL,
+        role: 'user',
+        eplCoins: 0,
+        purchasedItems: [],
+        createdAt: new Date().toISOString()
+      });
+    }
+    
+    return { user, error: null };
   } catch (error: any) {
     return { user: null, error };
   }
@@ -52,10 +71,24 @@ export const signInWithEmail = async (email: string, password: string) => {
 export const signUpWithEmail = async (email: string, password: string, name: string) => {
   try {
     const result = await createUserWithEmailAndPassword(auth, email, password);
-    if (result.user) {
-      await updateProfile(result.user, { displayName: name });
+    const user = result.user;
+    
+    if (user) {
+      await updateProfile(user, { displayName: name });
+      
+      // Create user document in Firestore
+      await setDoc(doc(db, 'users', user.uid), {
+        uid: user.uid,
+        name: name,
+        email: user.email,
+        role: 'user',
+        eplCoins: 0,
+        purchasedItems: [],
+        createdAt: new Date().toISOString()
+      });
     }
-    return { user: result.user, error: null };
+    
+    return { user, error: null };
   } catch (error: any) {
     return { user: null, error };
   }

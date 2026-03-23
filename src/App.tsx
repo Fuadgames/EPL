@@ -1,8 +1,9 @@
 import React, { useEffect } from 'react';
 import Layout from './components/Layout';
 import { useStore } from './store/useStore';
-import { auth, subscribeToUserData } from './firebase';
+import { auth, subscribeToUserData, db } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
+import { setDoc, doc } from 'firebase/firestore';
 
 // Lazy load components
 const StoreView = React.lazy(() => import('./components/StoreView'));
@@ -52,7 +53,28 @@ export default function App() {
         unsubscribeUser = undefined;
       }
       if (fbUser) {
-        unsubscribeUser = subscribeToUserData(fbUser.uid, (data) => setUserData(data));
+        unsubscribeUser = subscribeToUserData(fbUser.uid, async (data) => {
+          if (!data || !data.role) {
+            // Document might not exist yet, create it
+            console.log("User document missing, creating...");
+            try {
+              await setDoc(doc(db, 'users', fbUser.uid), {
+                uid: fbUser.uid,
+                name: fbUser.displayName || 'User',
+                email: fbUser.email,
+                photoUrl: fbUser.photoURL,
+                role: 'user',
+                eplCoins: 0,
+                purchasedItems: [],
+                createdAt: new Date().toISOString()
+              });
+            } catch (err) {
+              console.error("Error creating user document in App.tsx", err);
+            }
+          } else {
+            setUserData(data);
+          }
+        });
       }
     });
     
