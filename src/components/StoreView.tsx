@@ -296,8 +296,8 @@ export default function StoreView() {
           ))}
         </div>
 
-        {/* Mobile Filter Tabs */}
-        <div className="flex sm:hidden gap-2 pb-6 overflow-x-auto no-scrollbar px-1 sticky top-0 z-10">
+        {/* Filter Tabs */}
+        <div className="flex gap-2 pb-6 overflow-x-auto no-scrollbar px-1 sticky top-0 z-10">
           <button 
             onClick={() => setActiveTab('featured')}
             className={clsx(
