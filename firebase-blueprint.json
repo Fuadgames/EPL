@@ -13,9 +13,64 @@
         "isVerifiedAuthor": { "type": "boolean", "description": "Whether the user is a verified author." },
         "eplCoins": { "type": "number", "description": "The user's EPLCoins balance." },
         "purchasedItems": { "type": "array", "items": { "type": "string" }, "description": "List of purchased items." },
+        "avatarUrl": { "type": "string", "format": "uri", "description": "The user's custom avatar URL." },
+        "region": { "type": "string", "description": "The user's region for leaderboards." },
+        "friends": { "type": "array", "items": { "type": "string" }, "description": "List of friend UIDs." },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the user was created." }
       },
       "required": ["uid", "name", "email", "role", "eplCoins", "purchasedItems", "createdAt"]
+    },
+    "FriendRequest": {
+      "title": "FriendRequest",
+      "description": "A friend request between two users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The request ID." },
+        "senderId": { "type": "string", "description": "The UID of the user sending the request." },
+        "senderName": { "type": "string", "description": "The name of the sender." },
+        "receiverId": { "type": "string", "description": "The UID of the user receiving the request." },
+        "status": { "type": "string", "enum": ["pending", "accepted", "declined"], "description": "The status of the request." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the request was sent." }
+      },
+      "required": ["id", "senderId", "senderName", "receiverId", "status", "createdAt"]
+    },
+    "CollabSession": {
+      "title": "CollabSession",
+      "description": "A real-time collaboration session.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The session ID (join code)." },
+        "hostId": { "type": "string", "description": "The UID of the host." },
+        "code": { "type": "string", "description": "The current code in the editor." },
+        "participants": { 
+          "type": "array", 
+          "items": { 
+            "type": "object",
+            "properties": {
+              "userId": { "type": "string" },
+              "userName": { "type": "string" },
+              "isTyping": { "type": "boolean" }
+            }
+          }, 
+          "description": "List of participants." 
+        },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the session was created." }
+      },
+      "required": ["id", "hostId", "code", "participants", "createdAt"]
+    },
+    "UserPublic": {
+      "title": "UserPublic",
+      "description": "Public profile data for a user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The user's unique ID." },
+        "name": { "type": "string", "description": "The user's display name." },
+        "avatarUrl": { "type": "string", "format": "uri", "description": "The user's custom avatar URL." },
+        "region": { "type": "string", "description": "The user's region for leaderboards." },
+        "eplCoins": { "type": "number", "description": "The user's EPLCoins balance." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the user was created." }
+      },
+      "required": ["uid", "name", "eplCoins", "createdAt"]
     },
     "App": {
       "title": "App",
@@ -109,6 +164,10 @@
       "schema": { "$ref": "#/entities/User" },
       "description": "Stores user profiles."
     },
+    "/users_public/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublic" },
+      "description": "Stores public user profiles."
+    },
     "/apps/{appId}": {
       "schema": { "$ref": "#/entities/App" },
       "description": "Stores published apps."
@@ -124,6 +183,14 @@
     "/assets/{assetId}": {
       "schema": { "$ref": "#/entities/Asset" },
       "description": "Stores assets in the Asset Store."
+    },
+    "/friendRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/FriendRequest" },
+      "description": "Stores friend requests."
+    },
+    "/collabSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/CollabSession" },
+      "description": "Stores real-time collaboration sessions."
     }
   }
 }

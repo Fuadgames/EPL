@@ -2,6 +2,8 @@ import React from 'react';
 import { clsx } from 'clsx';
 import { motion } from 'framer-motion';
 
+import { useStore } from '../store/useStore';
+
 interface AppPreviewProps {
   entities: any;
   handleUIEvent: (eventName: string, target?: string) => void;
@@ -9,16 +11,21 @@ interface AppPreviewProps {
 }
 
 export default function AppPreview({ entities, handleUIEvent, isFullScreen }: AppPreviewProps) {
+  const computerStyle = useStore(state => state.computerStyle);
+
   return (
     <div 
       className={clsx("w-full h-full relative overflow-hidden", isFullScreen && "fixed inset-0 z-[100] w-screen h-screen")}
       style={{
-        backgroundColor: isFullScreen ? '#ffffff' : ((Object.values(entities).find((e: any) => e.type === 'world') as any)?.background || '#ffffff'),
+        backgroundColor: computerStyle ? 'transparent' : (isFullScreen ? '#ffffff' : ((Object.values(entities).find((e: any) => e.type === 'world') as any)?.background || '#ffffff')),
         backgroundImage: (Object.values(entities).find((e: any) => e.type === 'world') as any)?.backgroundImage ? `url(${(Object.values(entities).find((e: any) => e.type === 'world') as any)?.backgroundImage})` : 'none',
         backgroundSize: 'cover',
         backgroundPosition: 'center'
       }}
     >
+      {computerStyle && (Object.values(entities).find((e: any) => e.type === 'world') as any)?.backgroundImage && (
+        <div className="absolute inset-0 bg-emerald-900/50 mix-blend-color pointer-events-none z-0" />
+      )}
       {Object.values(entities).map((entity: any) => {
         if (entity.type === 'sprite' || entity.type === 'player' || entity.type === 'enemy' || entity.type === 'png') {
           return (
@@ -31,6 +38,7 @@ export default function AppPreview({ entities, handleUIEvent, isFullScreen }: Ap
                 top: entity.y || 0, 
                 width: entity.width || 64, 
                 height: entity.height || 64,
+                filter: computerStyle ? 'grayscale(1) sepia(1) hue-rotate(80deg) saturate(500%) brightness(0.8) contrast(2) drop-shadow(0 0 8px rgba(16,185,129,0.8))' : 'none',
                 transitionProperty: 'left, top',
                 transitionTimingFunction: 'linear',
                 transitionDuration: entity.transitionDuration !== undefined ? `${entity.transitionDuration}s` : '0s'
@@ -52,11 +60,11 @@ export default function AppPreview({ entities, handleUIEvent, isFullScreen }: Ap
             <motion.button
               key={entity.id}
               onClick={() => handleUIEvent('clicked?', entity.name)}
-              className="absolute px-4 py-2 text-white rounded-lg font-medium shadow-md transition-all hover:scale-105"
+              className={clsx("absolute px-4 py-2 rounded-lg font-medium shadow-md transition-all hover:scale-105", computerStyle ? "border-2 border-emerald-500 text-emerald-500 bg-black shadow-[0_0_10px_rgba(16,185,129,0.5)]" : "text-white")}
               style={{ 
                 left: entity.x || 0, 
                 top: entity.y || 0,
-                backgroundColor: entity.color || '#10b981',
+                backgroundColor: computerStyle ? '#050505' : (entity.color || '#10b981'),
                 transitionProperty: 'left, top, background-color, transform',
                 transitionTimingFunction: 'linear',
                 transitionDuration: entity.transitionDuration !== undefined ? `${entity.transitionDuration}s` : '0s'
@@ -77,13 +85,13 @@ export default function AppPreview({ entities, handleUIEvent, isFullScreen }: Ap
           return (
             <motion.div
               key={entity.id}
-              className="absolute"
+              className={clsx("absolute", computerStyle && "border-2 border-emerald-500 bg-black shadow-[0_0_10px_rgba(16,185,129,0.5)]")}
               style={{ 
                 left: entity.x || 0, 
                 top: entity.y || 0,
                 width: entity.width || 50,
                 height: entity.height || 50,
-                backgroundColor: entity.color || '#3f3f46',
+                backgroundColor: computerStyle ? '#050505' : (entity.color || '#3f3f46'),
                 transitionProperty: 'left, top',
                 transitionTimingFunction: 'linear',
                 transitionDuration: entity.transitionDuration !== undefined ? `${entity.transitionDuration}s` : '0s'
@@ -102,14 +110,14 @@ export default function AppPreview({ entities, handleUIEvent, isFullScreen }: Ap
           return (
             <motion.div
               key={entity.id}
-              className="absolute"
+              className={clsx("absolute", computerStyle && "border-2 border-emerald-500 bg-black shadow-[4px_4px_0px_rgba(16,185,129,0.5)]")}
               style={{ 
                 left: entity.x || 0, 
                 top: entity.y || 0,
                 width: entity.size || 50,
                 height: entity.size || 50,
-                backgroundColor: entity.color || '#3f3f46',
-                boxShadow: '4px 4px 0px rgba(0,0,0,0.5)',
+                backgroundColor: computerStyle ? '#050505' : (entity.color || '#3f3f46'),
+                boxShadow: computerStyle ? undefined : '4px 4px 0px rgba(0,0,0,0.5)',
                 transitionProperty: 'left, top',
                 transitionTimingFunction: 'linear',
                 transitionDuration: entity.transitionDuration !== undefined ? `${entity.transitionDuration}s` : '0s'
@@ -128,11 +136,12 @@ export default function AppPreview({ entities, handleUIEvent, isFullScreen }: Ap
           return (
             <motion.div
               key={entity.id}
-              className="absolute font-bold"
+              className={clsx("absolute font-bold", computerStyle && "text-emerald-500")}
               style={{ 
                 left: entity.x || 0, 
                 top: entity.y || 0,
-                color: entity.color || '#000000',
+                color: computerStyle ? '#10b981' : (entity.color || '#000000'),
+                textShadow: computerStyle ? '0 0 8px rgba(16,185,129,0.8)' : undefined,
                 fontSize: entity.size ? `${entity.size}px` : '16px',
                 transitionProperty: 'left, top',
                 transitionTimingFunction: 'linear',
@@ -163,7 +172,7 @@ export default function AppPreview({ entities, handleUIEvent, isFullScreen }: Ap
                 // but handleUIEvent will trigger re-render of EditorView which will re-render AppPreview
                 handleUIEvent('writed?', entity.name);
               }}
-              className="absolute px-3 py-2 bg-zinc-900 border border-zinc-700 rounded-lg text-white focus:outline-none focus:border-emerald-500 transition-colors"
+              className={clsx("absolute px-3 py-2 rounded-lg focus:outline-none transition-colors", computerStyle ? "bg-black border border-emerald-500 text-emerald-500 focus:border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]" : "bg-zinc-900 border border-zinc-700 text-white focus:border-emerald-500")}
               style={{ 
                 left: entity.x || 0, 
                 top: entity.y || 0,
@@ -186,13 +195,13 @@ export default function AppPreview({ entities, handleUIEvent, isFullScreen }: Ap
           return (
             <motion.div
               key={entity.id}
-              className="absolute rounded-full"
+              className={clsx("absolute rounded-full", computerStyle && "border-2 border-emerald-500 bg-black shadow-[0_0_10px_rgba(16,185,129,0.5)]")}
               style={{ 
                 left: entity.x || 0, 
                 top: entity.y || 0,
                 width: (entity.radius || 25) * 2,
                 height: (entity.radius || 25) * 2,
-                backgroundColor: entity.color || '#3f3f46',
+                backgroundColor: computerStyle ? '#050505' : (entity.color || '#3f3f46'),
                 transitionProperty: 'left, top',
                 transitionTimingFunction: 'linear',
                 transitionDuration: entity.transitionDuration !== undefined ? `${entity.transitionDuration}s` : '0s'

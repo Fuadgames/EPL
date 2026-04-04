@@ -59,4 +59,62 @@
     color: #004488;
     text-shadow: 0 1px 0 rgba(255,255,255,0.8), 0 0 10px rgba(100, 200, 255, 0.5);
   }
+
+  .computer-style {
+    font-family: 'Courier New', Courier, monospace;
+    background-color: #050505 !important;
+    color: #00ff00 !important;
+    text-shadow: 0 0 2px rgba(0, 255, 0, 0.5), 0 0 8px rgba(0, 255, 0, 0.3) !important;
+    position: relative;
+  }
+  
+  .computer-style::before {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    z-index: 50;
+    background-size: 100% 3px, 3px 100%;
+    pointer-events: none;
+  }
+  
+  .computer-style::after {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: rgba(0, 255, 0, 0.05);
+    opacity: 0;
+    z-index: 50;
+    pointer-events: none;
+    animation: flicker 0.15s infinite;
+  }
+
+  @keyframes flicker {
+    0% { opacity: 0.02; }
+    50% { opacity: 0.05; }
+    100% { opacity: 0.02; }
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
 }

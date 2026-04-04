@@ -13,20 +13,12 @@ import {
 import { getFirestore, doc, updateDoc, increment, onSnapshot, getDoc, setDoc } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
-// Your web app's Firebase configuration
-const firebaseConfig = {
-  apiKey: "AIzaSyD6HH-Uz6zsU7CGogqbFCTGB6wxACwQynU",
-  authDomain: "gen-lang-client-0943849163.firebaseapp.com",
-  projectId: "gen-lang-client-0943849163",
-  storageBucket: "gen-lang-client-0943849163.firebasestorage.app",
-  messagingSenderId: "1048396182520",
-  appId: "1:1048396182520:web:6833de6275c58ee6479c0d"
-};
+import firebaseConfig from '../firebase-applet-config.json';
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
-export const db = getFirestore(app);
+export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app);
 
 export const logOut = () => signOut(auth);

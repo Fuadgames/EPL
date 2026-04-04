@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { User } from 'firebase/auth';
 
-type View = 'store' | 'editor' | 'my-apps' | 'profile' | 'settings' | 'player' | 'premium' | 'control' | 'asset-store';
+type View = 'store' | 'editor' | 'my-apps' | 'profile' | 'settings' | 'player' | 'premium' | 'control' | 'asset-store' | 'leaderboards';
 
 export interface UserPermissions {
   accessRecent: boolean;
@@ -21,6 +21,9 @@ export interface UserData {
   name?: string;
   email?: string;
   photoUrl?: string;
+  avatarUrl?: string;
+  region?: string;
+  friends?: string[];
   role: UserRole;
   isVerifiedAuthor?: boolean;
   eplCoins: number;
@@ -28,7 +31,10 @@ export interface UserData {
   uploadedFiles?: { name: string; url: string }[];
   permissions?: UserPermissions;
   installedApps?: { [appId: string]: string }; // appId -> version
+  purchasedApps?: string[]; // list of appIds
   createdAt?: string;
+  premiumExpiry?: string | null;
+  isPremium?: boolean;
 }
 
 interface AppState {
@@ -85,6 +91,10 @@ interface AppState {
   setIsAuthModalOpen: (isOpen: boolean) => void;
   simulatedRole: UserRole | null;
   setSimulatedRole: (role: UserRole | null) => void;
+  premiumCode: string | null;
+  setPremiumCode: (code: string | null) => void;
+  premiumExpiry: string | null;
+  setPremiumExpiry: (expiry: string | null) => void;
 }
 
 export const useStore = create<AppState>()(persist((set) => ({
@@ -141,6 +151,10 @@ export const useStore = create<AppState>()(persist((set) => ({
   setIsAuthModalOpen: (isOpen) => set({ isAuthModalOpen: isOpen }),
   simulatedRole: null,
   setSimulatedRole: (role) => set({ simulatedRole: role }),
+  premiumCode: null,
+  setPremiumCode: (code) => set({ premiumCode: code }),
+  premiumExpiry: null,
+  setPremiumExpiry: (expiry) => set({ premiumExpiry: expiry }),
 }), {
   name: 'app-storage',
   partialize: (state) => ({ 
@@ -158,6 +172,8 @@ export const useStore = create<AppState>()(persist((set) => ({
     userData: state.userData,
     isBackdoor: state.isBackdoor,
     isFrutigerAero: state.isFrutigerAero,
-    simulatedRole: state.simulatedRole
+    simulatedRole: state.simulatedRole,
+    premiumCode: state.premiumCode,
+    premiumExpiry: state.premiumExpiry
   }),
 }));

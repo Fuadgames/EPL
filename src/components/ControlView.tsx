@@ -3,7 +3,7 @@ import { useStore } from '../store/useStore';
 import { translations } from '../lib/translations';
 import { clsx } from 'clsx';
 import { ShieldCheck, CheckCircle, XCircle, Users, Coins, Search } from 'lucide-react';
-import { collection, getDocs, doc, updateDoc, query, where, onSnapshot, increment } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, query, where, onSnapshot, increment, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AppData } from '../types';
 
@@ -13,11 +13,14 @@ export default function ControlView() {
   const language = useStore(state => state.language);
   const simulatedRole = useStore(state => state.simulatedRole);
   const setSimulatedRole = useStore(state => state.setSimulatedRole);
+  const premiumCode = useStore(state => state.premiumCode);
+  const setPremiumCode = useStore(state => state.setPremiumCode);
   const [apps, setApps] = useState<AppData[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [assets, setAssets] = useState<any[]>([]);
+  const [premiumCodes, setPremiumCodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'apps' | 'users' | 'assets' | 'roles'>('apps');
+  const [activeTab, setActiveTab] = useState<'apps' | 'users' | 'assets' | 'roles' | 'premium'>('apps');
   const [search, setSearch] = useState('');
   const [localPermissions, setLocalPermissions] = useState<{ [userId: string]: any }>({});
   const [saving, setSaving] = useState<string | null>(null);
@@ -54,10 +57,22 @@ export default function ControlView() {
       console.error("Error fetching assets", error);
     });
 
+    // Subscribe to premium codes
+    const codesUnsubscribe = onSnapshot(collection(db, 'premium_codes'), (snapshot) => {
+      const codesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPremiumCodes(codesData);
+    }, (error) => {
+      console.error("Error fetching premium codes:", error);
+      if (error.message.includes('insufficient permissions')) {
+        console.warn("Permission denied for premium_codes. This is expected if you are not a developer or admin.");
+      }
+    });
+
     return () => {
       appsUnsubscribe();
       usersUnsubscribe();
       assetsUnsubscribe();
+      codesUnsubscribe();
     };
   }, []);
 
@@ -78,6 +93,10 @@ export default function ControlView() {
   };
 
   const handleUpdateUserRole = async (userId: string, role: string) => {
+    if (userData?.role !== 'developer') {
+      alert(language === 'ru' ? "Только разработчик может менять роли!" : "Only developers can change roles!");
+      return;
+    }
     try {
       await updateDoc(doc(db, 'users', userId), { role });
     } catch (error) {
@@ -86,6 +105,10 @@ export default function ControlView() {
   };
 
   const handleUpdateUserPermissions = async (userId: string) => {
+    if (userData?.role !== 'developer') {
+      alert(language === 'ru' ? "Только разработчик может менять права!" : "Only developers can change permissions!");
+      return;
+    }
     const permissions = localPermissions[userId];
     if (!permissions) return;
 
@@ -107,6 +130,35 @@ export default function ControlView() {
       });
     } catch (error) {
       console.error("Error giving coins", error);
+    }
+  };
+
+  const handleGenerateCode = async () => {
+    if (!userData?.uid) {
+      alert(language === 'ru' ? "Ошибка: пользователь не авторизован" : "Error: User not authenticated");
+      return;
+    }
+
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const gen = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+    const newCode = `${gen()}-${gen()}-${gen()}`;
+    
+    try {
+      // Add to premium_codes collection
+      await setDoc(doc(db, 'premium_codes', newCode), {
+        code: newCode,
+        used: false,
+        createdAt: new Date().toISOString(),
+        createdBy: userData.uid
+      });
+      
+      // Update local state to show the new code
+      setPremiumCode(newCode);
+      
+      alert(language === 'ru' ? `Новый код сгенерирован: ${newCode}` : `New code generated: ${newCode}`);
+    } catch (error) {
+      console.error("Error generating premium code:", error);
+      alert(language === 'ru' ? "Ошибка генерации кода. Проверьте права доступа." : "Error generating premium code. Check your permissions.");
     }
   };
 
@@ -216,6 +268,17 @@ export default function ControlView() {
               {t.roleControl || 'Role Control'}
             </button>
           )}
+          {effectiveRole === 'developer' && (
+            <button
+              onClick={() => setActiveTab('premium')}
+              className={clsx(
+                "px-6 py-2 rounded-xl font-medium transition-colors whitespace-nowrap",
+                activeTab === 'premium' ? 'bg-emerald-500 text-white' : theme !== 'light' ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-200 text-zinc-600'
+              )}
+            >
+              {language === 'ru' ? 'Премиум коды' : 'Premium Codes'}
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -290,6 +353,86 @@ export default function ControlView() {
               </div>
             ))}
           </div>
+        ) : activeTab === 'premium' ? (
+          <div className="space-y-6">
+            <div className={clsx(
+              "p-8 rounded-3xl border",
+              theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
+            )}>
+              <h2 className="text-xl font-bold mb-4">{language === 'ru' ? 'Генератор премиум кодов' : 'Premium Code Generator'}</h2>
+              <p className="text-zinc-500 mb-6">
+                {language === 'ru' ? 'Сгенерируйте код для активации премиума. Коды одноразовые.' : 'Generate a code for premium activation. Codes are one-time use.'}
+              </p>
+              
+              <div className="flex flex-col gap-4">
+                <div className={clsx(
+                  "p-4 rounded-xl border font-mono text-center text-2xl tracking-widest",
+                  theme !== 'light' ? 'bg-zinc-950 border-zinc-800 text-emerald-400' : 'bg-zinc-50 border-zinc-200 text-emerald-600'
+                )}>
+                  {premiumCode || 'XXXX-XXXX-XXXX'}
+                </div>
+                
+                <button
+                  onClick={handleGenerateCode}
+                  className="w-full py-3 px-6 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium transition-colors"
+                >
+                  {language === 'ru' ? 'Сгенерировать новый код' : 'Generate New Code'}
+                </button>
+                
+                {premiumCode && (
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(premiumCode);
+                      alert(language === 'ru' ? 'Код скопирован!' : 'Code copied!');
+                    }}
+                    className="w-full py-3 px-6 bg-zinc-800 hover:bg-zinc-700 text-white rounded-xl font-medium transition-colors"
+                  >
+                    {language === 'ru' ? 'Копировать код' : 'Copy Code'}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className={clsx(
+              "p-8 rounded-3xl border",
+              theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
+            )}>
+              <h2 className="text-xl font-bold mb-4">{language === 'ru' ? 'Список кодов' : 'Codes List'}</h2>
+              <div className="space-y-2 max-h-96 overflow-y-auto pr-2 custom-scrollbar">
+                {premiumCodes.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map(c => (
+                  <div key={c.id} className={clsx(
+                    "p-4 rounded-xl border flex items-center justify-between",
+                    theme !== 'light' ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+                  )}>
+                    <div className="flex flex-col">
+                      <span className="font-mono font-bold">{c.code}</span>
+                      <span className="text-[10px] opacity-50">{new Date(c.createdAt).toLocaleString()}</span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      {c.used ? (
+                        <span className="text-xs px-2 py-1 bg-red-500/10 text-red-500 rounded-lg font-bold">
+                          {language === 'ru' ? 'Использован' : 'Used'}
+                        </span>
+                      ) : (
+                        <span className="text-xs px-2 py-1 bg-emerald-500/10 text-emerald-500 rounded-lg font-bold">
+                          {language === 'ru' ? 'Активен' : 'Active'}
+                        </span>
+                      )}
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(c.code);
+                          alert(language === 'ru' ? 'Код скопирован!' : 'Code copied!');
+                        }}
+                        className="p-2 hover:bg-zinc-800 rounded-lg transition-colors"
+                      >
+                        <Search className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
         ) : activeTab === 'roles' ? (
           <div className="space-y-6">
             <div className="relative max-w-md">
@@ -344,26 +487,29 @@ export default function ControlView() {
                       { key: 'premiumFeatures', label: 'Premium Features' },
                       { key: 'accessRecent', label: 'Recent Tab' }
                     ].map(perm => {
+                      const DEFAULT_PERMISSIONS = {
+                        accessAssetStore: true,
+                        accessPremium: true,
+                        accessControl: false,
+                        sellInAssetStore: true,
+                        publishApps: true,
+                        premiumFeatures: true,
+                        accessRecent: true
+                      };
                       const isSelfDev = u.id === userData.uid && userData.role === 'developer' && perm.key === 'accessControl';
-                      const currentVal = localPermissions[u.id]?.[perm.key] ?? u.permissions?.[perm.key] ?? true;
+                      const isDisabled = isSelfDev || userData.role !== 'developer';
+                      const currentVal = localPermissions[u.id]?.[perm.key as keyof typeof DEFAULT_PERMISSIONS] ?? u.permissions?.[perm.key as keyof typeof DEFAULT_PERMISSIONS] ?? DEFAULT_PERMISSIONS[perm.key as keyof typeof DEFAULT_PERMISSIONS];
                       
                       return (
-                        <label key={perm.key} className={clsx("flex items-center gap-2 cursor-pointer group", isSelfDev && "opacity-50 cursor-not-allowed")}>
+                        <label key={perm.key} className={clsx("flex items-center gap-2 cursor-pointer group", isDisabled && "opacity-50 cursor-not-allowed")}>
                           <input
                             type="checkbox"
                             checked={currentVal}
-                            disabled={isSelfDev}
+                            disabled={isDisabled}
                             onChange={(e) => {
+                              const existingPermissions = localPermissions[u.id] || u.permissions || DEFAULT_PERMISSIONS;
                               const newPermissions = {
-                                ...(localPermissions[u.id] || u.permissions || {
-                                  accessAssetStore: true,
-                                  accessPremium: true,
-                                  accessControl: false,
-                                  sellInAssetStore: true,
-                                  publishApps: true,
-                                  premiumFeatures: true,
-                                  accessRecent: true
-                                }),
+                                ...existingPermissions,
                                 [perm.key]: e.target.checked
                               };
                               setLocalPermissions(prev => ({ ...prev, [u.id]: newPermissions }));
@@ -414,23 +560,32 @@ export default function ControlView() {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <select
-                      value={u.role || 'user'}
-                      onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
-                      className={clsx(
-                        "px-3 py-2 rounded-xl text-sm border focus:outline-none",
-                        theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white' : 'bg-zinc-100 border-zinc-200 text-zinc-900'
-                      )}
-                      disabled={userData?.role !== 'developer' && u.role === 'developer'}
-                    >
-                      <option value="user">User</option>
-                      <option value="moderator">Moderator</option>
-                      <option value="admin">Admin</option>
-                      <option value="shopkeeper">Shopkeeper</option>
-                      {userData?.role === 'developer' && <option value="developer">Developer</option>}
-                    </select>
+                    {userData?.role === 'developer' ? (
+                      <select
+                        value={u.role || 'user'}
+                        onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
+                        className={clsx(
+                          "px-3 py-2 rounded-xl text-sm border focus:outline-none",
+                          theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white' : 'bg-zinc-100 border-zinc-200 text-zinc-900'
+                        )}
+                      >
+                        <option value="user">User</option>
+                        <option value="moderator">Moderator</option>
+                        <option value="admin">Admin</option>
+                        <option value="shopkeeper">Shopkeeper</option>
+                        <option value="developer">Developer</option>
+                      </select>
+                    ) : (
+                      <div className={clsx(
+                        "px-3 py-2 rounded-xl text-sm border",
+                        theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-zinc-400' : 'bg-zinc-100 border-zinc-200 text-zinc-500'
+                      )}>
+                        {u.role || 'user'}
+                      </div>
+                    )}
                     <button
                       onClick={() => {
+                        if (userData?.role !== 'developer') return alert(language === 'ru' ? "Только разработчик может верифицировать авторов!" : "Only developers can verify authors!");
                         updateDoc(doc(db, 'users', u.id), { isVerifiedAuthor: !u.isVerifiedAuthor }).catch(console.error);
                       }}
                       className={clsx(

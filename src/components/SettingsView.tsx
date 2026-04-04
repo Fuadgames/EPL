@@ -18,9 +18,12 @@ export default function SettingsView() {
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const setIsFrutigerAero = useStore(state => state.setIsFrutigerAero);
   const userData = useStore(state => state.userData);
+  const setUserData = useStore(state => state.setUserData);
   const simulatedRole = useStore(state => state.simulatedRole);
   const setSimulatedRole = useStore(state => state.setSimulatedRole);
   const [displayName, setDisplayName] = useState(user?.displayName || '');
+  const [avatarUrl, setAvatarUrl] = useState(userData?.avatarUrl || user?.photoURL || '');
+  const [region, setRegion] = useState(userData?.region || 'Global');
   const [isUpdating, setIsUpdating] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
@@ -29,9 +32,28 @@ export default function SettingsView() {
     setIsUpdating(true);
     setStatus(null);
     try {
-      await updateProfile(user, { displayName });
+      await updateProfile(user, { displayName, photoURL: avatarUrl });
+      
+      // Update users and users_public collections
+      const { doc, updateDoc } = await import('firebase/firestore');
+      const { db } = await import('../firebase');
+      
+      await updateDoc(doc(db, 'users', user.uid), {
+        name: displayName,
+        avatarUrl,
+        region
+      });
+      
+      await updateDoc(doc(db, 'users_public', user.uid), {
+        name: displayName,
+        avatarUrl,
+        region
+      });
+
       // Update local store user object
-      setUser({ ...user, displayName } as any);
+      setUser({ ...user, displayName, photoURL: avatarUrl } as any);
+      setUserData({ ...userData, name: displayName, avatarUrl, region } as any);
+      
       setStatus({ type: 'success', message: 'Profile updated successfully!' });
     } catch (error: any) {
       setStatus({ type: 'error', message: error.message });
@@ -273,6 +295,42 @@ export default function SettingsView() {
                   />
                 </div>
 
+                <div>
+                  <label className={clsx("block text-sm font-medium mb-1", isFrutigerAero ? "text-blue-800/80" : "text-zinc-500")}>Avatar URL</label>
+                  <input
+                    type="text"
+                    value={avatarUrl}
+                    onChange={(e) => setAvatarUrl(e.target.value)}
+                    className={clsx(
+                      "w-full px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 transition-all",
+                      isFrutigerAero ? "bg-white/60 border-white/40 text-blue-900 focus:ring-blue-400 shadow-inner" :
+                      theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white focus:ring-emerald-500/50' : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:ring-emerald-500/50'
+                    )}
+                    placeholder="Enter avatar URL"
+                  />
+                </div>
+
+                <div>
+                  <label className={clsx("block text-sm font-medium mb-1", isFrutigerAero ? "text-blue-800/80" : "text-zinc-500")}>Region</label>
+                  <select
+                    value={region}
+                    onChange={(e) => setRegion(e.target.value)}
+                    className={clsx(
+                      "w-full px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 transition-all",
+                      isFrutigerAero ? "bg-white/60 border-white/40 text-blue-900 focus:ring-blue-400 shadow-inner" :
+                      theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white focus:ring-emerald-500/50' : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:ring-emerald-500/50'
+                    )}
+                  >
+                    <option value="Global">Global</option>
+                    <option value="North America">North America</option>
+                    <option value="Europe">Europe</option>
+                    <option value="Asia">Asia</option>
+                    <option value="South America">South America</option>
+                    <option value="Oceania">Oceania</option>
+                    <option value="Africa">Africa</option>
+                  </select>
+                </div>
+
                 {status && (
                   <div className={clsx(
                     "flex items-center gap-2 p-3 rounded-xl text-sm",
@@ -287,7 +345,7 @@ export default function SettingsView() {
 
                 <button
                   onClick={handleUpdateProfile}
-                  disabled={isUpdating || displayName === user.displayName}
+                  disabled={isUpdating || (displayName === user.displayName && avatarUrl === (userData?.avatarUrl || user.photoURL || '') && region === (userData?.region || 'Global'))}
                   className={clsx(
                     "w-full flex items-center justify-center gap-2 px-6 py-3 disabled:opacity-50 rounded-xl font-medium transition-all",
                     isFrutigerAero ? "frutiger-aero-button" : "bg-emerald-500 hover:bg-emerald-600 disabled:hover:bg-emerald-500 text-white"

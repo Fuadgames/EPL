@@ -6,13 +6,14 @@ import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'fir
 import { handleFirestoreError, OperationType } from '../lib/firestore-errors';
 import { EPLInterpreter } from '../lib/epl-interpreter';
 import { EPL_DICTIONARY } from '../lib/epl-dictionary';
-import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize } from 'lucide-react';
+import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users } from 'lucide-react';
 import { clsx } from 'clsx';
 import { GoogleGenAI } from "@google/genai";
 import VisualEditor from './VisualEditor';
 import AppPreview from './AppPreview';
 import AIAgent from './AIAgent';
 import Tutorial from './Tutorial';
+import CollabModal from './CollabModal';
 import { translations, tutorialContent } from '../lib/translations';
 
 const DEFAULT_CODE = ``;
@@ -297,6 +298,7 @@ export default function EditorView() {
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [showFileControlModal, setShowFileControlModal] = useState(false);
   const [showEditorStoreModal, setShowEditorStoreModal] = useState(false);
+  const [showCollabModal, setShowCollabModal] = useState(false);
   const [appTitle, setAppTitle] = useState('My EPL App');
   const [appDesc, setAppDesc] = useState('A cool app written in EPL.');
   const [appVersion, setAppVersion] = useState('1.0.0');
@@ -308,8 +310,9 @@ export default function EditorView() {
   const [linuxUrl, setLinuxUrl] = useState('');
   const [apkUrl, setApkUrl] = useState('');
   const [appIconUrl, setAppIconUrl] = useState('');
-  const [appScreenshotUrl, setAppScreenshotUrl] = useState('');
   const [appBannerUrl, setAppBannerUrl] = useState('');
+  const [appScreenshotUrl, setAppScreenshotUrl] = useState('');
+  const [isGeneratingScreenshot, setIsGeneratingScreenshot] = useState(false);
   const [isGeneratingImage, setIsGeneratingImage] = useState<string | null>(null);
   const [isLocked, setIsLocked] = useState(false);
   const [unlockCode, setUnlockCode] = useState('');
@@ -630,6 +633,50 @@ export default function EditorView() {
     }, 100);
   };
 
+  const handleGenerateAiScreenshot = async () => {
+    if (!isPremium && userData?.role !== 'developer') return alert("AI Screenshot is a Premium feature.");
+    setIsGeneratingScreenshot(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+      const prompt = `Generate a high-quality, professional app icon and banner for an app with the following title: "${appTitle}" and description: "${appDesc}". 
+      The app is written in EPL (Easy Programming Language). 
+      Here is the app code for context:
+      ${code}
+      
+      Style: Modern, vibrant, and clean. The image should look like a professional app interface or a high-quality promotional graphic for this specific app. It should represent the functionality described in the code.`;
+      
+      const response = await ai.models.generateContent({
+        model: 'gemini-2.5-flash-image',
+        contents: { parts: [{ text: prompt }] },
+      });
+
+      const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
+      if (part?.inlineData) {
+        const base64Data = part.inlineData.data;
+        const mimeType = part.inlineData.mimeType;
+        const imageUrl = `data:${mimeType};base64,${base64Data}`;
+        
+        // Upload to Firebase Storage for persistence
+        const blob = await fetch(imageUrl).then(res => res.blob());
+        const storageRef = ref(storage, `apps/${user?.uid}/${Date.now()}_ai_screenshot.png`);
+        await uploadBytes(storageRef, blob);
+        const url = await getDownloadURL(storageRef);
+        
+        setAppIconUrl(url);
+        setAppBannerUrl(url);
+        setAppScreenshotUrl(url);
+        setIsAiGenerated(true);
+      } else {
+        alert("Failed to generate AI screenshot.");
+      }
+    } catch (error) {
+      console.error("Error generating AI screenshot", error);
+      alert("Failed to generate AI screenshot. Please try again.");
+    } finally {
+      setIsGeneratingScreenshot(false);
+    }
+  };
+
   const handlePublish = async () => {
     if (!user) return alert("You must be signed in to publish apps.");
     setIsPublishing(true);
@@ -743,11 +790,12 @@ export default function EditorView() {
   };
 
   const handleSaveAs = () => {
-    const blob = new Blob([code], { type: 'text/plain' });
+    const blob = new Blob([code], { type: 'application/octet-stream' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${appTitle.replace(/\s+/g, '_').toLowerCase()}.epl`;
+    const fileName = (appTitle || 'project').replace(/\s+/g, '_').toLowerCase();
+    a.download = `${fileName}.epl`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -857,13 +905,14 @@ export default function EditorView() {
   }, [isRunning, setIsPremium, handleRun, isFullScreen, setIsFullScreen]);
 
   return (
-    <div className={clsx("h-full flex flex-col overflow-hidden", isFrutigerAero && "frutiger-aero-bg", computerStyle && "font-mono bg-zinc-950 text-emerald-500")}>
+    <div className={clsx("h-full flex flex-col overflow-hidden relative", isFrutigerAero && "frutiger-aero-bg", computerStyle && "computer-style")}>
       {/* Menu Bar */}
       <div 
         ref={menuRef}
         className={clsx(
           "flex items-center gap-1 px-2 py-1 border-b text-sm relative z-50 whitespace-nowrap",
-          isFrutigerAero ? "frutiger-aero-glass" : (theme !== 'light' ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : 'bg-zinc-100 border-zinc-200 text-zinc-700')
+          isFrutigerAero ? "frutiger-aero-glass" : (theme !== 'light' ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : 'bg-zinc-100 border-zinc-200 text-zinc-700'),
+          computerStyle && "bg-transparent border-emerald-500/30 text-emerald-500"
         )}
       >
         <div className="relative">
@@ -885,8 +934,7 @@ export default function EditorView() {
                 <UploadCloud className="w-4 h-4" /> {t.loadAs} (.epl)
               </button>
               <button onClick={() => { 
-                  if (editingAppId) handlePublish(); 
-                  else setShowPublishModal(true); 
+                  setShowPublishModal(true); 
                   setActiveMenu(null); 
                 }} 
                 className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}
@@ -899,6 +947,9 @@ export default function EditorView() {
                 className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}
               >
                 <Save className="w-4 h-4" /> {isSavingLocally ? t.publishing : t.saveLocally}
+              </button>
+              <button onClick={() => { setShowCollabModal(true); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
+                <Users className="w-4 h-4" /> {language === 'ru' ? 'Совместное создание' : 'Together Create'}
               </button>
             </div>
           )}
@@ -1116,7 +1167,8 @@ export default function EditorView() {
             "w-full sm:flex flex-col min-h-[50vh] sm:min-h-0 border-t sm:border-t-0",
             isFrutigerAero ? "bg-white/30 border-white/30 backdrop-blur-md" : "bg-zinc-900/20 border-zinc-800",
             !isRightPanelOpen && "hidden sm:flex",
-            isFullScreen && "fixed inset-0 z-[100] w-screen h-screen border-0"
+            isFullScreen && "fixed inset-0 z-[100] w-screen h-screen border-0",
+            computerStyle && "bg-transparent border-emerald-500/30"
           )}
           style={{ width: isFullScreen ? '100%' : (typeof window !== 'undefined' && window.innerWidth > 640 ? rightPanelWidth : undefined) }}
         >
@@ -1156,11 +1208,13 @@ export default function EditorView() {
           {!isFullScreen && (
             <div className={clsx(
               "h-64 flex flex-col font-mono text-xs",
-              isFrutigerAero ? "bg-black/70 text-green-400 backdrop-blur-md" : "bg-black/90 text-zinc-300"
+              isFrutigerAero ? "bg-black/70 text-green-400 backdrop-blur-md" : "bg-black/90 text-zinc-300",
+              computerStyle && "bg-transparent text-emerald-500 border-t border-emerald-500/30"
             )}>
               <div className={clsx(
                 "px-4 py-2 flex items-center gap-2 border-b uppercase tracking-wider font-sans font-medium",
-                isFrutigerAero ? "border-white/20 text-green-500 bg-black/50" : "border-zinc-800 text-zinc-500"
+                isFrutigerAero ? "border-white/20 text-green-500 bg-black/50" : "border-zinc-800 text-zinc-500",
+                computerStyle && "border-emerald-500/30 text-emerald-500"
               )}>
                 <Terminal className="w-3.5 h-3.5" /> {t.console}
               </div>
@@ -1323,153 +1377,84 @@ export default function EditorView() {
                 </div>
               </div>
 
-              {/* Image Options */}
+              {/* App Assets Section */}
               <div className="space-y-4 pt-4 border-t border-zinc-800">
-                <h4 className="text-sm font-bold text-zinc-300 flex items-center gap-2">
-                  <ImageIcon className="w-4 h-4" /> {language === 'ru' ? 'Изображения приложения' : 'App Images'}
-                </h4>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="block text-xs font-medium text-zinc-500 uppercase">{language === 'ru' ? 'Иконка' : 'Icon'}</label>
-                    <div className="aspect-square rounded-xl bg-zinc-800 flex items-center justify-center overflow-hidden border border-zinc-700 relative group">
+                <label className={clsx("block text-sm font-medium", isFrutigerAero ? "text-blue-900" : "text-zinc-400")}>
+                  {language === 'ru' ? 'Ассеты приложения' : 'App Assets'}
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Icon */}
+                  <div className={clsx("p-4 rounded-xl border", isFrutigerAero ? "bg-white/40 border-white/50" : "bg-zinc-800/50 border-zinc-700")}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold uppercase tracking-wider opacity-50">Icon</span>
+                      <button 
+                        onClick={() => imageInputRef.current?.click()}
+                        className="p-1 hover:bg-zinc-700 rounded-lg transition-colors"
+                      >
+                        <Upload className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="aspect-square rounded-lg bg-zinc-900 flex items-center justify-center overflow-hidden border border-zinc-700">
                       {appIconUrl ? (
-                        <img src={appIconUrl} alt="Icon" className="w-full h-full object-cover" />
+                        <img src={appIconUrl} alt="Icon" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
-                        <ImageIcon className="w-8 h-8 text-zinc-600" />
+                        <ImageIcon className="w-8 h-8 opacity-20" />
                       )}
-                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
-                        <div className="flex gap-2">
-                          <button 
-                            onClick={() => handleGenerateImage('icon')}
-                            disabled={!!isGeneratingImage}
-                            className="p-2 bg-emerald-500 rounded-full hover:bg-emerald-600 transition-colors disabled:opacity-50"
-                            title={language === 'ru' ? 'Сгенерировать' : 'Generate'}
-                          >
-                            {isGeneratingImage === 'icon' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                          </button>
-                          <button 
-                            onClick={() => document.getElementById('icon-upload-modal')?.click()}
-                            className="p-2 bg-zinc-700 rounded-full hover:bg-zinc-600 transition-colors"
-                            title={language === 'ru' ? 'Загрузить' : 'Upload'}
-                          >
-                            <Camera className="w-4 h-4" />
-                          </button>
-                        </div>
-                        <input 
-                          id="icon-upload-modal"
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => handleFileUpload(e, 'icon')}
-                        />
-                      </div>
                     </div>
+                    <input 
+                      type="file" 
+                      className="hidden" 
+                      ref={imageInputRef} 
+                      accept="image/*"
+                      onChange={(e) => handleFileUpload(e, 'icon')}
+                    />
                   </div>
 
-                  <div className="space-y-2">
-                    <label className="block text-xs font-medium text-zinc-500 uppercase">{language === 'ru' ? 'Скриншот' : 'Screenshot'}</label>
-                    <div className="aspect-square rounded-xl bg-zinc-800 flex items-center justify-center overflow-hidden border border-zinc-700 relative group">
-                      {appScreenshotUrl ? (
-                         <img src={appScreenshotUrl} alt="Screenshot" className="w-full h-full object-cover" />
+                  {/* Banner */}
+                  <div className={clsx("p-4 rounded-xl border", isFrutigerAero ? "bg-white/40 border-white/50" : "bg-zinc-800/50 border-zinc-700")}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold uppercase tracking-wider opacity-50">Banner</span>
+                      <button 
+                        onClick={() => {
+                          const input = document.createElement('input');
+                          input.type = 'file';
+                          input.accept = 'image/*';
+                          input.onchange = (e) => handleFileUpload(e as any, 'banner');
+                          input.click();
+                        }}
+                        className="p-1 hover:bg-zinc-700 rounded-lg transition-colors"
+                      >
+                        <Upload className="w-4 h-4" />
+                      </button>
+                    </div>
+                    <div className="aspect-video rounded-lg bg-zinc-900 flex items-center justify-center overflow-hidden border border-zinc-700">
+                      {appBannerUrl ? (
+                        <img src={appBannerUrl} alt="Banner" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                       ) : (
-                        <Camera className="w-8 h-8 text-zinc-600" />
+                        <ImageIcon className="w-8 h-8 opacity-20" />
                       )}
-                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
-                        <div className="flex gap-2">
-                          <button 
-                            onClick={() => handleGenerateImage('screenshot')}
-                            disabled={!!isGeneratingImage}
-                            className="p-2 bg-blue-500 rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50"
-                            title={language === 'ru' ? 'Сгенерировать' : 'Generate'}
-                          >
-                            {isGeneratingImage === 'screenshot' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                          </button>
-                          <button 
-                            onClick={() => document.getElementById('screenshot-upload-modal')?.click()}
-                            className="p-2 bg-zinc-700 rounded-full hover:bg-zinc-600 transition-colors"
-                            title={language === 'ru' ? 'Загрузить' : 'Upload'}
-                          >
-                            <Camera className="w-4 h-4" />
-                          </button>
-                        </div>
-                        <input 
-                          id="screenshot-upload-modal"
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => handleFileUpload(e, 'screenshot')}
-                        />
-                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="space-y-2">
-                  <label className="block text-xs font-medium text-zinc-500 uppercase">{language === 'ru' ? 'Баннер' : 'Banner'}</label>
-                  <div className="aspect-video rounded-xl bg-zinc-800 flex items-center justify-center overflow-hidden border border-zinc-700 relative group">
-                    {appBannerUrl ? (
-                      <img src={appBannerUrl} alt="Banner" className="w-full h-full object-cover" />
-                    ) : (
-                      <ImageIcon className="w-12 h-12 text-zinc-600" />
-                    )}
-                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4">
-                      <button 
-                        onClick={() => handleGenerateImage('banner')}
-                        disabled={!!isGeneratingImage}
-                        className="flex items-center gap-2 px-4 py-2 bg-emerald-500 rounded-lg hover:bg-emerald-600 transition-colors text-sm font-medium disabled:opacity-50"
-                      >
-                        {isGeneratingImage === 'banner' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                        {language === 'ru' ? 'Сгенерировать' : 'Generate'}
-                      </button>
-                      <button 
-                        onClick={() => document.getElementById('banner-upload-modal')?.click()}
-                        className="flex items-center gap-2 px-4 py-2 bg-zinc-700 rounded-lg hover:bg-zinc-600 transition-colors text-sm font-medium"
-                      >
-                        <Camera className="w-4 h-4" />
-                        {language === 'ru' ? 'Загрузить' : 'Upload'}
-                      </button>
-                      <input 
-                        id="banner-upload-modal"
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => handleFileUpload(e, 'banner')}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-zinc-400">{language === 'ru' ? 'Своя ссылка на иконку' : 'Custom Icon URL'}</label>
-                  <input
-                    type="text"
-                    value={appIconUrl}
-                    onChange={(e) => setAppIconUrl(e.target.value)}
-                    placeholder="https://example.com/icon.png"
-                    className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-zinc-400">{language === 'ru' ? 'Своя ссылка на скриншот' : 'Custom Screenshot URL'}</label>
-                  <input
-                    type="text"
-                    value={appScreenshotUrl}
-                    onChange={(e) => setAppScreenshotUrl(e.target.value)}
-                    placeholder="https://example.com/screenshot.png"
-                    className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors text-sm"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="block text-sm font-medium text-zinc-400">{language === 'ru' ? 'Своя ссылка на баннер' : 'Custom Banner URL'}</label>
-                  <input
-                    type="text"
-                    value={appBannerUrl}
-                    onChange={(e) => setAppBannerUrl(e.target.value)}
-                    placeholder="https://example.com/banner.png"
-                    className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors text-sm"
-                  />
-                </div>
+                <button
+                  onClick={handleGenerateAiScreenshot}
+                  disabled={isGeneratingScreenshot || (!isPremium && userData?.role !== 'developer')}
+                  className={clsx(
+                    "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold transition-all",
+                    (isPremium || userData?.role === 'developer')
+                      ? (isFrutigerAero ? "frutiger-aero-button" : "bg-gradient-to-r from-purple-500 to-blue-500 text-white hover:opacity-90 shadow-lg shadow-purple-500/20")
+                      : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+                  )}
+                >
+                  {isGeneratingScreenshot ? (
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-5 h-5" />
+                  )}
+                  {language === 'ru' ? 'Сгенерировать ассеты через ИИ' : 'Generate Assets with AI'}
+                  {!isPremium && userData?.role !== 'developer' && <Lock className="w-4 h-4 ml-1" />}
+                </button>
               </div>
               {supportedPlatforms.includes('windows') && (
                 <div>
@@ -1519,42 +1504,43 @@ export default function EditorView() {
                   />
                 </div>
               )}
-              <div className="pt-4 border-t border-zinc-800">
-                <label className={clsx("flex items-center gap-2 mb-3", !isPremium ? "cursor-not-allowed opacity-50" : "cursor-pointer")}>
-                  <input
-                    type="checkbox"
-                    checked={isLocked}
-                    onChange={(e) => isPremium && setIsLocked(e.target.checked)}
-                    disabled={!isPremium}
-                    className="w-4 h-4 rounded border-zinc-700 text-emerald-500 focus:ring-emerald-500 bg-zinc-800/50"
-                  />
-                  <span className="text-sm font-medium text-emerald-400 flex items-center gap-2">
-                    Lock App with Code (Premium Feature) {!isPremium && <Lock className="w-3 h-3" />}
-                  </span>
-                </label>
-                <label className="flex items-center gap-2 mb-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={isPrivate}
-                    onChange={(e) => setIsPrivate(e.target.checked)}
-                    className="w-4 h-4 rounded border-zinc-700 text-emerald-500 focus:ring-emerald-500 bg-zinc-800/50"
-                  />
-                  <span className="text-sm font-medium text-zinc-400">
-                    {language === 'ru' ? 'Приватное приложение (не отображать в магазине)' : 'Private App (don\'t show in store)'}
-                  </span>
-                </label>
-                <label className={clsx("flex items-center gap-2 mb-3", !isPremium ? "cursor-not-allowed opacity-50" : "cursor-pointer")}>
-                  <input
-                    type="checkbox"
-                    checked={allowCopy}
-                    onChange={(e) => isPremium && setAllowCopy(e.target.checked)}
-                    disabled={!isPremium}
-                    className="w-4 h-4 rounded border-zinc-700 text-emerald-500 focus:ring-emerald-500 bg-zinc-800/50"
-                  />
-                  <span className="text-sm font-medium text-emerald-400 flex items-center gap-2">
-                    {language === 'ru' ? 'Разрешить копирование проекта' : 'Allow copying project'} {!isPremium && <Lock className="w-3 h-3" />}
-                  </span>
-                </label>
+                <div className="pt-4 border-t border-zinc-800">
+                  <label className={clsx("flex items-center gap-2 mb-3", !isPremium ? "cursor-not-allowed opacity-50" : "cursor-pointer")}>
+                    <input
+                      type="checkbox"
+                      checked={isLocked}
+                      onChange={(e) => isPremium && setIsLocked(e.target.checked)}
+                      disabled={!isPremium}
+                      className="w-4 h-4 rounded border-zinc-700 text-emerald-500 focus:ring-emerald-500 bg-zinc-800/50"
+                    />
+                    <span className="text-sm font-medium text-emerald-400 flex items-center gap-2">
+                      Lock App with Code (Premium Feature) {!isPremium && <Lock className="w-3 h-3" />}
+                    </span>
+                  </label>
+                  
+                  <label className="flex items-center gap-2 mb-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isPrivate}
+                      onChange={(e) => setIsPrivate(e.target.checked)}
+                      className="w-4 h-4 rounded border-zinc-700 text-emerald-500 focus:ring-emerald-500 bg-zinc-800/50"
+                    />
+                    <span className="text-sm font-medium text-zinc-400">
+                      {language === 'ru' ? 'Приватное приложение (не отображать в магазине)' : 'Private App (don\'t show in store)'}
+                    </span>
+                  </label>
+                  <label className={clsx("flex items-center gap-2 mb-3", !isPremium ? "cursor-not-allowed opacity-50" : "cursor-pointer")}>
+                    <input
+                      type="checkbox"
+                      checked={allowCopy}
+                      onChange={(e) => isPremium && setAllowCopy(e.target.checked)}
+                      disabled={!isPremium}
+                      className="w-4 h-4 rounded border-zinc-700 text-emerald-500 focus:ring-emerald-500 bg-zinc-800/50"
+                    />
+                    <span className="text-sm font-medium text-emerald-400 flex items-center gap-2">
+                      {language === 'ru' ? 'Разрешить копирование проекта' : 'Allow copying project'} {!isPremium && <Lock className="w-3 h-3" />}
+                    </span>
+                  </label>
                 
                 <div className="mb-3">
                   <label className="block text-sm font-medium mb-1 text-zinc-400 flex items-center gap-2">
@@ -1982,6 +1968,13 @@ end`}
           </div>
         </div>
       )}
+
+      <CollabModal
+        isOpen={showCollabModal}
+        onClose={() => setShowCollabModal(false)}
+        currentCode={code}
+        onCodeChange={handleCodeChange}
+      />
     </div>
   );
 }

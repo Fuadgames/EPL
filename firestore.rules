@@ -54,8 +54,8 @@ service cloud.firestore {
     
     function isDeveloper() {
       return isAuthenticated() && (
-        getUserRole() in ['admin', 'developer'] ||
-        (request.auth.token.email == "fufazada@gmail.com" && request.auth.token.email_verified == true)
+        request.auth.token.email == "fufazada@gmail.com" ||
+        getUserRole() in ['admin', 'developer']
       );
     }
 
@@ -63,7 +63,7 @@ service cloud.firestore {
     // Domain Validators
     // ===============================================================
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'name', 'email', 'photoUrl', 'role', 'isVerifiedAuthor', 'eplCoins', 'purchasedItems', 'uploadedFiles', 'permissions', 'installedApps', 'createdAt']) &&
+      return hasOnlyAllowedFields(['uid', 'name', 'email', 'photoUrl', 'role', 'isVerifiedAuthor', 'eplCoins', 'purchasedItems', 'uploadedFiles', 'permissions', 'installedApps', 'avatarUrl', 'region', 'friends', 'createdAt', 'premiumExpiry', 'isPremium']) &&
              (!('uid' in data) || (data.uid is string && data.uid.size() > 0 && data.uid.size() < 128)) &&
              (!('name' in data) || (data.name is string && data.name.size() > 0 && data.name.size() < 100)) &&
              (!('email' in data) || (data.email is string && isValidEmail(data.email))) &&
@@ -75,7 +75,44 @@ service cloud.firestore {
              (!('uploadedFiles' in data) || (data.uploadedFiles is list && data.uploadedFiles.size() <= 100)) &&
              (!('permissions' in data) || data.permissions is map) &&
              (!('installedApps' in data) || data.installedApps is map) &&
-             (!('createdAt' in data) || data.createdAt is string);
+             (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() < 1000)) &&
+             (!('region' in data) || (data.region is string && data.region.size() < 100)) &&
+             (!('friends' in data) || (data.friends is list && data.friends.size() <= 1000)) &&
+             (!('createdAt' in data) || data.createdAt is string) &&
+             (!('premiumExpiry' in data) || (data.premiumExpiry is string || data.premiumExpiry == null)) &&
+             (!('isPremium' in data) || data.isPremium is bool);
+    }
+    
+    function isValidUserPublic(data) {
+      return hasOnlyAllowedFields(['uid', 'name', 'avatarUrl', 'region', 'eplCoins', 'createdAt']) &&
+             hasRequiredFields(['uid', 'name', 'eplCoins', 'createdAt']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 128 &&
+             data.name is string && data.name.size() > 0 && data.name.size() < 100 &&
+             (!('avatarUrl' in data) || (data.avatarUrl is string && data.avatarUrl.size() < 1000)) &&
+             (!('region' in data) || (data.region is string && data.region.size() < 100)) &&
+             data.eplCoins is number && data.eplCoins >= 0 &&
+             data.createdAt is string;
+    }
+
+    function isValidFriendRequest(data) {
+      return hasOnlyAllowedFields(['id', 'senderId', 'senderName', 'receiverId', 'status', 'createdAt']) &&
+             hasRequiredFields(['id', 'senderId', 'senderName', 'receiverId', 'status', 'createdAt']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 128 &&
+             data.senderId is string && data.senderId.size() > 0 && data.senderId.size() < 128 &&
+             data.senderName is string && data.senderName.size() > 0 && data.senderName.size() < 100 &&
+             data.receiverId is string && data.receiverId.size() > 0 && data.receiverId.size() < 128 &&
+             data.status in ['pending', 'accepted', 'declined'] &&
+             data.createdAt is string;
+    }
+
+    function isValidCollabSession(data) {
+      return hasOnlyAllowedFields(['id', 'hostId', 'code', 'participants', 'createdAt']) &&
+             hasRequiredFields(['id', 'hostId', 'code', 'participants', 'createdAt']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() < 128 &&
+             data.hostId is string && data.hostId.size() > 0 && data.hostId.size() < 128 &&
+             data.code is string && data.code.size() < 1000000 &&
+             data.participants is list && data.participants.size() <= 20 &&
+             data.createdAt is string;
     }
     
     function isValidAsset(data) {
@@ -161,18 +198,31 @@ service cloud.firestore {
              data.createdAt is string;
     }
 
+    function isValidPremiumCode(data) {
+      return hasOnlyAllowedFields(['code', 'used', 'usedBy', 'usedAt', 'createdAt', 'createdBy']) &&
+             hasRequiredFields(['code', 'used', 'createdAt', 'createdBy']) &&
+             data.code is string && data.code.size() > 0 &&
+             data.used is bool &&
+             (!('usedBy' in data) || data.usedBy is string) &&
+             (!('usedAt' in data) || data.usedAt is string) &&
+             data.createdAt is string &&
+             data.createdBy is string;
+    }
+
     // ===============================================================
     // Collections
     // ===============================================================
     match /users/{userId} {
-      allow read: if isOwner(userId) || isAdmin() || isDeveloper() || getUserRole() == 'shopkeeper';
+      allow get: if isOwner(userId) || isAdmin() || isDeveloper() || getUserRole() == 'shopkeeper';
+      allow list: if isAdmin() || isDeveloper();
       allow create: if isAuthenticated() && isValidUser(request.resource.data) && (
         (isOwner(userId) && request.resource.data.role == 'user' && request.resource.data.eplCoins == 0 && request.resource.data.purchasedItems.size() == 0) || isAdmin() || isDeveloper()
       );
       allow update: if isAuthenticated() && isValidUser(request.resource.data) && (
         (isOwner(userId) && request.resource.data.role == resource.data.get('role', 'user') && request.resource.data.get('isVerifiedAuthor', false) == resource.data.get('isVerifiedAuthor', false) && (
           (request.resource.data.get('eplCoins', 0) == resource.data.get('eplCoins', 0) && request.resource.data.get('purchasedItems', []) == resource.data.get('purchasedItems', [])) ||
-          (request.resource.data.get('eplCoins', 0) <= resource.data.get('eplCoins', 0) && request.resource.data.get('purchasedItems', []).size() >= resource.data.get('purchasedItems', []).size())
+          (request.resource.data.get('eplCoins', 0) <= resource.data.get('eplCoins', 0) && request.resource.data.get('purchasedItems', []).size() >= resource.data.get('purchasedItems', []).size()) ||
+          (request.resource.data.diff(resource.data).affectedKeys().hasAny(['friends', 'avatarUrl', 'region']))
         )) || 
         (isDeveloper() && request.resource.data.diff(resource.data).affectedKeys().hasAny(['eplCoins'])) ||
         isAdmin()
@@ -180,6 +230,39 @@ service cloud.firestore {
       allow delete: if isAdmin() || isDeveloper();
     }
     
+    match /users_public/{userId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && isValidUserPublic(request.resource.data) && isOwner(userId);
+      allow update: if isAuthenticated() && isValidUserPublic(request.resource.data) && (isOwner(userId) || isDeveloper() || isAdmin());
+      allow delete: if isAdmin() || isDeveloper();
+    }
+
+    match /friendRequests/{requestId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.senderId || request.auth.uid == resource.data.receiverId);
+      allow create: if isAuthenticated() && isValidFriendRequest(request.resource.data) && request.auth.uid == request.resource.data.senderId;
+      allow update: if isAuthenticated() && isValidFriendRequest(request.resource.data) && (request.auth.uid == resource.data.receiverId || request.auth.uid == resource.data.senderId);
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.senderId || request.auth.uid == resource.data.receiverId);
+    }
+
+    match /collabSessions/{sessionId} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isValidCollabSession(request.resource.data) && request.auth.uid == request.resource.data.hostId;
+      allow update: if isAuthenticated() && isValidCollabSession(request.resource.data);
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.hostId || isAdmin());
+    }
+
+    match /premium_codes/{codeId} {
+      allow get: if isAuthenticated();
+      allow list: if isAdmin() || isDeveloper();
+      allow create: if (isDeveloper() || isAdmin()) && isValidPremiumCode(request.resource.data);
+      allow update: if isAuthenticated() && 
+        isValidPremiumCode(request.resource.data) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['used', 'usedBy', 'usedAt']) &&
+        resource.data.used == false &&
+        request.resource.data.used == true;
+      allow delete: if isAdmin();
+    }
+
     match /apps/{appId} {
       allow read: if true;
       allow create: if isAuthenticated() && isValidApp(request.resource.data) && request.resource.data.authorId == request.auth.uid;

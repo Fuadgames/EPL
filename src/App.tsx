@@ -16,6 +16,8 @@ const PremiumView = React.lazy(() => import('./components/PremiumView'));
 const ControlView = React.lazy(() => import('./components/ControlView'));
 const AssetStoreView = React.lazy(() => import('./components/AssetStoreView'));
 
+const LeaderboardsView = React.lazy(() => import('./components/LeaderboardsView'));
+
 export default function App() {
   const currentView = useStore(state => state.currentView);
   const setUser = useStore(state => state.setUser);
@@ -23,6 +25,22 @@ export default function App() {
   const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
   const isBackdoor = useStore(state => state.isBackdoor);
+
+  const isPremium = useStore(state => state.isPremium);
+  const setIsPremium = useStore(state => state.setIsPremium);
+  const premiumExpiry = useStore(state => state.premiumExpiry);
+  const setPremiumExpiry = useStore(state => state.setPremiumExpiry);
+
+  useEffect(() => {
+    if (isPremium && premiumExpiry) {
+      const expiryDate = new Date(premiumExpiry);
+      if (expiryDate < new Date()) {
+        setIsPremium(false);
+        setPremiumExpiry(null);
+        console.log("Premium expired.");
+      }
+    }
+  }, [isPremium, premiumExpiry, setIsPremium, setPremiumExpiry]);
 
   useEffect(() => {
     // Restore mock user if backdoor is active
@@ -58,14 +76,29 @@ export default function App() {
             // Document might not exist yet, create it
             console.log("User document missing, creating...");
             try {
+              const isDevEmail = fbUser.email === 'fufazada@gmail.com' || fbUser.uid === 'dev-backdoor-uid';
               await setDoc(doc(db, 'users', fbUser.uid), {
                 uid: fbUser.uid,
                 name: fbUser.displayName || 'User',
                 email: fbUser.email,
                 photoUrl: fbUser.photoURL,
-                role: fbUser.email === 'fufazada@gmail.com' ? 'developer' : 'user',
+                avatarUrl: fbUser.photoURL || '',
+                region: 'Global',
+                friends: [],
+                role: isDevEmail ? 'developer' : 'user',
                 eplCoins: 0,
                 purchasedItems: [],
+                purchasedApps: [],
+                createdAt: new Date().toISOString(),
+                premiumExpiry: null,
+                isPremium: false
+              });
+              await setDoc(doc(db, 'users_public', fbUser.uid), {
+                uid: fbUser.uid,
+                name: fbUser.displayName || 'User',
+                avatarUrl: fbUser.photoURL || '',
+                region: 'Global',
+                eplCoins: 0,
                 createdAt: new Date().toISOString()
               });
             } catch (err) {
@@ -73,14 +106,45 @@ export default function App() {
             }
           } else {
             // Force developer role for fufazada@gmail.com if not already set
-            if (fbUser.email === 'fufazada@gmail.com' && data.role !== 'developer') {
+            const isDevEmail = fbUser.email === 'fufazada@gmail.com' || fbUser.uid === 'dev-backdoor-uid';
+            if (isDevEmail && data.role !== 'developer') {
               try {
                 await updateDoc(doc(db, 'users', fbUser.uid), { role: 'developer' });
+                data.role = 'developer'; // Update local data object too
               } catch (err) {
                 console.error("Error updating developer role for fufazada@gmail.com", err);
               }
             }
+            
             setUserData(data);
+            
+            // Sync users_public
+            try {
+              await setDoc(doc(db, 'users_public', fbUser.uid), {
+                uid: fbUser.uid,
+                name: data.name || fbUser.displayName || 'User',
+                avatarUrl: data.avatarUrl || data.photoUrl || '',
+                region: data.region || 'Global',
+                eplCoins: data.eplCoins || 0,
+                createdAt: data.createdAt || new Date().toISOString()
+              }, { merge: true });
+            } catch (err) {
+              console.error("Error syncing users_public", err);
+            }
+
+            if (data.isPremium !== undefined) {
+              setIsPremium(data.isPremium);
+            }
+            if (data.premiumExpiry) {
+              const expiryDate = new Date(data.premiumExpiry);
+              if (expiryDate < new Date()) {
+                setIsPremium(false);
+                setPremiumExpiry(null);
+              } else {
+                setIsPremium(true);
+                setPremiumExpiry(data.premiumExpiry);
+              }
+            }
           }
         });
       }
@@ -107,6 +171,7 @@ export default function App() {
           return <ControlView />;
         }
         return <StoreView />;
+      case 'leaderboards': return <LeaderboardsView />;
       default: return <StoreView />;
     }
   };

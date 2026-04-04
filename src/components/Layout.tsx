@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
-import { Store, Code2, Package, User, Settings, LogOut, Sun, Moon, Star, ArrowLeft, ShieldCheck } from 'lucide-react';
+import { Store, Code2, Package, User, Settings, LogOut, Sun, Moon, Star, ArrowLeft, ShieldCheck, Trophy } from 'lucide-react';
 import { auth, logOut } from '../firebase';
 import { clsx } from 'clsx';
 import { translations } from '../lib/translations';
@@ -47,6 +47,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { id: 'store', label: t.store, icon: Store, permission: 'accessAssetStore' },
+    { id: 'leaderboards', label: 'Leaderboards', icon: Trophy },
     { id: 'editor', label: t.editor, icon: Code2, permission: 'publishApps' },
     { id: 'my-apps', label: t.myApps, icon: Package },
     { id: 'asset-store', label: 'Asset Store', icon: Store, permission: 'accessAssetStore' },
@@ -85,7 +86,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="flex flex-col h-full p-6">
           <div className="mb-10">
             <h1 className={clsx("text-2xl font-bold tracking-tight", isFrutigerAero ? "frutiger-aero-text" : "bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent")}>
-              EPL Studio
+              {isPremium ? 'EPL Premium' : 'EPL Studio'}
             </h1>
             <p className={clsx("text-xs mt-1", isFrutigerAero ? "text-blue-800/80" : "opacity-60")}>Easy Programming Language</p>
           </div>
@@ -187,7 +188,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {/* Mobile Top Bar */}
       <div className={clsx("md:hidden flex items-center justify-between p-4 border-b relative z-10", isFrutigerAero ? 'frutiger-aero-glass border-white/50' : theme !== 'light' ? 'border-zinc-800 bg-zinc-900/50' : 'border-zinc-200 bg-white')}>
         <div className="flex items-center gap-3">
-          {currentView !== 'editor' && (
+          {currentView !== 'editor' && currentView !== 'store' && (
             <button 
               onClick={() => setCurrentView('editor')}
               className={clsx("p-1.5 rounded-lg transition-colors", isFrutigerAero ? "text-blue-800 hover:bg-white/40" : "bg-zinc-800/50 text-zinc-400 hover:text-zinc-200")}
@@ -196,7 +197,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </button>
           )}
           <h1 className={clsx("text-xl font-bold tracking-tight", isFrutigerAero ? "frutiger-aero-text" : "bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent")}>
-            EPL Studio
+            {isPremium ? 'EPL Premium' : 'EPL Studio'}
           </h1>
           {isBackdoor && (
             <span className="ml-2 px-2 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded uppercase animate-pulse">

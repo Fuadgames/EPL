@@ -12,6 +12,7 @@ interface VisualEditorProps {
 export default function VisualEditor({ code, onChange }: VisualEditorProps) {
   const theme = useStore(state => state.theme);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
+  const computerStyle = useStore(state => state.computerStyle);
   const lines = code.split('\n');
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const [cursorPos, setCursorPos] = useState<number | null>(null);
@@ -66,7 +67,8 @@ export default function VisualEditor({ code, onChange }: VisualEditorProps) {
       className={clsx(
         "flex-1 h-full overflow-y-auto p-6 font-mono text-sm cursor-text", 
         isFrutigerAero && "frutiger-aero-bg",
-        !isFrutigerAero && (theme !== 'light' ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-50 text-zinc-800')
+        computerStyle && "bg-transparent",
+        !isFrutigerAero && !computerStyle && (theme !== 'light' ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-50 text-zinc-800')
       )}
       onClick={(e) => {
         if (e.target === e.currentTarget) {
