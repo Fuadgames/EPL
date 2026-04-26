@@ -3,7 +3,7 @@ import { useStore } from '../store/useStore';
 import { translations } from '../lib/translations';
 import { clsx } from 'clsx';
 import { ShieldCheck, CheckCircle, XCircle, Users, Coins, Search } from 'lucide-react';
-import { collection, getDocs, doc, updateDoc, query, where, onSnapshot, increment, setDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, query, where, onSnapshot, increment, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { AppData } from '../types';
 import { getDefaultAvatar } from '../lib/avatar';
@@ -20,8 +20,9 @@ export default function ControlView() {
   const [users, setUsers] = useState<any[]>([]);
   const [assets, setAssets] = useState<any[]>([]);
   const [premiumCodes, setPremiumCodes] = useState<any[]>([]);
+  const [adminRequests, setAdminRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'apps' | 'users' | 'assets' | 'roles' | 'premium'>('apps');
+  const [activeTab, setActiveTab] = useState<'apps' | 'users' | 'assets' | 'roles' | 'premium' | 'requests'>('apps');
   const [search, setSearch] = useState('');
   const [localPermissions, setLocalPermissions] = useState<{ [userId: string]: any }>({});
   const [saving, setSaving] = useState<string | null>(null);
@@ -64,9 +65,14 @@ export default function ControlView() {
       setPremiumCodes(codesData);
     }, (error) => {
       console.error("Error fetching premium codes:", error);
-      if (error.message.includes('insufficient permissions')) {
-        console.warn("Permission denied for premium_codes. This is expected if you are not a developer or admin.");
-      }
+    });
+    
+    // Subscribe to admin requests
+    const requestsUnsubscribe = onSnapshot(collection(db, 'adminRequests'), (snapshot) => {
+      const reqsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setAdminRequests(reqsData);
+    }, (error) => {
+      console.error("Error fetching admin requests:", error);
     });
 
     return () => {
@@ -74,8 +80,32 @@ export default function ControlView() {
       usersUnsubscribe();
       assetsUnsubscribe();
       codesUnsubscribe();
+      requestsUnsubscribe();
     };
   }, []);
+
+  const createAdminRequest = async (type: string, targetId: string, targetName: string, reason: string = '') => {
+    if (!userData) return;
+    try {
+      const reqId = `${userData.uid}_${Date.now()}`;
+      await setDoc(doc(db, 'adminRequests', reqId), {
+        id: reqId,
+        type,
+        targetId,
+        targetName,
+        requesterId: userData.uid,
+        requesterName: userData.name || userData.email,
+        reason,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      alert(language === 'ru' ? 'Запрос отправлен разработчику' : 'Request sent to developer');
+    } catch (err) {
+      console.error(err);
+      alert('Error creating request');
+    }
+  };
 
   const handleVerifyApp = async (appId: string, status: 'verified' | 'pending') => {
     try {
@@ -280,6 +310,15 @@ export default function ControlView() {
               {language === 'ru' ? 'Премиум коды' : 'Premium Codes'}
             </button>
           )}
+          <button
+            onClick={() => setActiveTab('requests')}
+            className={clsx(
+              "px-6 py-2 rounded-xl font-medium transition-colors whitespace-nowrap",
+              activeTab === 'requests' ? 'bg-emerald-500 text-white' : theme !== 'light' ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-200 text-zinc-600'
+            )}
+          >
+            {language === 'ru' ? 'Отправленные запросы' : 'Sent Requests'}
+          </button>
         </div>
 
         {loading ? (
@@ -301,20 +340,56 @@ export default function ControlView() {
                   <p className="text-sm text-zinc-500">By {app.authorName} • {app.category}</p>
                 </div>
                 <div className="flex gap-2">
-                  {app.status !== 'verified' ? (
-                    <button
-                      onClick={() => handleVerifyApp(app.id, 'verified')}
-                      className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors"
-                    >
-                      Verify App
-                    </button>
+                  {effectiveRole === 'developer' ? (
+                    <>
+                      {app.status !== 'verified' ? (
+                        <button
+                          onClick={() => handleVerifyApp(app.id, 'verified')}
+                          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors"
+                        >
+                          Verify App
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleVerifyApp(app.id, 'pending')}
+                          className="px-4 py-2 bg-amber-500/10 text-amber-500 hover:bg-amber-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
+                        >
+                          Revoke
+                        </button>
+                      )}
+                      <button
+                        onClick={async () => {
+                          if (confirm('Delete this app?')) {
+                            await deleteDoc(doc(db, 'apps', app.id));
+                          }
+                        }}
+                        className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </>
                   ) : (
-                    <button
-                      onClick={() => handleVerifyApp(app.id, 'pending')}
-                      className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
-                    >
-                      Revoke Verification
-                    </button>
+                    <>
+                      {app.status !== 'verified' && (
+                        <button
+                          onClick={() => createAdminRequest('verify_app', app.id, app.title)}
+                          className="px-4 py-2 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
+                        >
+                          Request Verify
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          const reason = prompt('Reason for deletion?');
+                          if (reason !== null) {
+                            createAdminRequest('delete_app', app.id, app.title, reason);
+                          }
+                        }}
+                        className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
+                      >
+                        Request Delete
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -335,20 +410,56 @@ export default function ControlView() {
                   <p className="text-sm text-zinc-500">By {asset.authorName} • {asset.type}</p>
                 </div>
                 <div className="flex gap-2">
-                  {asset.status !== 'verified' ? (
-                    <button
-                      onClick={() => handleVerifyAsset(asset.id, 'verified')}
-                      className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors"
-                    >
-                      Verify Asset
-                    </button>
+                  {effectiveRole === 'developer' ? (
+                    <>
+                      {asset.status !== 'verified' ? (
+                        <button
+                          onClick={() => handleVerifyAsset(asset.id, 'verified')}
+                          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors"
+                        >
+                          Verify Asset
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => handleVerifyAsset(asset.id, 'pending')}
+                          className="px-4 py-2 bg-amber-500/10 text-amber-500 hover:bg-amber-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
+                        >
+                          Revoke
+                        </button>
+                      )}
+                      <button
+                        onClick={async () => {
+                          if (confirm('Delete this asset?')) {
+                            await deleteDoc(doc(db, 'assets', asset.id));
+                          }
+                        }}
+                        className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </>
                   ) : (
-                    <button
-                      onClick={() => handleVerifyAsset(asset.id, 'pending')}
-                      className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
-                    >
-                      Revoke Verification
-                    </button>
+                     <>
+                      {asset.status !== 'verified' && (
+                        <button
+                          onClick={() => createAdminRequest('verify_asset', asset.id, asset.title)}
+                          className="px-4 py-2 bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
+                        >
+                          Request Verify
+                        </button>
+                      )}
+                      <button
+                        onClick={() => {
+                          const reason = prompt('Reason for deletion?');
+                          if (reason !== null) {
+                            createAdminRequest('delete_asset', asset.id, asset.title, reason);
+                          }
+                        }}
+                        className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
+                      >
+                        Request Delete
+                      </button>
+                    </>
                   )}
                 </div>
               </div>
@@ -526,6 +637,111 @@ export default function ControlView() {
               ))}
             </div>
           </div>
+        ) : activeTab === 'requests' ? (
+          <div className="space-y-6">
+            <h2 className="text-xl font-bold">{language === 'ru' ? 'Отправленные запросы' : 'Sent Requests'}</h2>
+            <div className="grid grid-cols-1 gap-4">
+              {adminRequests.map(req => {
+                // If not developer, only show own requests
+                if (effectiveRole !== 'developer' && req.requesterId !== userData?.uid) return null;
+                
+                return (
+                  <div key={req.id} className={clsx(
+                    "p-6 rounded-2xl border flex flex-col sm:flex-row items-start justify-between gap-4",
+                    theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
+                  )}>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className={clsx("px-2 py-1 rounded-md text-xs font-bold uppercase tracking-wider", 
+                          req.type.includes('delete') || req.type.includes('ban') ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'
+                        )}>
+                          {req.type.replace('_', ' ')}
+                        </span>
+                        <span className={clsx("px-2 py-1 rounded-md text-xs font-bold capitalize",
+                          req.status === 'pending' ? 'bg-amber-500/10 text-amber-500' :
+                          req.status === 'approved' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-zinc-500/10 text-zinc-500'
+                        )}>
+                          {req.status}
+                        </span>
+                      </div>
+                      <h3 className="font-bold text-lg">{req.targetName}</h3>
+                      <p className="text-sm text-zinc-500">
+                        {language === 'ru' ? 'Отправитель:' : 'Requester:'} {req.requesterName}
+                      </p>
+                      {req.reason && (
+                        <p className="text-sm text-zinc-400 mt-2 p-3 bg-black/10 rounded-lg italic">
+                          "{req.reason}"
+                        </p>
+                      )}
+                    </div>
+                    
+                    <div className="flex flex-col gap-2 min-w-[140px]">
+                      {effectiveRole === 'developer' && req.status === 'pending' && (
+                        <>
+                          <button
+                            onClick={async () => {
+                              try {
+                                if (req.type === 'verify_app') await updateDoc(doc(db, 'apps', req.targetId), { status: 'verified' });
+                                if (req.type === 'verify_asset') await updateDoc(doc(db, 'assets', req.targetId), { status: 'verified' });
+                                if (req.type === 'delete_app') await deleteDoc(doc(db, 'apps', req.targetId));
+                                if (req.type === 'delete_asset') await deleteDoc(doc(db, 'assets', req.targetId));
+                                if (req.type === 'ban_user') await updateDoc(doc(db, 'users', req.targetId), { isBanned: true, banReason: req.reason });
+                                await updateDoc(doc(db, 'adminRequests', req.id), { status: 'approved' });
+                              } catch(e) { console.error('Approve err', e); }
+                            }}
+                            className="w-full px-4 py-2 bg-emerald-500 text-white rounded-xl text-sm font-medium hover:bg-emerald-600 transition-colors"
+                          >
+                            Approve
+                          </button>
+                          <button
+                            onClick={async () => {
+                              await updateDoc(doc(db, 'adminRequests', req.id), { status: 'rejected' });
+                            }}
+                            className="w-full px-4 py-2 bg-red-500/10 text-red-500 rounded-xl text-sm font-medium hover:bg-red-500 hover:text-white transition-colors"
+                          >
+                            Reject
+                          </button>
+                        </>
+                      )}
+                      
+                      {(effectiveRole === 'developer' || req.requesterId === userData?.uid) && (
+                        <>
+                          {req.requesterId === userData?.uid && req.status === 'pending' && (
+                            <button
+                              onClick={async () => {
+                                const newReason = prompt('New format/reason:', req.reason);
+                                if (newReason !== null) {
+                                  await updateDoc(doc(db, 'adminRequests', req.id), { reason: newReason, updatedAt: new Date().toISOString() });
+                                }
+                              }}
+                              className="w-full px-4 py-2 bg-blue-500/10 text-blue-500 rounded-xl text-sm font-medium hover:bg-blue-500 hover:text-white transition-colors"
+                            >
+                              Edit Reason
+                            </button>
+                          )}
+                          <button
+                            onClick={async () => {
+                              if (confirm('Delete this request?')) {
+                                await deleteDoc(doc(db, 'adminRequests', req.id));
+                              }
+                            }}
+                            className="w-full px-4 py-2 bg-zinc-800 text-zinc-400 rounded-xl text-sm font-medium hover:bg-red-500 hover:text-white transition-colors"
+                          >
+                            Delete Request
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+              {adminRequests.length === 0 && (
+                <div className="p-8 text-center text-zinc-500">
+                  {language === 'ru' ? 'Запросов нет' : 'No requests found'}
+                </div>
+              )}
+            </div>
+          </div>
         ) : (
           <div className="space-y-6">
             <div className="relative max-w-md">
@@ -550,7 +766,10 @@ export default function ControlView() {
                   <div className="flex items-center gap-4">
                     <img src={u.photoUrl || getDefaultAvatar(u.id)} alt="" className="w-12 h-12 rounded-full bg-zinc-800" />
                     <div>
-                      <h3 className="font-bold">{u.name}</h3>
+                      <h3 className="font-bold flex items-center gap-2">
+                        {u.name}
+                        {u.isBanned && <span className="px-2 py-0.5 bg-red-500 rounded text-white text-[10px] uppercase font-bold tracking-wider">BANNED</span>}
+                      </h3>
                       <p className="text-sm text-zinc-500">{u.email}</p>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs px-2 py-1 rounded-md bg-zinc-800 text-zinc-300 capitalize">{u.role || 'user'}</span>
@@ -596,7 +815,37 @@ export default function ControlView() {
                     >
                       {u.isVerifiedAuthor ? 'Verified Author' : 'Verify Author'}
                     </button>
+                    {effectiveRole === 'developer' ? (
+                      <button
+                        onClick={async () => {
+                          if (u.isBanned) {
+                            if (confirm('Unban this user?')) await updateDoc(doc(db, 'users', u.id), { isBanned: false, banReason: null });
+                          } else {
+                            const reason = prompt('Ban Reason:');
+                            if (reason !== null) await updateDoc(doc(db, 'users', u.id), { isBanned: true, banReason: reason });
+                          }
+                        }}
+                        className={clsx(
+                          "px-4 py-2 rounded-xl text-sm font-medium transition-colors",
+                          u.isBanned ? "bg-red-500 text-white hover:bg-red-600" : "bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white"
+                        )}
+                      >
+                        {u.isBanned ? 'Unban' : 'Ban User'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          if (u.isBanned) return alert('Already banned');
+                          const reason = prompt('Ban Reason?');
+                          if (reason !== null) createAdminRequest('ban_user', u.id, u.name || u.email || 'Unknown', reason);
+                        }}
+                        className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
+                      >
+                        Request Ban
+                      </button>
+                    )}
                     <div className="flex items-center gap-2">
+
                       {effectiveRole !== 'admin' && effectiveRole !== 'moderator' && (
                         <>
                           <input
