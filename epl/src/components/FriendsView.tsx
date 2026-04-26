@@ -133,7 +133,9 @@ export default function FriendsView() {
     try {
       const requestId = `${user.uid}_${receiverId}`;
       await setDoc(doc(db, 'friendRequests', requestId), {
+        id: requestId,
         senderId: user.uid,
+        senderName: userData?.name || 'Unknown User',
         receiverId,
         status: 'pending',
         createdAt: new Date().toISOString()
