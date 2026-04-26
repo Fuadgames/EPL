@@ -36,6 +36,9 @@ export default function App() {
   const premiumExpiry = useStore(state => state.premiumExpiry);
   const setPremiumExpiry = useStore(state => state.setPremiumExpiry);
 
+  const simulatedRole = useStore(state => state.simulatedRole);
+  const effectiveRole = (userData?.role === 'developer' && simulatedRole) ? simulatedRole : userData?.role;
+
   useEffect(() => {
     if (isPremium && premiumExpiry) {
       const expiryDate = new Date(premiumExpiry);
@@ -172,7 +175,7 @@ export default function App() {
       case 'premium': return <PremiumView />;
       case 'asset-store': return <AssetStoreView />;
       case 'control': 
-        if (user?.email === 'fufazada@gmail.com') {
+        if (effectiveRole === 'developer' || effectiveRole === 'admin' || effectiveRole === 'moderator') {
           return <ControlView />;
         }
         return <StoreView />;
