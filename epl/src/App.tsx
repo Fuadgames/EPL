@@ -184,6 +184,24 @@ export default function App() {
     }
   };
 
+  if (userData?.isBanned) {
+    return (
+      <div className="fixed inset-0 bg-red-950 text-white flex flex-col items-center justify-center p-8 z-[100]">
+        <style dangerouslySetInnerHTML={{__html: `body { background-color: #450a0a !important; }`}} />
+        <h1 className="text-4xl sm:text-6xl font-bold mb-4 text-red-500">You have been banned</h1>
+        <p className="text-xl text-red-200 text-center max-w-lg mb-8">
+          Reason: {userData.banReason || 'Violation of terms of service.'}
+        </p>
+        <button 
+          onClick={() => auth.signOut()}
+          className="px-8 py-4 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-lg transition-colors"
+        >
+          Log Out
+        </button>
+      </div>
+    );
+  }
+
   return (
     <BrowserRouter>
       <Routes>
