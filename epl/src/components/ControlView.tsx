@@ -196,7 +196,7 @@ export default function ControlView() {
   if (!userData) {
     return (
       <div className="h-full flex items-center justify-center p-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500" />
       </div>
     );
   }
