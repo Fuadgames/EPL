@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+@layer base {
+  * {
+    cursor: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 2V22L9.5 16.5L13.5 24L16.5 22.5L12.5 15H19L4 2Z' fill='black' stroke='white' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E"), auto !important;
+  }
+
+  button, a, .cursor-pointer, input, textarea, select {
+    cursor: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 2V22L9.5 16.5L13.5 24L16.5 22.5L12.5 15H19L4 2Z' fill='black' stroke='white' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E"), auto !important;
+  }
+}
+
+@layer utilities {
+  .frutiger-aero-bg {
+    background: linear-gradient(135deg, #a0e8f5 0%, #d4f0ff 40%, #87d4f5 60%, #4cb8f5 100%);
+    position: relative;
+    background-attachment: fixed;
+  }
+  .frutiger-aero-bg::before {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: radial-gradient(circle at 20% 30%, rgba(255,255,255,0.8) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(150,220,255,0.6) 0%, transparent 50%),
+                linear-gradient(to bottom, rgba(255,255,255,0.4) 0%, transparent 20%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .frutiger-aero-glass {
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.4) 0%, rgba(255, 255, 255, 0.1) 100%);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-top: 1px solid rgba(255, 255, 255, 0.9);
+    border-left: 1px solid rgba(255, 255, 255, 0.8);
+    box-shadow: 0 8px 32px rgba(0, 150, 255, 0.2), inset 0 1px 2px rgba(255, 255, 255, 0.8), inset 0 -1px 2px rgba(0, 150, 255, 0.1);
+  }
+  .frutiger-aero-button {
+    background: linear-gradient(to bottom, rgba(255,255,255,0.9) 0%, rgba(200,240,255,0.6) 49%, rgba(100,200,255,0.4) 50%, rgba(150,220,255,0.7) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.8);
+    border-bottom-color: rgba(100, 200, 255, 0.5);
+    box-shadow: 0 4px 10px rgba(0, 150, 255, 0.3), inset 0 2px 3px rgba(255,255,255,1), inset 0 -2px 3px rgba(0, 150, 255, 0.4);
+    backdrop-filter: blur(8px);
+    color: #003366;
+    text-shadow: 0 1px 1px rgba(255,255,255,0.9);
+    transition: all 0.2s ease;
+  }
+  .frutiger-aero-button:hover {
+    background: linear-gradient(to bottom, rgba(255,255,255,1) 0%, rgba(220,250,255,0.7) 49%, rgba(120,220,255,0.5) 50%, rgba(180,240,255,0.8) 100%);
+    box-shadow: 0 6px 15px rgba(0, 150, 255, 0.4), inset 0 2px 3px rgba(255,255,255,1), inset 0 -2px 3px rgba(0, 150, 255, 0.5);
+    transform: translateY(-1px);
+  }
+  .frutiger-aero-button:active {
+    background: linear-gradient(to bottom, rgba(200,240,255,0.8) 0%, rgba(150,220,255,0.6) 49%, rgba(80,180,255,0.4) 50%, rgba(120,200,255,0.7) 100%);
+    box-shadow: 0 2px 5px rgba(0, 150, 255, 0.2), inset 0 2px 5px rgba(0, 100, 200, 0.3);
+    transform: translateY(1px);
+  }
+  .frutiger-aero-text {
+    color: #004488;
+    text-shadow: 0 1px 0 rgba(255,255,255,0.8), 0 0 10px rgba(100, 200, 255, 0.5);
+  }
+
+  .computer-style {
+    font-family: 'Courier New', Courier, monospace;
+    background-color: #050505 !important;
+    color: #00ff00 !important;
+    text-shadow: 0 0 2px rgba(0, 255, 0, 0.5), 0 0 8px rgba(0, 255, 0, 0.3) !important;
+    position: relative;
+  }
+  
+  .computer-style::before {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+    z-index: 50;
+    background-size: 100% 3px, 3px 100%;
+    pointer-events: none;
+  }
+  
+  .computer-style::after {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    right: 0;
+    background: rgba(0, 255, 0, 0.05);
+    opacity: 0;
+    z-index: 50;
+    pointer-events: none;
+    animation: flicker 0.15s infinite;
+  }
+
+  @keyframes flicker {
+    0% { opacity: 0.02; }
+    50% { opacity: 0.05; }
+    100% { opacity: 0.02; }
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}

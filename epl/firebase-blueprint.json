@@ -1,0 +1,196 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the EPL Studio platform.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The user's unique ID." },
+        "name": { "type": "string", "description": "The user's display name." },
+        "email": { "type": "string", "format": "email", "description": "The user's email address." },
+        "photoUrl": { "type": "string", "format": "uri", "description": "The user's profile picture URL." },
+        "role": { "type": "string", "enum": ["user", "admin", "moderator", "developer", "shopkeeper"], "description": "The user's role." },
+        "isVerifiedAuthor": { "type": "boolean", "description": "Whether the user is a verified author." },
+        "eplCoins": { "type": "number", "description": "The user's EPLCoins balance." },
+        "purchasedItems": { "type": "array", "items": { "type": "string" }, "description": "List of purchased items." },
+        "avatarUrl": { "type": "string", "format": "uri", "description": "The user's custom avatar URL." },
+        "region": { "type": "string", "description": "The user's region for leaderboards." },
+        "friends": { "type": "array", "items": { "type": "string" }, "description": "List of friend UIDs." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the user was created." }
+      },
+      "required": ["uid", "name", "email", "role", "eplCoins", "purchasedItems", "createdAt"]
+    },
+    "FriendRequest": {
+      "title": "FriendRequest",
+      "description": "A friend request between two users.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The request ID." },
+        "senderId": { "type": "string", "description": "The UID of the user sending the request." },
+        "senderName": { "type": "string", "description": "The name of the sender." },
+        "receiverId": { "type": "string", "description": "The UID of the user receiving the request." },
+        "status": { "type": "string", "enum": ["pending", "accepted", "declined"], "description": "The status of the request." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the request was sent." }
+      },
+      "required": ["id", "senderId", "senderName", "receiverId", "status", "createdAt"]
+    },
+    "CollabSession": {
+      "title": "CollabSession",
+      "description": "A real-time collaboration session.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The session ID (join code)." },
+        "hostId": { "type": "string", "description": "The UID of the host." },
+        "code": { "type": "string", "description": "The current code in the editor." },
+        "participants": { 
+          "type": "array", 
+          "items": { 
+            "type": "object",
+            "properties": {
+              "userId": { "type": "string" },
+              "userName": { "type": "string" },
+              "isTyping": { "type": "boolean" }
+            }
+          }, 
+          "description": "List of participants." 
+        },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the session was created." }
+      },
+      "required": ["id", "hostId", "code", "participants", "createdAt"]
+    },
+    "UserPublic": {
+      "title": "UserPublic",
+      "description": "Public profile data for a user.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The user's unique ID." },
+        "name": { "type": "string", "description": "The user's display name." },
+        "avatarUrl": { "type": "string", "format": "uri", "description": "The user's custom avatar URL." },
+        "region": { "type": "string", "description": "The user's region for leaderboards." },
+        "eplCoins": { "type": "number", "description": "The user's EPLCoins balance." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the user was created." }
+      },
+      "required": ["uid", "name", "eplCoins", "createdAt"]
+    },
+    "App": {
+      "title": "App",
+      "description": "An application written in EPL and published to the store.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The app's unique ID." },
+        "title": { "type": "string", "description": "The name of the app." },
+        "description": { "type": "string", "description": "A description of what the app does." },
+        "code": { "type": "string", "description": "The EPL source code of the app." },
+        "version": { "type": "string", "description": "The version string, e.g., '1.0.0'." },
+        "category": { "type": "string", "enum": ["games", "apps", "work", "AI", "Programming Language", "Store", "Other"], "description": "The app's category." },
+        "supportedPlatforms": { "type": "array", "items": { "type": "string" }, "description": "List of supported platforms." },
+        "windowsUrl": { "type": "string", "format": "uri", "description": "Download URL for Windows (.exe)." },
+        "macosUrl": { "type": "string", "format": "uri", "description": "Download URL for MacOS (.app)." },
+        "linuxUrl": { "type": "string", "format": "uri", "description": "Download URL for Linux." },
+        "apkUrl": { "type": "string", "format": "uri", "description": "Download URL for Android (.apk)." },
+        "authorId": { "type": "string", "description": "The UID of the user who created the app." },
+        "authorName": { "type": "string", "description": "The name of the author." },
+        "downloads": { "type": "number", "description": "Number of times the app was run/downloaded." },
+        "likes": { "type": "number", "description": "Number of likes." },
+        "dislikes": { "type": "number", "description": "Number of dislikes." },
+        "rating": { "type": "number", "description": "Average rating." },
+        "isVerified": { "type": "boolean", "description": "Whether the app is verified." },
+        "comments": { "type": "array", "items": { "$ref": "#/entities/Comment" }, "description": "Comments on the app." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the app was published." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "When the app was last updated." }
+      },
+      "required": ["title", "description", "code", "version", "category", "authorId", "authorName", "downloads", "likes", "dislikes", "rating", "isVerified", "createdAt", "updatedAt"]
+    },
+    "Comment": {
+      "title": "Comment",
+      "description": "A comment on an app.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the user who wrote the comment." },
+        "userName": { "type": "string", "description": "The name of the user." },
+        "text": { "type": "string", "description": "The comment text." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the comment was posted." }
+      },
+      "required": ["userId", "userName", "text", "createdAt"]
+    },
+    "UserVote": {
+      "title": "UserVote",
+      "description": "A user's vote (like/dislike) on an app.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The UID of the user." },
+        "appId": { "type": "string", "description": "The ID of the app." },
+        "type": { "type": "string", "enum": ["like", "dislike"], "description": "The type of vote." }
+      },
+      "required": ["userId", "appId", "type"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "A user review for an app.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The review's unique ID." },
+        "appId": { "type": "string", "description": "The ID of the app being reviewed." },
+        "userId": { "type": "string", "description": "The UID of the user writing the review." },
+        "userName": { "type": "string", "description": "The name of the user writing the review." },
+        "rating": { "type": "number", "description": "Rating from 1 to 5." },
+        "comment": { "type": "string", "description": "The review text." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the review was posted." }
+      },
+      "required": ["appId", "userId", "userName", "rating", "comment", "createdAt"]
+    },
+    "Asset": {
+      "title": "Asset",
+      "description": "An item in the Asset Store.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The asset's unique ID." },
+        "title": { "type": "string", "description": "The name of the asset." },
+        "description": { "type": "string", "description": "A description of what the asset does." },
+        "coverUrl": { "type": "string", "format": "uri", "description": "Cover image URL." },
+        "price": { "type": "number", "description": "Price in EPLCoins." },
+        "stock": { "type": ["number", "string"], "description": "Number of items available or 'infinite'." },
+        "authorId": { "type": "string", "description": "The UID of the user who created the asset." },
+        "authorName": { "type": "string", "description": "The name of the author." },
+        "type": { "type": "string", "enum": ["style", "mod", "editor", "inventory"], "description": "The type of asset." },
+        "content": { "type": "string", "description": "The code or JSON content of the asset." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the asset was published." }
+      },
+      "required": ["id", "title", "description", "price", "stock", "authorId", "authorName", "type", "content", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profiles."
+    },
+    "/users_public/{userId}": {
+      "schema": { "$ref": "#/entities/UserPublic" },
+      "description": "Stores public user profiles."
+    },
+    "/apps/{appId}": {
+      "schema": { "$ref": "#/entities/App" },
+      "description": "Stores published apps."
+    },
+    "/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/Review" },
+      "description": "Stores app reviews."
+    },
+    "/votes/{voteId}": {
+      "schema": { "$ref": "#/entities/UserVote" },
+      "description": "Stores user votes on apps."
+    },
+    "/assets/{assetId}": {
+      "schema": { "$ref": "#/entities/Asset" },
+      "description": "Stores assets in the Asset Store."
+    },
+    "/friendRequests/{requestId}": {
+      "schema": { "$ref": "#/entities/FriendRequest" },
+      "description": "Stores friend requests."
+    },
+    "/collabSessions/{sessionId}": {
+      "schema": { "$ref": "#/entities/CollabSession" },
+      "description": "Stores real-time collaboration sessions."
+    }
+  }
+}

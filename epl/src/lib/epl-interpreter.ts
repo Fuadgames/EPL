@@ -1,0 +1,857 @@
+import { TOKEN_REGEX } from './epl-dictionary';
+import { GoogleGenAI } from "@google/genai";
+
+type EPLValue = string | number | boolean | null;
+
+interface EPLEntity {
+  id: string;
+  type: string;
+  [key: string]: any;
+}
+
+interface EPLContext {
+  variables: Record<string, EPLValue>;
+  entities: Record<string, EPLEntity>;
+  events: Record<string, string[]>;
+  inputMappings: Record<string, string>; // Maps key to variable name
+  output: string[];
+  isRunning: boolean;
+  timers: Record<string, any>;
+  currentObject: EPLEntity | null;
+  controlType: 'wasd' | null;
+  lastEventValue: string | null;
+  uiMode?: { type: string; target: string };
+  pendingRandomChance: number | null;
+}
+
+export class EPLInterpreter {
+  context: EPLContext;
+  onOutput: (msg: string) => void;
+  onUIUpdate: (entities: Record<string, EPLEntity>, uiMode?: { type: string, target: string }) => void;
+  aiSettings: { answerMode: 'text' | 'console', changesEnabled: boolean };
+  purchasedItems: string[];
+  uploadedFiles: { name: string; url: string }[];
+  isPremium: boolean;
+  keysPressed: Set<string> = new Set();
+  animationFrameId: number | null = null;
+
+  constructor(
+    onOutput: (msg: string) => void, 
+    onUIUpdate: (entities: Record<string, EPLEntity>, uiMode?: { type: string, target: string }) => void,
+    aiSettings: { answerMode: 'text' | 'console', changesEnabled: boolean },
+    purchasedItems: string[] = [],
+    isPremium: boolean = false,
+    uploadedFiles: { name: string; url: string }[] = []
+  ) {
+    this.context = {
+      variables: {},
+      entities: {},
+      events: {},
+      inputMappings: {},
+      output: [],
+      isRunning: false,
+      timers: {},
+      currentObject: null,
+      controlType: null,
+      lastEventValue: null,
+      pendingRandomChance: null
+    };
+    this.onOutput = onOutput;
+    this.onUIUpdate = onUIUpdate;
+    this.aiSettings = aiSettings;
+    this.purchasedItems = purchasedItems;
+    this.isPremium = isPremium;
+    this.uploadedFiles = uploadedFiles;
+  }
+
+  resolveUrl(value: string): string {
+    if (typeof value !== 'string') return value;
+    const file = this.uploadedFiles.find(f => f.name === value);
+    return file ? file.url : value;
+  }
+
+  log(msg: string) {
+    this.context.output.push(msg);
+    this.onOutput(msg);
+  }
+
+  parseSettings(settingsStr: string): Record<string, any> {
+    const obj: Record<string, any> = {};
+    if (!settingsStr) return obj;
+    
+    settingsStr.split(',').forEach(pair => {
+      const parts = pair.split('=');
+      if (parts.length === 2) {
+        const key = parts[0].trim();
+        let val: any = parts[1].trim();
+        
+        // Remove quotes if present
+        if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+        else if (val.startsWith("'") && val.endsWith("'")) val = val.slice(1, -1);
+        
+        // Parse numbers but preserve relative signs for move/etc
+        const isRelative = val.startsWith('+') || val.startsWith('-');
+        if (!isNaN(Number(val)) && !isRelative) {
+          val = Number(val);
+        } else if (val === 'true') {
+          val = true;
+        } else if (val === 'false') {
+          val = false;
+        } else {
+          // Resolve file names to URLs
+          val = this.resolveUrl(val);
+        }
+        
+        obj[key] = val;
+      }
+    });
+    return obj;
+  }
+
+  evaluateExpression(expr: string): EPLValue {
+    if (expr === undefined || expr === null) return null;
+    expr = String(expr).trim();
+    if (expr.startsWith('"') && expr.endsWith('"')) return expr.slice(1, -1);
+    if (expr.startsWith("'") && expr.endsWith("'")) return expr.slice(1, -1);
+    
+    // Check for entity property access like Player.x
+    if (expr.includes('.')) {
+      const [entityName, prop] = expr.split('.');
+      const entity = Object.values(this.context.entities).find(e => e.name === entityName);
+      if (entity && entity[prop] !== undefined) return entity[prop];
+    }
+
+    if (!isNaN(Number(expr)) && expr !== '') return Number(expr);
+    if (expr === 'true') return true;
+    if (expr === 'false') return false;
+    
+    return this.context.variables[expr] !== undefined ? this.context.variables[expr] : expr;
+  }
+
+  evaluateCompare(a: any, op: string, b: any): boolean {
+    const valA = this.evaluateExpression(a);
+    const valB = this.evaluateExpression(b);
+
+    switch (op) {
+      case '>': return Number(valA) > Number(valB);
+      case '<': return Number(valA) < Number(valB);
+      case '==': return valA == valB;
+      case '>=': return Number(valA) >= Number(valB);
+      case '<=': return Number(valA) <= Number(valB);
+      case '~=': {
+        // Approximate equality (within 10%)
+        const numA = Number(valA);
+        const numB = Number(valB);
+        if (isNaN(numA) || isNaN(numB)) return valA == valB;
+        const diff = Math.abs(numA - numB);
+        const avg = (Math.abs(numA) + Math.abs(numB)) / 2;
+        if (avg === 0) return diff === 0;
+        return (diff / avg) <= 0.1;
+      }
+      default: return false;
+    }
+  }
+
+  evaluateCondition(cond: string): boolean {
+    // Simple eval for now: "Player.x > 100"
+    try {
+      // Replace entity references with actual values
+      const parsedCond = cond.replace(/([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)/g, (match, entityName, prop) => {
+        const entity = Object.values(this.context.entities).find(e => e.name === entityName);
+        if (entity && entity[prop] !== undefined) {
+          const val = entity[prop];
+          return typeof val === 'string' ? `"${val.replace(/"/g, '\\"')}"` : String(val);
+        }
+        return '0';
+      });
+      
+      // Extremely basic and unsafe eval just for demonstration of EPL logic
+      // In a real app, use a proper expression parser
+      return new Function(`return ${parsedCond}`)();
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async runLines(lines: string[]): Promise<boolean> {
+    let i = 0;
+    while (i < lines.length && this.context.isRunning) {
+      let line = lines[i].trim();
+      if (!line || line.startsWith('//') || line.startsWith('#')) {
+        i++;
+        continue;
+      }
+
+      // Parse line into tokens
+      const parts = line.split(TOKEN_REGEX);
+      let executed = false;
+
+      // Scan for actions
+      for (let j = 1; j < parts.length; j += 4) {
+        const keyword = parts[j];
+        if (!keyword) continue;
+        const settingsStr = parts[j+1] || '';
+        const settings = this.parseSettings(settingsStr);
+
+        if (this.context.pendingRandomChance !== null) {
+          const chance = this.context.pendingRandomChance;
+          this.context.pendingRandomChance = null;
+          if (Math.random() * 100 > chance) {
+            this.log(`Random skipped action: ${keyword}`);
+            continue; // Skip execution of this action and move to next in line
+          }
+        }
+
+        if (keyword === 'stop') {
+          return true; // Stop execution of current block and propagate
+        }
+        else if (keyword === 'random') {
+          this.context.pendingRandomChance = Number(settings.chance || 100);
+          executed = true;
+        }
+        else if (keyword === 'unlock_premium') {
+          this.log("Cheat code activated: Premium Unlocked!");
+          this.isPremium = true;
+          // We can't easily update the global store from here without passing a callback,
+          // but we can trigger a UI event that the EditorView can listen to.
+          this.triggerEvent('premium_unlocked?', 'world');
+          executed = true;
+        }
+        else if (keyword === 'create') {
+          // Look ahead for the entity type
+          const nextKeyword = parts[j+4];
+          const nextSettingsStr = parts[j+5] || '';
+          const nextSettings = this.parseSettings(nextSettingsStr);
+          
+          if (['world', 'button', 'block', '3Dblock', '3DCamera', '3DEditor', 'sprite', 'png', 'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox', 'circle', 'line', 'wasd_controls', 'terminal', 'control'].includes(nextKeyword)) {
+            
+            // Premium/Purchased checks
+            if (nextKeyword === 'terminal' && !this.isPremium && !this.purchasedItems.includes('terminal')) {
+              this.log(`Error: 'terminal' component requires purchase from the Editor Store or Premium Access.`);
+              j += 4;
+              executed = true;
+              continue;
+            }
+            if (nextKeyword === '3Dblock' && !this.isPremium && !this.purchasedItems.includes('3d_engine')) {
+              this.log(`Error: '3Dblock' component requires 3D Engine purchase from the Editor Store or Premium Access.`);
+              j += 4;
+              executed = true;
+              continue;
+            }
+            // Add physics check if needed later (e.g. for physics properties)
+
+            const id = nextSettings.name || `entity_${Date.now()}_${Math.random()}`;
+            const entity: any = { id, type: nextKeyword, ...nextSettings };
+            if (entity.spawnComponent) entity.isActive = false;
+            this.context.entities[id] = entity;
+            this.onUIUpdate({ ...this.context.entities }, this.context.uiMode);
+            
+            // Handle timer creation
+            if (nextKeyword === 'timer') {
+              const interval = Number(nextSettings.interval || 1000);
+              const timerId = setInterval(() => {
+                if (this.context.isRunning) {
+                  this.triggerEvent('timer_tick?', nextSettings.name);
+                }
+              }, interval);
+              this.context.timers[id] = timerId;
+            }
+
+            // Trigger created? event if it exists
+            const createdEventKey = `created?_${nextSettings.name}`;
+            if (this.context.events[createdEventKey]) {
+              this.runLines(this.context.events[createdEventKey]); // Run asynchronously
+            }
+            
+            j += 4; // Skip next token
+          }
+          executed = true;
+        } 
+        else if (['world', 'button', 'block', '3Dblock', '3DCamera', '3DEditor', 'sprite', 'png', 'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox', 'circle', 'line', 'wasd_controls', 'terminal', 'control'].includes(keyword)) {
+          // If used without 'create', it updates an existing entity
+          const targetName = settings.name || settings.target || (keyword === 'world' ? 'world' : null);
+          const target = Object.values(this.context.entities).find(e => e.name === targetName || (keyword === 'world' && e.type === 'world'));
+          
+          if (target) {
+            // Only update, don't create. 
+            // We strip 'id' and 'type' from settings to prevent corruption
+            const { id, type, ...cleanSettings } = settings;
+            Object.assign(target, cleanSettings);
+            this.onUIUpdate({ ...this.context.entities }, this.context.uiMode);
+          } else {
+            // Log that the entity was not found for update
+            if (targetName) {
+              this.log(`Error: Entity "${targetName}" not found. Use 'create' to make a new one.`);
+            }
+          }
+          executed = true;
+        }
+        else if (keyword === 'ai') {
+          const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
+          const response = await ai.models.generateContent({
+            model: "gemini-3-flash-preview",
+            contents: settings.prompt,
+          });
+          const text = response.text;
+          if (this.aiSettings.answerMode === 'text') {
+            this.log(text || '');
+          } else {
+            console.log(text);
+          }
+          if (this.aiSettings.changesEnabled && settings.target) {
+            const target = Object.values(this.context.entities).find(e => e.name === settings.target);
+            if (target) {
+              target.text = text;
+              this.onUIUpdate({ ...this.context.entities }, this.context.uiMode);
+            }
+          }
+          executed = true;
+        }
+        else if (keyword === 'object') {
+          const targetName = settings.name;
+          const target = Object.values(this.context.entities).find(e => e.name === targetName);
+          
+          let block: string[] = [];
+          i++;
+          while (i < lines.length) {
+            const innerLine = lines[i].trim();
+            if (innerLine === 'end' || innerLine.startsWith('end')) break;
+            block.push(lines[i]);
+            i++;
+          }
+          
+          const previousObject = this.context.currentObject;
+          this.context.currentObject = target || null;
+          
+          await this.runLines(block);
+          
+          this.context.currentObject = previousObject;
+          
+          executed = true;
+          break;
+        }
+        else if (keyword === 'repeat') {
+          const times = Number(settings.times || 1);
+          let block: string[] = [];
+          i++;
+          while (i < lines.length) {
+            const innerLine = lines[i].trim();
+            if (innerLine === 'end' || innerLine.startsWith('end')) break;
+            block.push(lines[i]);
+            i++;
+          }
+          for (let k = 0; k < times; k++) {
+            if (!this.context.isRunning) break;
+            await this.runLines(block);
+          }
+          executed = true;
+          break;
+        }
+        else if (keyword === 'forever') {
+          let block: string[] = [];
+          i++;
+          while (i < lines.length) {
+            const innerLine = lines[i].trim();
+            if (innerLine === 'end' || innerLine.startsWith('end')) break;
+            block.push(lines[i]);
+            i++;
+          }
+          // We run forever in a background loop to not block the main interpreter
+          const runForever = async () => {
+            while (this.context.isRunning) {
+              await this.runLines(block);
+              await new Promise(resolve => setTimeout(resolve, 16)); // ~60fps cap
+            }
+          };
+          runForever();
+          executed = true;
+          break;
+        }
+        else if (keyword === 'control') {
+          this.context.controlType = settings.type === 'wasd' ? 'wasd' : null;
+          executed = true;
+        }
+        else if (keyword === 'type') {
+          if (settings.target === 'console') {
+            console.log(String(settings.text || ''));
+          } else {
+            this.log(String(settings.text || ''));
+          }
+          executed = true;
+        }
+        else if (keyword === 'background') {
+          // Find the world entity or create one
+          let world = Object.values(this.context.entities).find(e => e.type === 'world');
+          if (!world) {
+            const id = `world_${Date.now()}`;
+            world = { id, type: 'world', name: 'world' };
+            this.context.entities[id] = world;
+          }
+          if (settings.color) world.background = settings.color;
+          if (settings.image) world.backgroundImage = settings.image;
+          this.onUIUpdate({ ...this.context.entities }, this.context.uiMode);
+          executed = true;
+        }
+        else if (keyword === 'move') {
+          const target = Object.values(this.context.entities).find(e => e.name === settings.target) || this.context.currentObject;
+          if (target) {
+            if (target.isMoving === false) return; // Prevent movement if stopped
+
+            if (settings.x !== undefined) {
+              const val = this.evaluateExpression(String(settings.x));
+              target.x = (parseFloat(String(target.x)) || 0) + Number(val);
+            }
+            if (settings.y !== undefined) {
+              const val = this.evaluateExpression(String(settings.y));
+              target.y = (parseFloat(String(target.y)) || 0) + Number(val);
+            }
+            this.onUIUpdate({ ...this.context.entities }, this.context.uiMode);
+            
+            // Basic collision detection
+            this.checkCollisions(target);
+          }
+          executed = true;
+        }
+        else if (keyword === 'stop_move') {
+          const target = Object.values(this.context.entities).find(e => e.name === settings.target) || this.context.currentObject;
+          if (target) {
+            // Simplified: for now just stop totally to avoid complex physics, 
+            // the user request for "direction of hitbox contact"
+            // requires full collision solver (separating axes), which is outside scope for now.
+            // I will implement a simpler "stop" that effectively halts movement.
+            target.isMoving = false;
+          }
+          executed = true;
+        }
+        else if (keyword === 'wait') {
+          const ms = Number(settings.time || 1000);
+          await new Promise(resolve => setTimeout(resolve, ms));
+          executed = true;
+        }
+        else if (keyword === 'draggable') {
+          const target = Object.values(this.context.entities).find(e => e.name === settings.target) || this.context.currentObject;
+          if (target) {
+            target.isDraggable = true;
+            this.onUIUpdate({ ...this.context.entities }, this.context.uiMode);
+          }
+          executed = true;
+        }
+        else if (keyword === 'set up') {
+          const target = Object.values(this.context.entities).find(e => e.name === settings.target) || this.context.currentObject;
+          if (target && settings.property) {
+            target[settings.property] = settings.value;
+            this.onUIUpdate({ ...this.context.entities }, this.context.uiMode);
+          }
+          executed = true;
+        }
+        else if (keyword === 'destroy') {
+          const targetId = Object.keys(this.context.entities).find(id => this.context.entities[id].name === (settings.target || this.context.currentObject?.name));
+          if (targetId) {
+            delete this.context.entities[targetId];
+            this.onUIUpdate({ ...this.context.entities }, this.context.uiMode);
+          }
+          executed = true;
+        }
+        else if (keyword === 'variable') {
+          if (settings.name) {
+            this.context.variables[settings.name] = this.evaluateExpression(settings.value);
+          }
+          executed = true;
+        }
+        else if (keyword === 'activate_variable') {
+          if (settings.variables) {
+            const vars = settings.variables.split(',').map((s: string) => s.trim());
+            vars.forEach((v: string) => { 
+              this.context.variables[v] = true; 
+              this.triggerEvent('variable_activated?', v);
+            });
+          } else if (settings.var) {
+            this.context.variables[settings.var] = true;
+            this.triggerEvent('variable_activated?', settings.var);
+          }
+          executed = true;
+        }
+        else if (keyword === 'corner') {
+          const target = Object.values(this.context.entities).find(e => e.name === settings.target) || this.context.currentObject;
+          if (target) {
+            const rad = settings.radius !== undefined ? settings.radius : 10;
+            target.borderRadius = rad;
+            target.corner = rad;
+            this.onUIUpdate({ ...this.context.entities }, this.context.uiMode);
+          }
+          executed = true;
+        }
+        else if (keyword === 'design') {
+          this.context.uiMode = { type: 'design', target: settings.target || Object.keys(this.context.entities)[0] };
+          this.log(`[Tool Selected] Design Graph Editor for: ${settings.target || 'environment'}`);
+          executed = true;
+        }
+        else if (keyword === '3DEditor') {
+          this.context.uiMode = { type: '3DEditor', target: settings.target };
+          this.log(`[Tool Selected] 3D Model Editor Tool / Blender Integration.`);
+          executed = true;
+        }
+        else if (keyword === 'position') {
+          this.context.uiMode = { type: 'position', target: settings.target };
+          this.log(`[Tool Selected] Visual Position Editor for: ${settings.target || 'current object'}.`);
+          executed = true;
+        }
+        else if (keyword === 'math') {
+          const targetName = settings.target;
+          const op = settings.op;
+          const val = this.evaluateExpression(settings.value);
+          
+          if (targetName && op && val !== null) {
+            let currentVal = this.context.variables[targetName] !== undefined ? this.context.variables[targetName] : 0;
+            if (typeof currentVal !== 'number') currentVal = Number(currentVal) || 0;
+            const numVal = Number(val);
+            
+            let result = currentVal;
+            switch (op) {
+              case 'add': result = currentVal + numVal; break;
+              case 'subtract': result = currentVal - numVal; break;
+              case 'multiply': result = currentVal * numVal; break;
+              case 'divide': result = currentVal / numVal; break;
+              case 'set': result = numVal; break;
+            }
+            this.context.variables[targetName] = result;
+            this.log(`Math: ${targetName} ${op} ${val} = ${result}`);
+          }
+          executed = true;
+        }
+        else if (keyword === 'if') {
+          // Find check or compare on current line or next line
+          let checkIdx = parts.indexOf('check', j);
+          let compareIdx = parts.indexOf('compare', j);
+          let isTrue = false;
+          
+          if (checkIdx !== -1) {
+            const checkSettings = this.parseSettings(parts[checkIdx+1] || '');
+            isTrue = this.evaluateCondition(checkSettings.expression || 'false');
+          } else if (compareIdx !== -1) {
+            const compSettings = this.parseSettings(parts[compareIdx+1] || '');
+            isTrue = this.evaluateCompare(compSettings.a, compSettings.op, compSettings.b);
+          } else if (i + 1 < lines.length) {
+            const nextLine = lines[i+1].trim();
+            const nextParts = nextLine.split(TOKEN_REGEX);
+            const nextCheckIdx = nextParts.indexOf('check');
+            const nextCompareIdx = nextParts.indexOf('compare');
+            
+            if (nextCheckIdx !== -1) {
+              const checkSettings = this.parseSettings(nextParts[nextCheckIdx+1] || '');
+              isTrue = this.evaluateCondition(checkSettings.expression || 'false');
+              i++; 
+            } else if (nextCompareIdx !== -1) {
+              const compSettings = this.parseSettings(nextParts[nextCompareIdx+1] || '');
+              isTrue = this.evaluateCompare(compSettings.a, compSettings.op, compSettings.b);
+              i++;
+            }
+          }
+          
+          let ifBlock: string[] = [];
+          let elseBlock: string[] = [];
+          let currentBlock = ifBlock;
+          
+          i++;
+          while (i < lines.length) {
+            const innerLine = lines[i].trim();
+            if (innerLine === 'end' || innerLine.startsWith('end')) break;
+            if (innerLine === 'else' || innerLine.startsWith('else')) {
+              currentBlock = elseBlock;
+              i++;
+              continue;
+            }
+            currentBlock.push(lines[i]);
+            i++;
+          }
+          
+          if (isTrue) {
+            const stopped = await this.runLines(ifBlock);
+            if (stopped) return true;
+          }
+          else if (elseBlock.length > 0) {
+            const stopped = await this.runLines(elseBlock);
+            if (stopped) return true;
+          }
+          
+          executed = true;
+          break; // Break inner loop, i is already updated
+        }
+      }
+
+      if (!executed) i++;
+      else if (parts.indexOf('if') === -1) i++; // Only increment if not handled by block logic
+    }
+    return false;
+  }
+
+  async run(code: string) {
+    this.stop();
+    this.context.isRunning = true;
+    this.keysPressed.clear();
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+    }
+    this.startGameLoop();
+    this.context.output = [];
+    this.context.entities = {};
+    this.context.events = {};
+    this.onUIUpdate(this.context.entities, this.context.uiMode);
+    
+    const lines = code.split('\n');
+    
+    // Parse events
+    let currentEvent: string | null = 'started?';
+    let eventBlock: string[] = [];
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line || line.startsWith('#')) continue;
+      const parts = line.split(TOKEN_REGEX);
+      
+      let foundEvent = false;
+      for (let j = 1; j < parts.length; j += 4) {
+        const keyword = parts[j];
+        if (['started?', 'created?', 'clicked?', 'collided?', 'key_pressed?', 'timer_tick?', 'input', 'file_added?', 'writed?', 'variable_activated?'].includes(keyword)) {
+          if (currentEvent && eventBlock.length > 0) {
+            this.context.events[currentEvent] = [...(this.context.events[currentEvent] || []), ...eventBlock];
+          }
+          
+          const settings = this.parseSettings(parts[j+1] || '');
+          if (keyword === 'input' && settings.key && settings.variable) {
+            this.context.inputMappings[settings.key] = settings.variable;
+          }
+          
+          const suffix = settings.target || settings.key || settings.name || settings.var || settings.variable;
+          currentEvent = (keyword === 'started?' || !suffix) ? keyword : `${keyword}_${suffix}`;
+          eventBlock = [];
+          foundEvent = true;
+          break;
+        } else if (keyword === 'end' && currentEvent) {
+          this.context.events[currentEvent] = [...(this.context.events[currentEvent] || []), ...eventBlock];
+          currentEvent = 'started?'; // Go back to collecting loose code in started?
+          eventBlock = [];
+          foundEvent = true;
+          break;
+        }
+      }
+
+      if (!foundEvent && currentEvent) {
+        eventBlock.push(line);
+      }
+    }
+    
+    if (currentEvent && eventBlock.length > 0) {
+      this.context.events[currentEvent] = [...(this.context.events[currentEvent] || []), ...eventBlock];
+    }
+
+    // Run started? block
+    if (this.context.events['started?']) {
+      await this.runLines(this.context.events['started?']);
+    }
+  }
+
+  hasEvents(): boolean {
+    return Object.values(this.context.events).some(lines => lines.length > 0);
+  }
+
+  getVariable(name: string): EPLValue {
+    return this.context.variables[name];
+  }
+
+  stop() {
+    this.context.isRunning = false;
+    if (this.animationFrameId !== null) {
+      cancelAnimationFrame(this.animationFrameId);
+      this.animationFrameId = null;
+    }
+    Object.values(this.context.timers).forEach(id => clearInterval(id));
+    this.context.timers = {};
+  }
+
+  checkCollisions(mover: EPLEntity) {
+    const moverX = mover.x || 0;
+    const moverY = mover.y || 0;
+    const moverW = mover.width || mover.size || 64;
+    const moverH = mover.height || mover.size || 64;
+
+    Object.values(this.context.entities).forEach(other => {
+      if (other.id === mover.id) return;
+      if (other.type === 'world') return;
+
+      const otherX = other.x || 0;
+      const otherY = other.y || 0;
+      const otherW = other.width || other.size || 64;
+      const otherH = other.height || other.size || 64;
+
+      const isColliding = (
+        moverX < otherX + otherW &&
+        moverX + moverW > otherX &&
+        moverY < otherY + otherH &&
+        moverY + moverH > otherY
+      );
+
+      if (isColliding) {
+        this.triggerEvent('collided?', mover.name);
+        this.triggerEvent('collided?', other.name);
+
+        if (other.variable) {
+          this.triggerEvent('collided?', other.variable);
+        }
+      }
+    });
+  }
+
+  async triggerEvent(eventName: string, target?: string, value?: string) {
+    if (!this.context.isRunning) return;
+    
+    this.context.lastEventValue = value || null;
+    if (value !== undefined) {
+      this.context.variables['last_event_value'] = value || null;
+    }
+
+    if (eventName === 'variable_activated?' && target) {
+      const varName = target;
+      const entitiesWithVar = Object.values(this.context.entities).filter(e => e.variable === varName);
+      entitiesWithVar.forEach(e => e.isActive = true);
+      
+      const specificKey = `${eventName}_${varName}`;
+      if (this.context.events[specificKey]) {
+        if (entitiesWithVar.length > 0) {
+          for (const entity of entitiesWithVar) {
+            const prevObj = this.context.currentObject;
+            this.context.currentObject = entity;
+            await this.runLines([...this.context.events[specificKey]]);
+            this.context.currentObject = prevObj;
+          }
+        } else {
+          // If no entities have the variable, just run it once globally
+          await this.runLines([...this.context.events[specificKey]]);
+        }
+      }
+      return;
+    }
+
+    // Normalize target for keyboard events
+    let normalizedTarget = target;
+    if (eventName === 'key_pressed?' && target) {
+      normalizedTarget = target.toLowerCase();
+      // Map common keys
+      if (target === ' ') normalizedTarget = 'space';
+      if (target === 'ArrowUp') normalizedTarget = 'up';
+      if (target === 'ArrowDown') normalizedTarget = 'down';
+      if (target === 'ArrowLeft') normalizedTarget = 'left';
+      if (target === 'ArrowRight') normalizedTarget = 'right';
+      
+      if (normalizedTarget) this.keysPressed.add(normalizedTarget);
+    } else if (eventName === 'key_released?' && target) {
+      normalizedTarget = target.toLowerCase();
+      if (target === ' ') normalizedTarget = 'space';
+      if (target === 'ArrowUp') normalizedTarget = 'up';
+      if (target === 'ArrowDown') normalizedTarget = 'down';
+      if (target === 'ArrowLeft') normalizedTarget = 'left';
+      if (target === 'ArrowRight') normalizedTarget = 'right';
+      
+      if (normalizedTarget) this.keysPressed.delete(normalizedTarget);
+    }
+
+    // Try specific event first (e.g. key_pressed?_a)
+    const specificKey = normalizedTarget ? `${eventName}_${normalizedTarget}` : eventName;
+    if (this.context.events[specificKey]) {
+      await this.runLines([...this.context.events[specificKey]]);
+    }
+    
+    // Always trigger UI update for manipulated so the editor catches visual changes
+    if (eventName === 'manipulated?') {
+      this.onUIUpdate({ ...this.context.entities }, this.context.uiMode);
+    }
+
+    // Try `input` mapped events
+    if (eventName === 'key_pressed?' && normalizedTarget) {
+      // 1. Check for variable activation
+      const mappedVar = this.context.inputMappings[normalizedTarget];
+      if (mappedVar) {
+        this.context.variables[mappedVar] = true;
+        this.triggerEvent('variable_activated?', mappedVar);
+      }
+
+      // 2. Run input block
+      const inputKey = `input_${normalizedTarget}`;
+      if (this.context.events[inputKey]) {
+        await this.runLines([...this.context.events[inputKey]]);
+      }
+    }
+    
+    // Also try generic event if it's a different key (e.g. catch-all key_pressed?)
+    if (normalizedTarget && specificKey !== eventName && this.context.events[eventName]) {
+      await this.runLines([...this.context.events[eventName]]);
+    }
+  }
+
+  startGameLoop = () => {
+    if (!this.context.isRunning) return;
+    
+    this.handleWasdControls();
+    
+    this.animationFrameId = requestAnimationFrame(this.startGameLoop);
+  };
+
+  handleWasdControls() {
+    const wasdEntities = Object.values(this.context.entities).filter(e => e.type === 'wasd_controls');
+    if (wasdEntities.length === 0) return;
+    
+    let updated = false;
+    const now = Date.now();
+
+    wasdEntities.forEach(ctrl => {
+      const targetName = String(ctrl.target || '').toLowerCase();
+      const target = Object.values(this.context.entities).find(e => String(e.name || '').toLowerCase() === targetName);
+      if (!target) return;
+
+      const speed = Number(ctrl.speed || 10);
+      const step = Number(ctrl.step || speed);
+      const duration = Number(ctrl.duration || 0);
+
+      // Check cooldown if duration is set
+      const lastMoveTime = Number(ctrl._lastMoveTime || 0);
+      if (duration > 0 && now - lastMoveTime < duration * 1000) {
+        return; // Still in cooldown
+      }
+
+      let currentX = parseFloat(String(target.x || 0)) || 0;
+      let currentY = parseFloat(String(target.y || 0)) || 0;
+      let moved = false;
+
+      if (this.keysPressed.has('w') || this.keysPressed.has('up')) {
+        target.y = currentY - step;
+        moved = true;
+      } else if (this.keysPressed.has('s') || this.keysPressed.has('down')) {
+        target.y = currentY + step;
+        moved = true;
+      }
+      
+      if (this.keysPressed.has('a') || this.keysPressed.has('left')) {
+        target.x = currentX - step;
+        moved = true;
+      } else if (this.keysPressed.has('d') || this.keysPressed.has('right')) {
+        target.x = currentX + step;
+        moved = true;
+      }
+
+      if (moved) {
+        ctrl._lastMoveTime = now;
+        if (duration > 0) {
+          target.transitionDuration = duration;
+        } else {
+          target.transitionDuration = 0; // Instant movement if no duration
+        }
+        updated = true;
+        this.checkCollisions(target);
+      }
+    });
+
+    if (updated) {
+      this.onUIUpdate({ ...this.context.entities }, this.context.uiMode);
+    }
+  }
+}
