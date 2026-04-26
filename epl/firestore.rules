@@ -63,7 +63,7 @@ service cloud.firestore {
     // Domain Validators
     // ===============================================================
     function isValidUser(data) {
-      return hasOnlyAllowedFields(['uid', 'name', 'email', 'photoUrl', 'role', 'isVerifiedAuthor', 'eplCoins', 'purchasedItems', 'uploadedFiles', 'permissions', 'installedApps', 'avatarUrl', 'region', 'friends', 'createdAt', 'premiumExpiry', 'isPremium', 'unlockedAchievements']) &&
+      return hasOnlyAllowedFields(['uid', 'name', 'email', 'photoUrl', 'role', 'isVerifiedAuthor', 'eplCoins', 'purchasedItems', 'uploadedFiles', 'permissions', 'installedApps', 'avatarUrl', 'region', 'friends', 'createdAt', 'premiumExpiry', 'isPremium', 'unlockedAchievements', 'isBanned', 'banReason']) &&
              (!('uid' in data) || (data.uid is string && data.uid.size() > 0 && data.uid.size() < 128)) &&
              (!('name' in data) || (data.name is string && data.name.size() > 0 && data.name.size() < 100)) &&
              (!('email' in data) || (data.email is string && isValidEmail(data.email))) &&
@@ -224,6 +224,14 @@ service cloud.firestore {
              data.createdBy is string;
     }
 
+    function isValidAdminRequest(data) {
+      return hasOnlyAllowedFields(['id', 'type', 'targetId', 'targetName', 'requesterId', 'requesterName', 'reason', 'status', 'createdAt', 'updatedAt']) &&
+             hasRequiredFields(['id', 'type', 'targetId', 'requesterId', 'status', 'createdAt']) &&
+             data.type in ['ban_user', 'verify_app', 'verify_asset', 'delete_app', 'delete_asset'] &&
+             data.status in ['pending', 'approved', 'rejected'] &&
+             data.createdAt is string;
+    }
+
     // ===============================================================
     // Collections
     // ===============================================================
@@ -317,7 +325,7 @@ service cloud.firestore {
         (isModerator() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])) ||
         isAdmin() || isDeveloper()
       );
-      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorId || isAdmin());
+      allow delete: if isAuthenticated() && (request.auth.uid == resource.data.authorId || isAdmin() || isDeveloper());
     }
     
     match /votes/{voteId} {
@@ -339,6 +347,13 @@ service cloud.firestore {
       allow create: if isAuthenticated() && isValidComment(request.resource.data) && request.resource.data.userId == request.auth.uid;
       allow update: if isAuthenticated() && isValidComment(request.resource.data) && request.auth.uid == resource.data.userId;
       allow delete: if isAuthenticated() && (request.auth.uid == resource.data.userId || isAdmin() || isDeveloper());
+    }
+
+    match /adminRequests/{reqId} {
+      allow read: if isAuthenticated() && (isDeveloper() || isAdmin() || isModerator());
+      allow create: if isAuthenticated() && isValidAdminRequest(request.resource.data) && request.auth.uid == request.resource.data.requesterId;
+      allow update: if isAuthenticated() && (isDeveloper() || isAdmin() || isModerator() || request.auth.uid == resource.data.requesterId);
+      allow delete: if isAuthenticated() && (isDeveloper() || request.auth.uid == resource.data.requesterId);
     }
   }
 }
