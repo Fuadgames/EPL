@@ -6,7 +6,7 @@ import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'fir
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { EPLInterpreter } from '../lib/epl-interpreter';
 import { EPL_DICTIONARY } from '../lib/epl-dictionary';
-import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package } from 'lucide-react';
+import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { GoogleGenAI } from "@google/genai";
 import VisualEditor from './VisualEditor';
@@ -16,6 +16,7 @@ import Tutorial from './Tutorial';
 import CollabModal from './CollabModal';
 import InventoryModal from './InventoryModal';
 import { translations, tutorialContent } from '../lib/translations';
+const PreviewEditor = React.lazy(() => import('./PreviewEditor'));
 
 const DEFAULT_CODE = ``;
 
@@ -48,6 +49,8 @@ export default function EditorView() {
   const computerStyle = useStore(state => state.computerStyle);
   const selectedExtraCategory = useStore(state => state.selectedExtraCategory);
   const setSelectedExtraCategory = useStore(state => state.setSelectedExtraCategory);
+  const previewType = useStore(state => state.previewType);
+  const setPreviewType = useStore(state => state.setPreviewType);
   const unlockAchievement = useStore(state => state.unlockAchievement);
   const t = translations[language];
   const [history, setHistory] = useState<string[]>([DEFAULT_CODE]);
@@ -227,7 +230,9 @@ export default function EditorView() {
     }
   }, []);
 
-  const confirmNewFile = (category: 'Normal' | 'OS' | 'Asset') => {
+  const [showPreviewTypeModal, setShowPreviewTypeModal] = useState(false);
+
+  const confirmNewFile = (category: 'Normal' | 'OS' | 'Asset' | 'PreviewEditing') => {
     setCodeGlobal('');
     setEditingAppId(null);
     setSelectedExtraCategory(category);
@@ -413,6 +418,21 @@ export default function EditorView() {
           setAppScreenshotUrl(data.screenshotUrl || '');
           setAppBannerUrl(data.bannerUrl || '');
           setEvents(data.events || []);
+
+          // Auto-detect PreviewEditing mode and 3D
+          if (data.code && data.code.includes('// mode=3D')) {
+            setPreviewType('3D');
+            setSelectedExtraCategory('PreviewEditing');
+          } else if (data.code && data.code.includes('// mode=2D')) {
+            setPreviewType('2D');
+            setSelectedExtraCategory('PreviewEditing');
+          } else if (data.code && (data.code.includes('3DCamera') || data.code.includes('lava') || data.code.includes('ground'))) {
+            setPreviewType('3D');
+            setSelectedExtraCategory('PreviewEditing');
+          } else if (data.code && (data.code.includes('block {') || data.code.includes('text_label {'))) {
+            setPreviewType('2D');
+            setSelectedExtraCategory('PreviewEditing');
+          }
         }
       };
       fetchApp();
@@ -441,12 +461,30 @@ export default function EditorView() {
     outputEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [output]);
 
+  const historyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const historyIndexRef = useRef(historyIndex);
+  useEffect(() => { historyIndexRef.current = historyIndex; }, [historyIndex]);
+
   const handleCodeChange = (newCode: string) => {
     setCodeGlobal(newCode);
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(newCode);
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
+    
+    if (historyTimeoutRef.current) {
+      clearTimeout(historyTimeoutRef.current);
+    }
+
+    historyTimeoutRef.current = setTimeout(() => {
+      setHistory(prevHistory => {
+        const newHistory = prevHistory.slice(0, historyIndexRef.current + 1);
+        // Only push if different from last history entry
+        if (newHistory.length === 0 || newHistory[newHistory.length - 1] !== newCode) {
+          const updatedHistory = [...newHistory, newCode];
+          if (updatedHistory.length > 100) updatedHistory.shift();
+          setHistoryIndex(updatedHistory.length - 1);
+          return updatedHistory;
+        }
+        return prevHistory;
+      });
+    }, 500); // 500ms debounce
   };
 
   const handleCodeGenerated = useCallback((newCode: string) => {
@@ -920,7 +958,7 @@ export default function EditorView() {
         ref={menuRef}
         className={clsx(
           "flex items-center gap-1 px-2 py-1 border-b text-sm relative z-50 whitespace-nowrap",
-          isFrutigerAero ? "frutiger-aero-glass" : (theme !== 'light' ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : 'bg-zinc-100 border-zinc-200 text-zinc-700'),
+          isFrutigerAero ? "frutiger-aero-glass" : theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : theme === 'gradient' ? 'bg-black/40 border-emerald-500/20 text-emerald-100 backdrop-blur-xl' : 'bg-zinc-100 border-zinc-200 text-zinc-700',
           computerStyle && "bg-transparent border-emerald-500/30 text-emerald-500"
         )}
       >
@@ -1061,6 +1099,29 @@ export default function EditorView() {
             >
               <RefreshCw className="w-4 h-4" />
             </button>
+            <div className={clsx("h-6 w-px mx-1", isFrutigerAero ? "bg-blue-800/10" : "bg-zinc-700/30")}></div>
+            <button 
+              onClick={undo}
+              disabled={historyIndex <= 0}
+              className={clsx(
+                "flex items-center justify-center p-1.5 rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed",
+                isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
+              )}
+              title={language === 'ru' ? 'Отменить' : 'Undo'}
+            >
+              <Undo2 className="w-4 h-4" />
+            </button>
+            <button 
+              onClick={redo}
+              disabled={historyIndex >= history.length - 1}
+              className={clsx(
+                "flex items-center justify-center p-1.5 rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed",
+                isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
+              )}
+              title={language === 'ru' ? 'Повторить' : 'Redo'}
+            >
+              <Redo2 className="w-4 h-4" />
+            </button>
           </div>
         </div>
         
@@ -1121,7 +1182,7 @@ export default function EditorView() {
               isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
             )}
           >
-            <FolderOpen className="w-4 h-4" /> <span className="hidden sm:inline">Image Control</span>
+            <FolderOpen className="w-4 h-4" /> <span className="hidden sm:inline">File Control</span>
           </button>
         </div>
       </div>
@@ -1149,6 +1210,11 @@ export default function EditorView() {
       )}
 
       {/* Main Editor Area */}
+      {selectedExtraCategory === 'PreviewEditing' ? (
+        <React.Suspense fallback={<div className="flex-1 flex justify-center items-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div></div>}>
+          <PreviewEditor type={previewType || '2D'} code={code} onChange={handleCodeChange} />
+        </React.Suspense>
+      ) : (
       <div className="flex-1 flex flex-col sm:flex-row overflow-y-auto sm:overflow-hidden">
         {!isFullScreen && (
           <>
@@ -1156,7 +1222,8 @@ export default function EditorView() {
             <div className={clsx(
               "flex-1 flex flex-col sm:border-r min-h-[50vh] sm:min-h-0",
               isFrutigerAero ? "bg-white/20 border-white/30 backdrop-blur-sm" :
-              theme !== 'light' ? 'border-zinc-800 bg-zinc-950' : 'border-zinc-200 bg-zinc-50'
+              theme === 'dark' ? 'border-zinc-800 bg-zinc-950' : 
+              theme === 'gradient' ? 'border-emerald-500/20 bg-black/40 backdrop-blur-xl' : 'border-zinc-200 bg-white'
             )}>
               <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
                 <VisualEditor code={code} onChange={handleCodeChange} entities={uiState.entities} />
@@ -1259,10 +1326,77 @@ export default function EditorView() {
           )}
         </div>
       </div>
+      )}
+
+      {/* Preview Type Selection Modal (2D vs 3D) */}
+      {showPreviewTypeModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className={clsx(
+            "w-full max-w-sm rounded-2xl p-6 shadow-2xl",
+            isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
+            theme !== 'light' ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'
+          )}>
+            <h2 className={clsx("text-xl font-bold mb-4", isFrutigerAero ? "text-blue-900" : "")}>Select Project Type</h2>
+            <div className="grid grid-cols-2 gap-4">
+              <button 
+                onClick={() => setPreviewType('2D')}
+                className={clsx(
+                  "flex flex-col items-center justify-center p-6 rounded-xl border transition-colors",
+                  previewType === '2D' ? "border-blue-500 bg-blue-500/10" :
+                  isFrutigerAero ? "bg-white/50 border-white/60 hover:bg-white/70" : "border-zinc-700 hover:bg-zinc-800"
+                )}
+              >
+                <div className="text-2xl font-bold mb-2">2D</div>
+                <div className="text-xs text-center text-zinc-500">2D Workspace</div>
+              </button>
+              <button 
+                onClick={() => setPreviewType('3D')}
+                className={clsx(
+                  "flex flex-col items-center justify-center p-6 rounded-xl border transition-colors",
+                  previewType === '3D' ? "border-emerald-500 bg-emerald-500/10" :
+                  isFrutigerAero ? "bg-white/50 border-white/60 hover:bg-white/70" : "border-zinc-700 hover:bg-zinc-800"
+                )}
+              >
+                <div className="text-2xl font-bold mb-2">3D</div>
+                <div className="text-xs text-center text-zinc-500">3D Workspace</div>
+              </button>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button 
+                onClick={() => {
+                  setShowPreviewTypeModal(false);
+                  setPreviewType(null);
+                  setSelectedExtraCategory('Normal');
+                }}
+                className={clsx(
+                  "flex-1 p-3 rounded-xl transition-colors font-medium",
+                  isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-900" : "bg-zinc-800 hover:bg-zinc-700 text-white"
+                )}
+              >
+                Cancel
+              </button>
+              <button 
+                disabled={!previewType}
+                onClick={() => {
+                  setShowPreviewTypeModal(false);
+                  setSelectedExtraCategory('PreviewEditing');
+                }}
+                className={clsx(
+                  "flex-1 p-3 rounded-xl transition-colors font-medium",
+                  !previewType ? "opacity-50 cursor-not-allowed bg-zinc-700 text-zinc-400" :
+                  "bg-emerald-600 hover:bg-emerald-500 text-white"
+                )}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Extra Category Modal */}
       {showExtraCategoryModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(
             "w-full max-w-md rounded-2xl p-6 shadow-2xl",
             isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
@@ -1300,6 +1434,19 @@ export default function EditorView() {
                 <div className={clsx("font-bold", isFrutigerAero ? "text-blue-900" : "")}>Asset</div>
                 <div className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>EPL Asset for the Asset Store</div>
               </button>
+              <button 
+                onClick={() => {
+                  setShowExtraCategoryModal(false);
+                  setShowPreviewTypeModal(true);
+                }}
+                className={clsx(
+                  "w-full text-left p-4 rounded-xl border transition-colors",
+                  isFrutigerAero ? "bg-white/50 border-white/60 hover:bg-white/70 shadow-sm" : "border-zinc-700 hover:bg-zinc-800"
+                )}
+              >
+                <div className={clsx("font-bold", isFrutigerAero ? "text-blue-900" : "")}>Preview Editing</div>
+                <div className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>Visual 2D/3D environment for building standalone apps. EPL automatically generates optimized native binaries for all systems, downloadable directly within the workspace.</div>
+              </button>
             </div>
             <button 
               onClick={() => setShowExtraCategoryModal(false)}
@@ -1316,7 +1463,7 @@ export default function EditorView() {
 
       {/* Publish Modal */}
       {showPublishModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(
             "w-full max-w-md rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto",
             isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
@@ -1680,7 +1827,7 @@ export default function EditorView() {
         </div>
       )}
       {showFileControlModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(
             "w-full max-w-2xl rounded-2xl p-6 shadow-2xl max-h-[80vh] flex flex-col",
             isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
@@ -1778,7 +1925,7 @@ export default function EditorView() {
       )}
       {/* Editor Store Modal */}
       {showEditorStoreModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(
             "w-full max-w-3xl rounded-2xl p-6 shadow-2xl max-h-[80vh] flex flex-col",
             isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
@@ -1849,7 +1996,7 @@ export default function EditorView() {
       {/* Help Modal */}
       {showTutorial && <Tutorial onClose={() => setShowTutorial(false)} />}
       {showHelpModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(
             "w-full max-w-2xl rounded-2xl p-6 shadow-2xl max-h-[80vh] flex flex-col",
             isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
