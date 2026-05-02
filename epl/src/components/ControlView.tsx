@@ -4,6 +4,7 @@ import { translations } from '../lib/translations';
 import { clsx } from 'clsx';
 import { ShieldCheck, CheckCircle, XCircle, Users, Coins, Search } from 'lucide-react';
 import { collection, getDocs, doc, updateDoc, deleteDoc, query, where, onSnapshot, increment, setDoc } from 'firebase/firestore';
+import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { db } from '../firebase';
 import { AppData } from '../types';
 import { getDefaultAvatar } from '../lib/avatar';
@@ -28,7 +29,9 @@ export default function ControlView() {
   const [saving, setSaving] = useState<string | null>(null);
   const t = translations[language];
 
-  const effectiveRole = (userData?.role === 'developer' && simulatedRole) ? simulatedRole : userData?.role;
+  const user = useStore(state => state.user);
+  const actualRole = (user?.email === 'fufazada@gmail.com') ? 'developer' : userData?.role;
+  const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
 
   useEffect(() => {
     setLoading(true);
@@ -110,34 +113,40 @@ export default function ControlView() {
   const handleVerifyApp = async (appId: string, status: 'verified' | 'pending') => {
     try {
       await updateDoc(doc(db, 'apps', appId), { status });
-    } catch (error) {
-      console.error("Error verifying app", error);
+      alert(language === 'ru' ? 'Статус приложения обновлен' : 'App status updated');
+    } catch (error: any) {
+      alert(error.message);
+      handleFirestoreError(error, OperationType.UPDATE, `apps/${appId}`);
     }
   };
 
   const handleVerifyAsset = async (assetId: string, status: 'verified' | 'pending') => {
     try {
       await updateDoc(doc(db, 'assets', assetId), { status });
-    } catch (error) {
-      console.error("Error verifying asset", error);
+      alert(language === 'ru' ? 'Статус ассета обновлен' : 'Asset status updated');
+    } catch (error: any) {
+      alert(error.message);
+      handleFirestoreError(error, OperationType.UPDATE, `assets/${assetId}`);
     }
   };
 
   const handleUpdateUserRole = async (userId: string, role: string) => {
-    if (userData?.role !== 'developer') {
-      alert(language === 'ru' ? "Только разработчик может менять роли!" : "Only developers can change roles!");
+    if (actualRole !== 'developer' && actualRole !== 'admin') {
+      alert(language === 'ru' ? "Недостаточно прав!" : "Insufficient permissions!");
       return;
     }
     try {
       await updateDoc(doc(db, 'users', userId), { role });
-    } catch (error) {
-      console.error("Error updating role", error);
+      alert(language === 'ru' ? 'Роль пользователя обновлена' : 'User role updated');
+    } catch (error: any) {
+      alert(error.message);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
     }
   };
 
   const handleUpdateUserPermissions = async (userId: string) => {
-    if (userData?.role !== 'developer') {
-      alert(language === 'ru' ? "Только разработчик может менять права!" : "Only developers can change permissions!");
+    if (actualRole !== 'developer' && actualRole !== 'admin') {
+      alert(language === 'ru' ? "Недостаточно прав!" : "Insufficient permissions!");
       return;
     }
     const permissions = localPermissions[userId];
@@ -146,9 +155,10 @@ export default function ControlView() {
     setSaving(userId);
     try {
       await updateDoc(doc(db, 'users', userId), { permissions });
-      console.log(language === 'ru' ? "Изменения сохранены!" : "Changes saved!");
-    } catch (error) {
-      console.error("Error updating permissions", error);
+      alert(language === 'ru' ? "Изменения сохранены!" : "Changes saved!");
+    } catch (error: any) {
+      alert(error.message);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
     } finally {
       setSaving(null);
     }
@@ -159,8 +169,10 @@ export default function ControlView() {
       await updateDoc(doc(db, 'users', userId), { 
         eplCoins: increment(amount) 
       });
-    } catch (error) {
-      console.error("Error giving coins", error);
+      alert(language === 'ru' ? `Монеты выданы: ${amount}` : `Coins given: ${amount}`);
+    } catch (error: any) {
+      alert(error.message);
+      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
     }
   };
 
@@ -194,11 +206,7 @@ export default function ControlView() {
   };
 
   if (!userData) {
-    return (
-      <div className="h-full flex items-center justify-center p-8">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
-      </div>
-    );
+    return <div className="h-full flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div></div>;
   }
 
   if (userData.role !== 'developer' && effectiveRole !== 'admin' && effectiveRole !== 'moderator' && userData.email !== 'fufazada@gmail.com') {
@@ -288,7 +296,7 @@ export default function ControlView() {
               {t.assetStoreManagement || 'Asset Store Management'}
             </button>
           )}
-          {effectiveRole === 'developer' && (
+          {(effectiveRole === 'developer' || effectiveRole === 'admin') && (
             <button
               onClick={() => setActiveTab('roles')}
               className={clsx(
@@ -299,7 +307,7 @@ export default function ControlView() {
               {t.roleControl || 'Role Control'}
             </button>
           )}
-          {effectiveRole === 'developer' && (
+          {(effectiveRole === 'developer' || effectiveRole === 'admin') && (
             <button
               onClick={() => setActiveTab('premium')}
               className={clsx(
@@ -340,35 +348,64 @@ export default function ControlView() {
                   <p className="text-sm text-zinc-500">By {app.authorName} • {app.category}</p>
                 </div>
                 <div className="flex gap-2">
-                  {effectiveRole === 'developer' ? (
-                    <>
-                      {app.status !== 'verified' ? (
+                    {(effectiveRole === 'developer' || effectiveRole === 'admin') ? (
+                      <>
+                        {app.status !== 'verified' ? (
+                          <button
+                            onClick={() => handleVerifyApp(app.id, 'verified')}
+                            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors"
+                          >
+                            Verify App
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => handleVerifyApp(app.id, 'pending')}
+                            className="px-4 py-2 bg-amber-500/10 text-amber-500 hover:bg-amber-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
+                          >
+                            Revoke
+                          </button>
+                        )}
                         <button
-                          onClick={() => handleVerifyApp(app.id, 'verified')}
-                          className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors"
+                          onClick={async () => {
+                            if (confirm('Delete this app?')) {
+                              try {
+                                // Delete the app
+                                await deleteDoc(doc(db, 'apps', app.id));
+                                // Delete any associated requests
+                                const reqsRef = collection(db, 'adminRequests');
+                                const q = query(reqsRef, where('targetId', '==', app.id));
+                                const qSnap = await getDocs(q);
+                                const deletePromises = qSnap.docs.map(d => deleteDoc(d.ref));
+                                await Promise.all(deletePromises);
+                                alert(language === 'ru' ? 'Приложение удалено' : 'App deleted');
+                              } catch (err: any) {
+                                alert(err.message);
+                                handleFirestoreError(err, OperationType.DELETE, `apps/${app.id}`);
+                              }
+                            }
+                          }}
+                          className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
                         >
-                          Verify App
+                          Delete
                         </button>
-                      ) : (
                         <button
-                          onClick={() => handleVerifyApp(app.id, 'pending')}
-                          className="px-4 py-2 bg-amber-500/10 text-amber-500 hover:bg-amber-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
+                          onClick={async () => {
+                            if (confirm('Remove all dislikes?')) {
+                              try {
+                                await updateDoc(doc(db, 'apps', app.id), { dislikes: 0 });
+                                alert(language === 'ru' ? 'Дислайки обнулены' : 'Dislikes cleared');
+                              } catch (err: any) {
+                                alert(err.message);
+                                handleFirestoreError(err, OperationType.UPDATE, `apps/${app.id}`);
+                              }
+                            }
+                          }}
+                          className="px-4 py-2 bg-blue-500/10 text-blue-500 hover:bg-blue-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
                         >
-                          Revoke
+                          Remove Dislikes
                         </button>
-                      )}
-                      <button
-                        onClick={async () => {
-                          if (confirm('Delete this app?')) {
-                            await deleteDoc(doc(db, 'apps', app.id));
-                          }
-                        }}
-                        className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
-                      >
-                        Delete
-                      </button>
-                    </>
-                  ) : (
+                      </>
+                    ) : (
                     <>
                       {app.status !== 'verified' && (
                         <button
@@ -430,7 +467,18 @@ export default function ControlView() {
                       <button
                         onClick={async () => {
                           if (confirm('Delete this asset?')) {
-                            await deleteDoc(doc(db, 'assets', asset.id));
+                            try {
+                              // Delete the asset
+                              await deleteDoc(doc(db, 'assets', asset.id));
+                              // Delete any associated requests
+                              const reqsRef = collection(db, 'adminRequests');
+                              const q = query(reqsRef, where('targetId', '==', asset.id));
+                              const qSnap = await getDocs(q);
+                              const deletePromises = qSnap.docs.map(d => deleteDoc(d.ref));
+                              await Promise.all(deletePromises);
+                            } catch (err) {
+                              handleFirestoreError(err, OperationType.DELETE, `assets/${asset.id}`);
+                            }
                           }
                         }}
                         className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
@@ -608,8 +656,8 @@ export default function ControlView() {
                         premiumFeatures: true,
                         accessRecent: true
                       };
-                      const isSelfDev = u.id === userData.uid && userData.role === 'developer' && perm.key === 'accessControl';
-                      const isDisabled = isSelfDev || userData.role !== 'developer';
+                      const isSelfDev = u.id === userData.uid && actualRole === 'developer' && perm.key === 'accessControl';
+                      const isDisabled = isSelfDev || (actualRole !== 'developer' && actualRole !== 'admin');
                       const currentVal = localPermissions[u.id]?.[perm.key as keyof typeof DEFAULT_PERMISSIONS] ?? u.permissions?.[perm.key as keyof typeof DEFAULT_PERMISSIONS] ?? DEFAULT_PERMISSIONS[perm.key as keyof typeof DEFAULT_PERMISSIONS];
                       
                       return (
@@ -642,8 +690,8 @@ export default function ControlView() {
             <h2 className="text-xl font-bold">{language === 'ru' ? 'Отправленные запросы' : 'Sent Requests'}</h2>
             <div className="grid grid-cols-1 gap-4">
               {adminRequests.map(req => {
-                // If not developer, only show own requests
-                if (effectiveRole !== 'developer' && req.requesterId !== userData?.uid) return null;
+                // If not developer or admin, only show own requests
+                if (effectiveRole !== 'developer' && effectiveRole !== 'admin' && req.requesterId !== userData?.uid) return null;
                 
                 return (
                   <div key={req.id} className={clsx(
@@ -676,18 +724,33 @@ export default function ControlView() {
                     </div>
                     
                     <div className="flex flex-col gap-2 min-w-[140px]">
-                      {effectiveRole === 'developer' && req.status === 'pending' && (
+                      {(effectiveRole === 'developer' || effectiveRole === 'admin') && req.status === 'pending' && (
                         <>
                           <button
                             onClick={async () => {
                               try {
                                 if (req.type === 'verify_app') await updateDoc(doc(db, 'apps', req.targetId), { status: 'verified' });
                                 if (req.type === 'verify_asset') await updateDoc(doc(db, 'assets', req.targetId), { status: 'verified' });
-                                if (req.type === 'delete_app') await deleteDoc(doc(db, 'apps', req.targetId));
-                                if (req.type === 'delete_asset') await deleteDoc(doc(db, 'assets', req.targetId));
+                                if (req.type === 'delete_app') {
+                                  await deleteDoc(doc(db, 'apps', req.targetId));
+                                }
+                                if (req.type === 'delete_asset') {
+                                  await deleteDoc(doc(db, 'assets', req.targetId));
+                                }
                                 if (req.type === 'ban_user') await updateDoc(doc(db, 'users', req.targetId), { isBanned: true, banReason: req.reason });
-                                await updateDoc(doc(db, 'adminRequests', req.id), { status: 'approved' });
-                              } catch(e) { console.error('Approve err', e); }
+                                
+                                // If it was a deletion request, we should probably delete all requests for this target
+                                if (req.type.startsWith('delete_')) {
+                                  const q = query(collection(db, 'adminRequests'), where('targetId', '==', req.targetId));
+                                  const qSnap = await getDocs(q);
+                                  await Promise.all(qSnap.docs.map(d => deleteDoc(d.ref)));
+                                } else {
+                                  await updateDoc(doc(db, 'adminRequests', req.id), { status: 'approved' });
+                                }
+                                alert(language === 'ru' ? 'Выполнено' : 'Approved and applied');
+                              } catch(e) {
+                                handleFirestoreError(e, OperationType.UPDATE, `adminRequests/${req.id} or target`);
+                              }
                             }}
                             className="w-full px-4 py-2 bg-emerald-500 text-white rounded-xl text-sm font-medium hover:bg-emerald-600 transition-colors"
                           >
@@ -704,7 +767,7 @@ export default function ControlView() {
                         </>
                       )}
                       
-                      {(effectiveRole === 'developer' || req.requesterId === userData?.uid) && (
+                      {(effectiveRole === 'developer' || effectiveRole === 'admin' || req.requesterId === userData?.uid) && (
                         <>
                           {req.requesterId === userData?.uid && req.status === 'pending' && (
                             <button
@@ -722,7 +785,11 @@ export default function ControlView() {
                           <button
                             onClick={async () => {
                               if (confirm('Delete this request?')) {
-                                await deleteDoc(doc(db, 'adminRequests', req.id));
+                                try {
+                                  await deleteDoc(doc(db, 'adminRequests', req.id));
+                                } catch (e) {
+                                  handleFirestoreError(e, OperationType.DELETE, `adminRequests/${req.id}`);
+                                }
                               }
                             }}
                             className="w-full px-4 py-2 bg-zinc-800 text-zinc-400 rounded-xl text-sm font-medium hover:bg-red-500 hover:text-white transition-colors"
@@ -780,7 +847,7 @@ export default function ControlView() {
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {userData?.role === 'developer' ? (
+                    {(actualRole === 'developer' || actualRole === 'admin') ? (
                       <select
                         value={u.role || 'user'}
                         onChange={(e) => handleUpdateUserRole(u.id, e.target.value)}
@@ -805,7 +872,7 @@ export default function ControlView() {
                     )}
                     <button
                       onClick={() => {
-                        if (userData?.role !== 'developer') return alert(language === 'ru' ? "Только разработчик может верифицировать авторов!" : "Only developers can verify authors!");
+                        if (actualRole !== 'developer' && actualRole !== 'admin') return alert(language === 'ru' ? "Недостаточно прав!" : "Insufficient permissions!");
                         updateDoc(doc(db, 'users', u.id), { isVerifiedAuthor: !u.isVerifiedAuthor }).catch(console.error);
                       }}
                       className={clsx(
@@ -815,14 +882,24 @@ export default function ControlView() {
                     >
                       {u.isVerifiedAuthor ? 'Verified Author' : 'Verify Author'}
                     </button>
-                    {effectiveRole === 'developer' ? (
+                    {(effectiveRole === 'developer' || effectiveRole === 'admin') ? (
                       <button
                         onClick={async () => {
-                          if (u.isBanned) {
-                            if (confirm('Unban this user?')) await updateDoc(doc(db, 'users', u.id), { isBanned: false, banReason: null });
-                          } else {
-                            const reason = prompt('Ban Reason:');
-                            if (reason !== null) await updateDoc(doc(db, 'users', u.id), { isBanned: true, banReason: reason });
+                          try {
+                              if (u.isBanned) {
+                                if (confirm('Unban this user?')) {
+                                  await updateDoc(doc(db, 'users', u.id), { isBanned: false, banReason: null });
+                                  alert(language === 'ru' ? 'Пользователь разбанен' : 'User unbanned');
+                                }
+                              } else {
+                                const reason = prompt('Ban Reason:');
+                                if (reason !== null) {
+                                  await updateDoc(doc(db, 'users', u.id), { isBanned: true, banReason: reason });
+                                  alert(language === 'ru' ? 'Пользователь забанен' : 'User banned');
+                                }
+                              }
+                          } catch (e) {
+                            handleFirestoreError(e, OperationType.UPDATE, `users/${u.id}`);
                           }
                         }}
                         className={clsx(
@@ -846,7 +923,7 @@ export default function ControlView() {
                     )}
                     <div className="flex items-center gap-2">
 
-                      {effectiveRole !== 'admin' && effectiveRole !== 'moderator' && (
+                      {(actualRole === 'developer' || actualRole === 'admin') && (
                         <>
                           <input
                             type="number"
