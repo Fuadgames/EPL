@@ -216,7 +216,14 @@ export default function StoreView() {
         const downloadUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = downloadUrl;
-        a.download = `${app.title}-${platform}.txt`;
+        
+        let ext = '.epl';
+        if (platform === 'windows') ext = '.exe';
+        if (platform === 'macos') ext = '.app';
+        if (platform === 'linux') ext = '.AppImage';
+        if (platform === 'apk') ext = '.apk';
+        
+        a.download = `${app.title}${ext}`;
         a.click();
         setDownloadingApp(null);
       }, 1000);
@@ -239,7 +246,7 @@ export default function StoreView() {
   };
 
   return (
-    <div className="h-full flex flex-col pb-8">
+    <div className={clsx("h-full flex flex-col pb-8", theme === 'gradient' ? 'bg-transparent' : '')}>
       {/* Header & Search */}
       <div className="p-4 sm:p-8 pb-0">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -320,7 +327,7 @@ export default function StoreView() {
               "flex items-center gap-2 px-6 py-4 rounded-2xl text-sm font-bold uppercase tracking-wider transition-all border min-h-[48px] shadow-sm",
               activeTab === 'featured' 
                 ? (isFrutigerAero ? "bg-blue-500 text-white border-blue-400 shadow-blue-500/20" : "bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/20") 
-                : (isFrutigerAero ? "bg-white/60 text-blue-800 border-white/50 backdrop-blur-md" : theme !== 'light' ? "bg-zinc-900 border-zinc-800 text-zinc-400" : "bg-white border-zinc-200 text-zinc-600")
+                : (isFrutigerAero ? "bg-white/60 text-blue-800 border-white/50 backdrop-blur-md" : theme === 'gradient' ? "bg-black/40 border-emerald-500/20 text-emerald-100 backdrop-blur-xl" : theme === 'dark' ? "bg-zinc-900 border-zinc-800 text-zinc-400" : "bg-white border-zinc-200 text-zinc-600")
             )}
           >
             <Flame className="w-5 h-5" />
@@ -332,7 +339,7 @@ export default function StoreView() {
               "flex items-center gap-2 px-6 py-4 rounded-2xl text-sm font-bold uppercase tracking-wider transition-all border min-h-[48px] shadow-sm",
               activeTab === 'recent' 
                 ? (isFrutigerAero ? "bg-blue-500 text-white border-blue-400 shadow-blue-500/20" : "bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/20") 
-                : (isFrutigerAero ? "bg-white/60 text-blue-800 border-white/50 backdrop-blur-md" : theme !== 'light' ? "bg-zinc-900 border-zinc-800 text-zinc-400" : "bg-white border-zinc-200 text-zinc-600")
+                : (isFrutigerAero ? "bg-white/60 text-blue-800 border-white/50 backdrop-blur-md" : theme === 'gradient' ? "bg-black/40 border-emerald-500/20 text-emerald-100 backdrop-blur-xl" : theme === 'dark' ? "bg-zinc-900 border-zinc-800 text-zinc-400" : "bg-white border-zinc-200 text-zinc-600")
             )}
           >
             <Clock className="w-5 h-5" />
@@ -344,7 +351,7 @@ export default function StoreView() {
               "flex items-center gap-2 px-6 py-4 rounded-2xl text-sm font-bold uppercase tracking-wider transition-all border min-h-[48px] shadow-sm",
               activeTab === 'friends' 
                 ? (isFrutigerAero ? "bg-blue-500 text-white border-blue-400 shadow-blue-500/20" : "bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/20") 
-                : (isFrutigerAero ? "bg-white/60 text-blue-800 border-white/50 backdrop-blur-md" : theme !== 'light' ? "bg-zinc-900 border-zinc-800 text-zinc-400" : "bg-white border-zinc-200 text-zinc-600")
+                : (isFrutigerAero ? "bg-white/60 text-blue-800 border-white/50 backdrop-blur-md" : theme === 'gradient' ? "bg-black/40 border-emerald-500/20 text-emerald-100 backdrop-blur-xl" : theme === 'dark' ? "bg-zinc-900 border-zinc-800 text-zinc-400" : "bg-white border-zinc-200 text-zinc-600")
             )}
           >
             <Users className="w-5 h-5" />
@@ -386,6 +393,7 @@ export default function StoreView() {
                       className={clsx(
                         "p-8 sm:p-10 rounded-[2.5rem] border transition-all hover:shadow-[0_20px_50px_rgba(0,0,0,0.3)] group flex flex-col relative overflow-hidden",
                         isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm hover:bg-white/50" :
+                        theme === 'gradient' ? "bg-black/40 border-emerald-500/20 backdrop-blur-2xl hover:bg-black/50 hover:border-emerald-500/40" :
                         theme !== 'light' ? 'bg-gradient-to-br from-zinc-900 via-zinc-900 to-emerald-900/20 border-zinc-800 hover:border-emerald-500/40' : 'bg-gradient-to-br from-white via-white to-emerald-50/30 border-zinc-200 hover:border-emerald-500/40'
                       )}
                     >
