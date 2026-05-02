@@ -405,6 +405,10 @@ export class EPLInterpreter {
               const val = this.evaluateExpression(String(settings.y));
               target.y = (parseFloat(String(target.y)) || 0) + Number(val);
             }
+            if (settings.z !== undefined) {
+              const val = this.evaluateExpression(String(settings.z));
+              target.z = (parseFloat(String(target.z)) || 0) + Number(val);
+            }
             this.onUIUpdate({ ...this.context.entities }, this.context.uiMode);
             
             // Basic collision detection
