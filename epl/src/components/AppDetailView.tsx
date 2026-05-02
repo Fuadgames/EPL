@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { doc, getDoc, updateDoc, increment, setDoc, collection, query, where, getDocs, deleteDoc, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useStore } from '../store/useStore';
-import { X, Star, Download, Play, Monitor, Smartphone, Apple, Terminal, ThumbsUp, ThumbsDown, User, Calendar, Tag, CheckCircle, Coins, MessageSquare } from 'lucide-react';
+import { X, Star, Download, Play, Monitor, Smartphone, Apple, Terminal, ThumbsUp, ThumbsDown, User, Calendar, Tag, CheckCircle, Coins, MessageSquare, Code2, RefreshCw } from 'lucide-react';
 import { clsx } from 'clsx';
 import { AppData, UserVote } from '../types';
 
@@ -137,12 +137,33 @@ export default function AppDetailView() {
     setSelectedAppId(null);
   };
 
+  const [downloadingApp, setDownloadingApp] = useState<string | null>(null);
+
   const handleDownload = (platform: string) => {
     if (!app) return;
     const url = (app as any)[`${platform}Url`];
-    if (url) {
+    if (url && platform !== 'source') {
       window.open(url, '_blank');
       updateDoc(doc(db, 'apps', app.id), { downloads: increment(1) });
+    } else {
+      // Fallback to simulated download of raw code
+      setDownloadingApp(`${app.id}-${platform}`);
+      setTimeout(() => {
+        const blob = new Blob([app.code], { type: 'text/plain' });
+        const downloadUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        
+        let ext = '.epl';
+        if (platform === 'windows') ext = '.exe';
+        if (platform === 'macos') ext = '.app';
+        if (platform === 'linux') ext = '.AppImage';
+        if (platform === 'apk') ext = '.apk';
+        
+        a.download = `${app.title}${ext}`;
+        a.click();
+        setDownloadingApp(null);
+      }, 1000);
     }
   };
 
@@ -397,9 +418,9 @@ export default function AppDetailView() {
                       </div>
                       
                       <div className="grid grid-cols-1 gap-3 sm:gap-4">
-                        {['windows', 'macos', 'linux', 'apk'].map(platform => {
-                          const url = (app as any)[`${platform}Url`];
-                          if (!url) return null;
+                        {['windows', 'macos', 'linux', 'apk', 'source'].map(platform => {
+                          const url = platform !== 'source' ? (app as any)[`${platform}Url`] : null;
+                          if (platform !== 'source' && !url) return null;
                           return (
                             <button
                               key={platform}
@@ -418,11 +439,12 @@ export default function AppDetailView() {
                                   {platform === 'macos' && <Apple className="w-6 h-6" />}
                                   {platform === 'linux' && <Terminal className="w-6 h-6" />}
                                   {platform === 'apk' && <Smartphone className="w-6 h-6" />}
+                                  {platform === 'source' && <Code2 className="w-6 h-6" />}
                                 </div>
                                 <div className="text-left">
-                                  <div className="font-bold text-base sm:text-lg capitalize leading-tight">{platform}</div>
+                                  <div className="font-bold text-base sm:text-lg capitalize leading-tight">{platform === 'source' ? 'Source Code' : platform}</div>
                                   <div className={clsx("text-[10px] sm:text-xs uppercase tracking-widest font-semibold", theme !== 'light' ? 'text-zinc-500' : 'text-zinc-400')}>
-                                    {platform === 'apk' ? 'Android Package' : 'Desktop Version'}
+                                    {platform === 'apk' ? 'Android Package' : platform === 'source' ? '.epl Project File' : 'Desktop Version'}
                                   </div>
                                 </div>
                               </div>
@@ -430,7 +452,7 @@ export default function AppDetailView() {
                                 "w-10 h-10 flex items-center justify-center rounded-full transition-all",
                                 theme !== 'light' ? 'bg-zinc-800 text-zinc-400 group-hover:bg-emerald-500 group-hover:text-white' : 'bg-zinc-100 text-zinc-500 group-hover:bg-emerald-500 group-hover:text-white'
                               )}>
-                                <Download className="w-5 h-5" />
+                                {downloadingApp === `${app.id}-${platform}` ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
                               </div>
                             </button>
                           );
