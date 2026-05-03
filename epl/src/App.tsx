@@ -19,6 +19,7 @@ const SettingsView = React.lazy(() => import('./components/SettingsView'));
 const PremiumView = React.lazy(() => import('./components/PremiumView'));
 const ControlView = React.lazy(() => import('./components/ControlView'));
 const AssetStoreView = React.lazy(() => import('./components/AssetStoreView'));
+const DonateView = React.lazy(() => import('./components/DonateView'));
 
 const LeaderboardsView = React.lazy(() => import('./components/LeaderboardsView'));
 
@@ -30,6 +31,8 @@ export default function App() {
   const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
   const isBackdoor = useStore(state => state.isBackdoor);
+  const isFrutigerAero = useStore(state => state.isFrutigerAero);
+  const language = useStore(state => state.language);
 
   const isPremium = useStore(state => state.isPremium);
   const setIsPremium = useStore(state => state.setIsPremium);
@@ -37,7 +40,8 @@ export default function App() {
   const setPremiumExpiry = useStore(state => state.setPremiumExpiry);
 
   const simulatedRole = useStore(state => state.simulatedRole);
-  const effectiveRole = (userData?.role === 'developer' && simulatedRole) ? simulatedRole : userData?.role;
+  const actualRole = (user?.email === 'fufazada@gmail.com') ? 'developer' : userData?.role;
+  const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
 
   useEffect(() => {
     if (isPremium && premiumExpiry) {
@@ -173,6 +177,7 @@ export default function App() {
       case 'player': return <PlayerView />;
       case 'settings': return <SettingsView />;
       case 'premium': return <PremiumView />;
+      case 'donate': return <DonateView />;
       case 'asset-store': return <AssetStoreView />;
       case 'control': 
         if (effectiveRole === 'developer' || effectiveRole === 'admin' || effectiveRole === 'moderator') {
@@ -188,15 +193,17 @@ export default function App() {
     return (
       <div className="fixed inset-0 bg-red-950 text-white flex flex-col items-center justify-center p-8 z-[100]">
         <style dangerouslySetInnerHTML={{__html: `body { background-color: #450a0a !important; }`}} />
-        <h1 className="text-4xl sm:text-6xl font-bold mb-4 text-red-500">You have been banned</h1>
+        <h1 className="text-4xl sm:text-6xl font-bold mb-4 text-red-500 text-center">
+          {language === 'ru' ? 'Извините, но вы были забанены' : 'You have been banned'}
+        </h1>
         <p className="text-xl text-red-200 text-center max-w-lg mb-8">
-          Reason: {userData.banReason || 'Violation of terms of service.'}
+          {language === 'ru' ? 'Причина:' : 'Reason:'} {userData.banReason || (language === 'ru' ? 'Нарушение правил' : 'Violation of terms of service.')}
         </p>
         <button 
           onClick={() => auth.signOut()}
           className="px-8 py-4 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-lg transition-colors"
         >
-          Log Out
+          {language === 'ru' ? 'Выйти' : 'Log Out'}
         </button>
       </div>
     );
@@ -204,6 +211,15 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <style dangerouslySetInnerHTML={{ __html: `
+        html, body, #root { 
+          background: ${isFrutigerAero ? 'url(\'https://images.unsplash.com/photo-1541450805268-4822a3a774ce?q=80&w=2670&auto=format&fit=crop\') center/cover fixed' : 'transparent'} !important;
+          margin: 0; 
+          padding: 0; 
+          height: 100%; 
+          overflow: hidden;
+        }
+      `}} />
       <Routes>
         <Route path="/success" element={<SuccessPage />} />
         <Route path="*" element={
