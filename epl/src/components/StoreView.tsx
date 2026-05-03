@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { collection, getDocs, query, orderBy, limit, where, doc, updateDoc, increment, setDoc, getDoc, deleteDoc, arrayUnion } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, limit, where, doc, updateDoc, increment, setDoc, getDoc, deleteDoc, arrayUnion, onSnapshot } from 'firebase/firestore';
 import { db, sendProjectToVerify } from '../firebase';
 import { useStore } from '../store/useStore';
 import { translations } from '../lib/translations';
@@ -28,25 +28,25 @@ export default function StoreView() {
   const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
   const simulatedRole = useStore(state => state.simulatedRole);
-  const effectiveRole = (userData?.role === 'developer' && simulatedRole) ? simulatedRole : userData?.role;
+  const actualRole = (user?.email === 'fufazada@gmail.com') ? 'admin' : userData?.role;
+  const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
   const isPremium = useStore(state => state.isPremium);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const language = useStore(state => state.language);
 
-  const fetchApps = useCallback(async () => {
+  useEffect(() => {
     setLoading(true);
-    try {
-      let q;
-      if (activeTab === 'featured') {
-        q = query(collection(db, 'apps'), orderBy('downloads', 'desc'), limit(50));
-      } else {
-        q = query(collection(db, 'apps'), orderBy('createdAt', 'desc'), limit(50));
-      }
-      
-      const snapshot = await getDocs(q);
+    let q;
+    if (activeTab === 'featured') {
+      q = query(collection(db, 'apps'), orderBy('downloads', 'desc'), limit(50));
+    } else {
+      q = query(collection(db, 'apps'), orderBy('createdAt', 'desc'), limit(50));
+    }
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       let appsData = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as object) } as AppData));
       
-      // Filter out private apps - they should only appear in "My Apps"
+      // Filter out private apps
       appsData = appsData.filter(app => !app.isPrivate);
       
       if (selectedCategory !== 'all') {
@@ -54,27 +54,31 @@ export default function StoreView() {
       }
       
       setApps(appsData);
+      setLoading(false);
+    }, (error) => {
+      console.error("Error subscribing to apps", error);
+      setLoading(false);
+    });
 
-      // Fetch user votes if logged in
-      if (user) {
-        const votesSnapshot = await getDocs(query(collection(db, 'votes'), where('userId', '==', user.uid)));
+    return () => unsubscribe();
+  }, [activeTab, selectedCategory]);
+
+  useEffect(() => {
+    if (user) {
+      const q = query(collection(db, 'votes'), where('userId', '==', user.uid));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
         const votes: Record<string, 'like' | 'dislike'> = {};
-        votesSnapshot.docs.forEach(doc => {
+        snapshot.docs.forEach(doc => {
           const data = doc.data() as UserVote;
           votes[data.appId] = data.type;
         });
         setUserVotes(votes);
-      }
-    } catch (error) {
-      console.error("Error fetching apps", error);
-    } finally {
-      setLoading(false);
+      }, (error) => {
+        console.error("Error subscribing to votes", error);
+      });
+      return () => unsubscribe();
     }
-  }, [activeTab, selectedCategory, user]);
-
-  useEffect(() => {
-    fetchApps();
-  }, [fetchApps]);
+  }, [user]);
 
   const handleVote = async (appId: string, type: 'like' | 'dislike') => {
     if (!user) return;
@@ -277,7 +281,6 @@ export default function StoreView() {
                 />
               </div>
               <button 
-                onClick={fetchApps}
                 className={clsx(
                   "p-2 rounded-xl border transition-all",
                   isFrutigerAero ? "frutiger-aero-button" :
