@@ -6,7 +6,7 @@ import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'fir
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { EPLInterpreter } from '../lib/epl-interpreter';
 import { EPL_DICTIONARY } from '../lib/epl-dictionary';
-import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2 } from 'lucide-react';
+import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2, Monitor, Smartphone } from 'lucide-react';
 import { clsx } from 'clsx';
 import { GoogleGenAI } from "@google/genai";
 import VisualEditor from './VisualEditor';
@@ -58,6 +58,8 @@ export default function EditorView() {
   const [output, setOutput] = useState<string[]>([]);
   const [uiState, setUiState] = useState<any>({ entities: {} });
   const [isRunning, setIsRunning] = useState(false);
+  const [runMode, setRunMode] = useState<'none' | 'pc' | 'mobile' | 'run'>('none');
+  const [isPhoneRotated, setIsPhoneRotated] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isSavingLocally, setIsSavingLocally] = useState(false);
   const [isAiGenerated, setIsAiGenerated] = useState(false);
@@ -218,8 +220,16 @@ export default function EditorView() {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const [showExtraCategoryModal, setShowExtraCategoryModal] = useState(false);
+  const [extraModalAction, setExtraModalAction] = useState<'new' | 'switch'>('new');
 
   const handleNewFile = () => {
+    setExtraModalAction('new');
+    setShowExtraCategoryModal(true);
+    setActiveMenu(null);
+  };
+
+  const handleSwitchFile = () => {
+    setExtraModalAction('switch');
     setShowExtraCategoryModal(true);
     setActiveMenu(null);
   };
@@ -233,12 +243,20 @@ export default function EditorView() {
   const [showPreviewTypeModal, setShowPreviewTypeModal] = useState(false);
 
   const confirmNewFile = (category: 'Normal' | 'OS' | 'Asset' | 'PreviewEditing') => {
-    setCodeGlobal('');
-    setEditingAppId(null);
+    if (extraModalAction === 'new') {
+      setCodeGlobal('');
+      setEditingAppId(null);
+      setHistory(['']);
+      setHistoryIndex(0);
+      if (historyTimeoutRef.current) {
+        clearTimeout(historyTimeoutRef.current);
+        historyTimeoutRef.current = null;
+      }
+    }
     setSelectedExtraCategory(category);
     setShowExtraCategoryModal(false);
     
-    if (category === 'Asset') {
+    if (extraModalAction === 'new' && category === 'Asset') {
       setUiState({
         entities: {
           'world': { id: 'world', type: 'world', name: 'world', background: '#09090b' },
@@ -359,193 +377,21 @@ export default function EditorView() {
   const interpreterRef = useRef<EPLInterpreter | null>(null);
   const outputEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setActiveMenu(null);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+  const handleStop = useCallback(() => {
+    if (interpreterRef.current) {
+      interpreterRef.current.stop();
+    }
+    setIsRunning(false);
+    setRunMode('none');
+    setIsMobilePlayerOpen(false);
+    setOutput((prev) => [...prev, "Program stopped."]);
   }, []);
 
-  useEffect(() => {
-    if (copiedAppData) {
-      setCodeGlobal(copiedAppData.code);
-      setAppTitle(`Copy of ${copiedAppData.title}`);
-      setAppDesc(copiedAppData.description);
-      setAppVersion('1.0.0');
-      setAppCategory(copiedAppData.category || 'Other');
-      setAppPrice(copiedAppData.price || 0);
-      setIsAiGenerated(copiedAppData.isAiGenerated || false);
-      setIsPrivate(true); // Default to private when copying
-      setIsLocked(false);
-      setUnlockCode('');
-      setAllowCopy(true);
-      setOriginalAppId(copiedAppData.id);
-      setOriginalAppName(copiedAppData.title);
-      if (copiedAppData.supportedPlatforms) setSupportedPlatforms(copiedAppData.supportedPlatforms);
-      setWindowsUrl('');
-      setMacosUrl('');
-      setLinuxUrl('');
-      setApkUrl('');
-      setCopiedAppData(null);
-    } else if (editingAppId) {
-      const fetchApp = async () => {
-        const docRef = doc(db, 'apps', editingAppId);
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const data = docSnap.data();
-          setCodeGlobal(data.code);
-          setAppTitle(data.title);
-          setAppDesc(data.description);
-          setAppVersion(data.version);
-          setAppCategory(data.category || 'Other');
-          setAppPrice(data.price || 0);
-          setIsAiGenerated(data.isAiGenerated || false);
-          setIsPrivate(data.isPrivate || false);
-          setIsLocked(data.isLocked || false);
-          setUnlockCode(data.unlockCode || '');
-          setAllowCopy(data.allowCopy !== false);
-          setOriginalAppId(data.originalAppId || null);
-          setOriginalAppName(data.originalAppName || null);
-          if (data.supportedPlatforms) setSupportedPlatforms(data.supportedPlatforms);
-          setWindowsUrl(data.windowsUrl || '');
-          setMacosUrl(data.macosUrl || '');
-          setLinuxUrl(data.linuxUrl || '');
-          setApkUrl(data.apkUrl || '');
-          setAppIconUrl(data.iconUrl || '');
-          setAppScreenshotUrl(data.screenshotUrl || '');
-          setAppBannerUrl(data.bannerUrl || '');
-          setEvents(data.events || []);
-
-          // Auto-detect PreviewEditing mode and 3D
-          if (data.code && data.code.includes('// mode=3D')) {
-            setPreviewType('3D');
-            setSelectedExtraCategory('PreviewEditing');
-          } else if (data.code && data.code.includes('// mode=2D')) {
-            setPreviewType('2D');
-            setSelectedExtraCategory('PreviewEditing');
-          } else if (data.code && (data.code.includes('3DCamera') || data.code.includes('lava') || data.code.includes('ground'))) {
-            setPreviewType('3D');
-            setSelectedExtraCategory('PreviewEditing');
-          } else if (data.code && (data.code.includes('block {') || data.code.includes('text_label {'))) {
-            setPreviewType('2D');
-            setSelectedExtraCategory('PreviewEditing');
-          }
-        }
-      };
-      fetchApp();
-    } else {
-      setAppTitle('My EPL App');
-      setAppDesc('A cool app written in EPL.');
-      setAppVersion('1.0.0');
-      setAppCategory('Other');
-      setAppPrice(0);
-      setIsAiGenerated(false);
-      setIsPrivate(false);
-      setIsLocked(false);
-      setUnlockCode('');
-      setAllowCopy(true);
-      setOriginalAppId(null);
-      setOriginalAppName(null);
-      setSupportedPlatforms(['web', 'windows', 'macos', 'linux', 'apk']);
-      setWindowsUrl('');
-      setMacosUrl('');
-      setLinuxUrl('');
-      setApkUrl('');
-    }
-  }, [editingAppId, copiedAppData]);
-
-  useEffect(() => {
-    outputEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [output]);
-
-  const historyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const historyIndexRef = useRef(historyIndex);
-  useEffect(() => { historyIndexRef.current = historyIndex; }, [historyIndex]);
-
-  const handleCodeChange = (newCode: string) => {
-    setCodeGlobal(newCode);
-    
-    if (historyTimeoutRef.current) {
-      clearTimeout(historyTimeoutRef.current);
-    }
-
-    historyTimeoutRef.current = setTimeout(() => {
-      setHistory(prevHistory => {
-        const newHistory = prevHistory.slice(0, historyIndexRef.current + 1);
-        // Only push if different from last history entry
-        if (newHistory.length === 0 || newHistory[newHistory.length - 1] !== newCode) {
-          const updatedHistory = [...newHistory, newCode];
-          if (updatedHistory.length > 100) updatedHistory.shift();
-          setHistoryIndex(updatedHistory.length - 1);
-          return updatedHistory;
-        }
-        return prevHistory;
-      });
-    }, 500); // 500ms debounce
-  };
-
-  const handleCodeGenerated = useCallback((newCode: string) => {
-    setCodeGlobal(newCode);
-    setIsAiGenerated(true);
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(newCode);
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
-  }, [history, historyIndex, setCodeGlobal]);
-
-  const undo = () => {
-    if (historyIndex > 0) {
-      const newIndex = historyIndex - 1;
-      setHistoryIndex(newIndex);
-      setCodeGlobal(history[newIndex]);
-    }
-  };
-
-  const redo = () => {
-    if (historyIndex < history.length - 1) {
-      const newIndex = historyIndex + 1;
-      setHistoryIndex(newIndex);
-      setCodeGlobal(history[newIndex]);
-    }
-  };
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        if (e.key === 'z') {
-          e.preventDefault();
-          if (e.shiftKey) redo();
-          else undo();
-        } else if (e.key === 'y') {
-          e.preventDefault();
-          redo();
-        }
-      }
-      if (isRunning && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
-        handleUIEvent('key_pressed?', e.key);
-      }
-    };
-
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (isRunning && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
-        handleUIEvent('key_released?', e.key);
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    window.addEventListener('keyup', handleKeyUp);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-      window.removeEventListener('keyup', handleKeyUp);
-    };
-  }, [isRunning, history, historyIndex]);
-
-  const handleRun = async () => {
+  const handleRun = useCallback(async (mode: 'pc' | 'mobile' | 'run' = 'run') => {
     if (window.innerWidth < 640) {
       setIsMobilePlayerOpen(true);
+    } else {
+      setRunMode(mode);
     }
     setOutput([]);
     setUiState({ entities: {} });
@@ -660,23 +506,242 @@ export default function EditorView() {
         // Keep mobile player open so user can see the result
       }
     }
-  };
+  }, [code, selectedExtraCategory, aiAnswerMode, aiChangesEnabled, userData, isPremium, showTutorial, tutorialMinimized, unlockAchievement, setTutorialCheckRequested]);
 
-  const handleStop = () => {
-    if (interpreterRef.current) {
-      interpreterRef.current.stop();
-    }
-    setIsRunning(false);
-    setIsMobilePlayerOpen(false);
-    setOutput((prev) => [...prev, "Program stopped."]);
-  };
-
-  const handleRestart = async () => {
+  const handleRestart = useCallback(async () => {
     handleStop();
     setTimeout(() => {
       handleRun();
     }, 100);
+  }, [handleStop, handleRun]);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setActiveMenu(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (copiedAppData) {
+      setCodeGlobal(copiedAppData.code);
+      setAppTitle(`Copy of ${copiedAppData.title}`);
+      setAppDesc(copiedAppData.description);
+      setAppVersion('1.0.0');
+      setAppCategory(copiedAppData.category || 'Other');
+      setAppPrice(copiedAppData.price || 0);
+      setIsAiGenerated(copiedAppData.isAiGenerated || false);
+      setIsPrivate(true); // Default to private when copying
+      setIsLocked(false);
+      setUnlockCode('');
+      setAllowCopy(true);
+      setOriginalAppId(copiedAppData.id);
+      setOriginalAppName(copiedAppData.title);
+      if (copiedAppData.supportedPlatforms) setSupportedPlatforms(copiedAppData.supportedPlatforms);
+      setWindowsUrl('');
+      setMacosUrl('');
+      setLinuxUrl('');
+      setApkUrl('');
+      setCopiedAppData(null);
+      // Auto-run on copy
+      setTimeout(() => handleRun(), 500);
+    } else if (editingAppId) {
+      const fetchApp = async () => {
+        const docRef = doc(db, 'apps', editingAppId);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          setCodeGlobal(data.code);
+          setAppTitle(data.title);
+          setAppDesc(data.description);
+          setAppVersion(data.version);
+          setAppCategory(data.category || 'Other');
+          setAppPrice(data.price || 0);
+          setIsAiGenerated(data.isAiGenerated || false);
+          setIsPrivate(data.isPrivate || false);
+          setIsLocked(data.isLocked || false);
+          setUnlockCode(data.unlockCode || '');
+          setAllowCopy(data.allowCopy !== false);
+          setOriginalAppId(data.originalAppId || null);
+          setOriginalAppName(data.originalAppName || null);
+          if (data.supportedPlatforms) setSupportedPlatforms(data.supportedPlatforms);
+          setWindowsUrl(data.windowsUrl || '');
+          setMacosUrl(data.macosUrl || '');
+          setLinuxUrl(data.linuxUrl || '');
+          setApkUrl(data.apkUrl || '');
+          setAppIconUrl(data.iconUrl || '');
+          setAppScreenshotUrl(data.screenshotUrl || '');
+          setAppBannerUrl(data.bannerUrl || '');
+          setEvents(data.events || []);
+
+          // Auto-detect PreviewType but default to Normal mode for editing
+          setSelectedExtraCategory('Normal');
+          if (data.code && data.code.includes('// mode=3D')) {
+            setPreviewType('3D');
+          } else if (data.code && data.code.includes('// mode=2D')) {
+            setPreviewType('2D');
+          } else if (data.code && (data.code.includes('3DCamera') || data.code.includes('lava') || data.code.includes('ground'))) {
+            setPreviewType('3D');
+          } else if (data.code && (data.code.includes('block {') || data.code.includes('text_label {'))) {
+            setPreviewType('2D');
+          }
+          // Auto-run on load
+          setTimeout(() => handleRun(), 500);
+        }
+      };
+      fetchApp();
+    } else {
+      setAppTitle('My EPL App');
+      setAppDesc('A cool app written in EPL.');
+      setAppVersion('1.0.0');
+      setAppCategory('Other');
+      setAppPrice(0);
+      setIsAiGenerated(false);
+      setIsPrivate(false);
+      setIsLocked(false);
+      setUnlockCode('');
+      setAllowCopy(true);
+      setOriginalAppId(null);
+      setOriginalAppName(null);
+      setSupportedPlatforms(['web', 'windows', 'macos', 'linux', 'apk']);
+      setWindowsUrl('');
+      setMacosUrl('');
+      setLinuxUrl('');
+      setApkUrl('');
+    }
+  }, [editingAppId, copiedAppData]);
+
+  useEffect(() => {
+    outputEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [output]);
+
+  const historyTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const historyIndexRef = useRef(historyIndex);
+  useEffect(() => { historyIndexRef.current = historyIndex; }, [historyIndex]);
+
+  const handleCodeChange = (newCode: string) => {
+    setCodeGlobal(newCode);
+    
+    if (historyTimeoutRef.current) {
+      clearTimeout(historyTimeoutRef.current);
+    }
+
+    historyTimeoutRef.current = setTimeout(() => {
+      setHistory(prevHistory => {
+        const newHistory = prevHistory.slice(0, historyIndexRef.current + 1);
+        // Only push if different from last history entry
+        if (newHistory.length === 0 || newHistory[newHistory.length - 1] !== newCode) {
+          const updatedHistory = [...newHistory, newCode];
+          if (updatedHistory.length > 100) updatedHistory.shift();
+          setHistoryIndex(updatedHistory.length - 1);
+          return updatedHistory;
+        }
+        return prevHistory;
+      });
+    }, 500); // 500ms debounce
   };
+
+  // Live Preview Auto-run
+  const autoRunTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
+    
+    // Only auto-run if we are in Normal mode or Asset mode
+    if (selectedExtraCategory !== 'Normal' && selectedExtraCategory !== 'Asset') return;
+
+    autoRunTimeoutRef.current = setTimeout(() => {
+      // Don't auto-run if already running (to avoid overlap) or if code is empty
+      if (code.trim()) {
+        handleRun();
+      }
+    }, 2000); // 2s debounce for live preview
+
+    return () => {
+      if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
+    };
+  }, [code, selectedExtraCategory]);
+
+  const handleCodeGenerated = useCallback((newCode: string) => {
+    setCodeGlobal(newCode);
+    setIsAiGenerated(true);
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push(newCode);
+    setHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+  }, [history, historyIndex, setCodeGlobal]);
+
+  const historyRef = useRef(history);
+  useEffect(() => { historyRef.current = history; }, [history]);
+
+  const undo = () => {
+    // If we have a pending uncommitted change (timeout is active), then the current `code` is NOT in history yet.
+    // In this case, undo should simply revert back to the last committed history state.
+    if (historyTimeoutRef.current) {
+      clearTimeout(historyTimeoutRef.current);
+      historyTimeoutRef.current = null;
+    }
+    
+    // Check if the current code is different from the current history item
+    // If different, we just reset it to the current history state.
+    if (codeRef.current !== historyRef.current[historyIndexRef.current]) {
+      setCodeGlobal(historyRef.current[historyIndexRef.current]);
+      return;
+    }
+
+    if (historyIndexRef.current > 0) {
+      const newIndex = historyIndexRef.current - 1;
+      setHistoryIndex(newIndex);
+      setCodeGlobal(historyRef.current[newIndex]);
+    }
+  };
+
+  const redo = () => {
+    if (historyTimeoutRef.current) {
+      clearTimeout(historyTimeoutRef.current);
+      historyTimeoutRef.current = null;
+    }
+
+    if (historyIndexRef.current < historyRef.current.length - 1) {
+      const newIndex = historyIndexRef.current + 1;
+      setHistoryIndex(newIndex);
+      setCodeGlobal(historyRef.current[newIndex]);
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 'z') {
+          e.preventDefault();
+          if (e.shiftKey) redo();
+          else undo();
+        } else if (e.key === 'y') {
+          e.preventDefault();
+          redo();
+        }
+      }
+      if (isRunning && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        handleUIEvent('key_pressed?', e.key);
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (isRunning && !(e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement)) {
+        handleUIEvent('key_released?', e.key);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [isRunning]); // Removed history, historyIndex, code to prevent rebinding on every keystroke
+
 
   const handleGenerateAiScreenshot = async () => {
     if (!isPremium && userData?.role !== 'developer') return alert("AI Screenshot is a Premium feature.");
@@ -924,6 +989,11 @@ export default function EditorView() {
     }
     
     // Handle navigation for Asset UI clone
+    if (eventName === 'trigger_mobile_emulator?') {
+      setRunMode('mobile');
+      return;
+    }
+
     if (eventName === 'clicked?') {
       if (target === 'Store') {
         useStore.getState().setCurrentView('store');
@@ -974,6 +1044,9 @@ export default function EditorView() {
               <button onClick={handleNewFile} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
                 <FileText className="w-4 h-4" /> {t.newFile}
               </button>
+              <button onClick={handleSwitchFile} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
+                <RefreshCw className="w-4 h-4" /> Switch
+              </button>
               <button onClick={handleSaveAs} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
                 <Save className="w-4 h-4" /> {t.saveAs} (.epl)
               </button>
@@ -1015,6 +1088,28 @@ export default function EditorView() {
               <button onClick={() => { setCodeGlobal(''); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2 text-red-500", isFrutigerAero ? "hover:bg-white/50" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
                 <Trash2 className="w-4 h-4" /> {t.clearCode}
               </button>
+              {selectedExtraCategory === 'PreviewEditing' ? (
+                <button 
+                  onClick={() => { 
+                    setSelectedExtraCategory('Normal'); 
+                    setActiveMenu(null); 
+                  }} 
+                  className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}
+                >
+                  <Code2 className="w-4 h-4" /> {language === 'ru' ? 'В обычный редактор' : 'Switch to Code Editor'}
+                </button>
+              ) : (
+                <button 
+                  onClick={() => { 
+                    setSelectedExtraCategory('PreviewEditing'); 
+                    if (!previewType) setPreviewType('2D');
+                    setActiveMenu(null); 
+                  }} 
+                  className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}
+                >
+                  <LayoutTemplate className="w-4 h-4" /> {language === 'ru' ? 'В визуальный редактор' : 'Switch to Visual Editor'}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -1075,12 +1170,26 @@ export default function EditorView() {
           <div className={clsx("h-6 w-px mx-2 hidden sm:block", isFrutigerAero ? "bg-blue-800/20" : "bg-zinc-700/50")}></div>
           <div className="flex items-center gap-2">
             {!isRunning ? (
-              <button onClick={handleRun} className={clsx(
-                "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
-                isFrutigerAero ? "frutiger-aero-button" : "bg-emerald-500 hover:bg-emerald-600 text-white"
-              )}>
-                <Play className="w-4 h-4" /> {t.run}
-              </button>
+              <>
+                <button onClick={() => handleRun('pc')} className={clsx(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+                  isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-900 border border-white/50" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                )}>
+                  <Monitor className="w-4 h-4" /> PC (Standart)
+                </button>
+                <button onClick={() => handleRun('mobile')} className={clsx(
+                  "flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+                  isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-900 border border-white/50" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                )}>
+                  <Smartphone className="w-4 h-4" /> Mobile
+                </button>
+                <button onClick={() => handleRun('run')} className={clsx(
+                  "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+                  isFrutigerAero ? "frutiger-aero-button" : "bg-emerald-500 hover:bg-emerald-600 text-white"
+                )}>
+                  <Play className="w-4 h-4" /> {t.run}
+                </button>
+              </>
             ) : (
               <button onClick={handleStop} className={clsx(
                 "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
@@ -1245,76 +1354,84 @@ export default function EditorView() {
             />
           </>
         )}
+      </div>
+      )}
 
-        {/* Right Panel: UI Preview & Console */}
-        <div 
-          className={clsx(
-            "w-full sm:flex flex-col min-h-[50vh] sm:min-h-0 border-t sm:border-t-0",
-            isFrutigerAero ? "bg-white/30 border-white/30 backdrop-blur-md" : "bg-zinc-900/20 border-zinc-800",
-            !isRightPanelOpen && "hidden sm:flex",
-            isFullScreen && "fixed inset-0 z-[100] w-screen h-screen border-0",
-            computerStyle && "bg-transparent border-emerald-500/30"
-          )}
-          style={{ width: isFullScreen ? '100%' : (typeof window !== 'undefined' && window.innerWidth > 640 ? rightPanelWidth : undefined) }}
-        >
-          {/* UI Preview */}
-          <div className={clsx(
-            "flex-1 flex flex-col border-b relative",
-            isFrutigerAero ? "border-white/30" :
-            theme !== 'light' ? 'border-zinc-800' : 'border-zinc-200',
-            isFullScreen && "border-0"
-          )}>
-            {!isFullScreen && (
-              <div className={clsx(
-                "px-4 py-2 text-xs font-medium uppercase tracking-wider flex items-center justify-between border-b z-10",
-                isFrutigerAero ? "bg-white/50 border-white/30 text-blue-900 backdrop-blur-md" : "text-zinc-500 border-zinc-800/50 bg-zinc-900/80 backdrop-blur-sm"
-              )}>
-                <div className="flex items-center gap-2">
-                  <LayoutTemplate className="w-3.5 h-3.5" /> {selectedExtraCategory === 'OS' ? 'AllVM' : t.appUi}
-                </div>
-                <button onClick={() => setIsFullScreen(true)} className="p-1 rounded hover:bg-zinc-800">
-                  <Maximize className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            )}
-            <div 
-              className={clsx("flex-1 relative overflow-hidden", isFullScreen && "fixed inset-0 z-[100] bg-black")}
-            >
-              {isFullScreen && (
-                <button 
-                  onClick={() => setIsFullScreen(false)} 
-                  className="absolute top-4 right-4 z-[200] p-2 bg-black/50 hover:bg-black/80 text-white rounded-full backdrop-blur transition-all"
-                >
-                  <Minimize className="w-5 h-5" />
-                </button>
-              )}
+      {/* --- RUN MODE OVERLAYS --- */}
+      {runMode === 'pc' && (
+        <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-8">
+          <div className="w-full max-w-5xl h-[80vh] flex flex-col bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
+            <div className="h-12 bg-zinc-800 border-b border-zinc-700 flex items-center justify-between px-4">
+              <span className="text-sm font-bold text-zinc-300">Preview (PC Standard)</span>
+              <button onClick={handleStop} className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded text-sm font-medium transition-colors">Stop</button>
+            </div>
+            <div className="flex-1 relative bg-black">
               {Object.keys(uiState.entities).length === 0 ? (
-                <div className={clsx("h-full flex items-center justify-center text-sm italic", isFrutigerAero ? "text-blue-800/60" : "text-zinc-500")}>
-                  {t.noEntities}
-                </div>
+                <div className="h-full flex items-center justify-center text-sm italic text-zinc-500">{t.noEntities}</div>
               ) : (
-                <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} isFullScreen={isFullScreen} />
+                <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} isFullScreen={true} />
               )}
             </div>
           </div>
+        </div>
+      )}
 
-          {/* Console */}
-          {!isFullScreen && (
-            <div className={clsx(
-              "h-64 flex flex-col font-mono text-xs",
-              isFrutigerAero ? "bg-black/70 text-green-400 backdrop-blur-md" : "bg-black/90 text-zinc-300",
-              computerStyle && "bg-transparent text-emerald-500 border-t border-emerald-500/30"
-            )}>
-              <div className={clsx(
-                "px-4 py-2 flex items-center gap-2 border-b uppercase tracking-wider font-sans font-medium",
-                isFrutigerAero ? "border-white/20 text-green-500 bg-black/50" : "border-zinc-800 text-zinc-500",
-                computerStyle && "border-emerald-500/30 text-emerald-500"
-              )}>
+      {runMode === 'mobile' && (
+        <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="mb-4 flex items-center gap-4">
+            <button onClick={() => setIsPhoneRotated(!isPhoneRotated)} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+              <RefreshCw className="w-4 h-4" /> Rotate
+            </button>
+            <button onClick={handleStop} className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+              <StopCircle className="w-4 h-4" /> Stop
+            </button>
+          </div>
+          <div 
+            className={clsx(
+              "relative bg-black border-[12px] border-zinc-800 rounded-[3rem] overflow-hidden shadow-2xl transition-all duration-300 ease-in-out",
+              isPhoneRotated ? "w-[800px] h-[375px]" : "w-[375px] h-[800px] max-h-[85vh]"
+            )}
+          >
+            {/* Phone notch */}
+            {!isPhoneRotated && <div className="absolute top-0 inset-x-0 h-6 bg-zinc-800 rounded-b-xl w-32 mx-auto z-50"></div>}
+            {isPhoneRotated && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-6 h-32 bg-zinc-800 rounded-r-xl z-50"></div>}
+            
+            {Object.keys(uiState.entities).length === 0 ? (
+              <div className="h-full flex items-center justify-center text-sm italic text-zinc-500">{t.noEntities}</div>
+            ) : (
+              <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} isFullScreen={true} />
+            )}
+          </div>
+        </div>
+      )}
+
+      {runMode === 'run' && (
+        <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-4 sm:p-8">
+          <div className="w-full max-w-6xl h-[85vh] flex flex-col lg:flex-row bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
+            <div className="flex-[2] flex flex-col border-b lg:border-b-0 lg:border-r border-zinc-800">
+              <div className="px-4 py-2 text-xs font-medium uppercase tracking-wider flex items-center justify-between bg-zinc-800/50 border-b border-zinc-800">
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <LayoutTemplate className="w-3.5 h-3.5" /> App UI
+                </div>
+                <button onClick={handleStop} className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded text-xs font-bold transition-colors flex items-center gap-2">
+                  <StopCircle className="w-3.5 h-3.5" /> Stop
+                </button>
+              </div>
+              <div className="flex-1 relative overflow-hidden bg-black">
+                {Object.keys(uiState.entities).length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-sm italic text-zinc-500">{t.noEntities}</div>
+                ) : (
+                  <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} isFullScreen={true} />
+                )}
+              </div>
+            </div>
+            <div className="flex-[1] flex flex-col bg-black font-mono text-xs text-zinc-300 min-w-[300px]">
+              <div className="h-[36px] px-4 flex items-center gap-2 border-b border-zinc-800 uppercase tracking-wider font-sans font-medium bg-zinc-900 text-zinc-400">
                 <Terminal className="w-3.5 h-3.5" /> {t.console}
               </div>
               <div className="flex-1 p-4 overflow-y-auto">
                 {output.length === 0 ? (
-                  <div className={clsx("italic", isFrutigerAero ? "text-green-700/50" : "text-zinc-600")}>{t.ready}</div>
+                  <div className="italic text-zinc-600">{t.ready}</div>
                 ) : (
                   output.map((line, i) => (
                     <div key={i} className="mb-1">{line}</div>
@@ -1323,9 +1440,8 @@ export default function EditorView() {
                 <div ref={outputEndRef} />
               </div>
             </div>
-          )}
+          </div>
         </div>
-      </div>
       )}
 
       {/* Preview Type Selection Modal (2D vs 3D) */}
