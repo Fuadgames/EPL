@@ -644,25 +644,23 @@ export default function EditorView() {
     }, 500); // 500ms debounce
   };
 
-  // Live Preview Auto-run
-  const autoRunTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  useEffect(() => {
-    if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
-    
-    // Only auto-run if we are in Normal mode or Asset mode
-    if (selectedExtraCategory !== 'Normal' && selectedExtraCategory !== 'Asset') return;
-
-    autoRunTimeoutRef.current = setTimeout(() => {
-      // Don't auto-run if already running (to avoid overlap) or if code is empty
-      if (code.trim()) {
-        handleRun();
-      }
-    }, 2000); // 2s debounce for live preview
-
-    return () => {
-      if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
-    };
-  }, [code, selectedExtraCategory]);
+  // Live Preview Auto-run (Disabled per user request)
+  // const autoRunTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // useEffect(() => {
+  //   if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
+  //   
+  //   if (selectedExtraCategory !== 'Normal' && selectedExtraCategory !== 'Asset') return;
+  //
+  //   autoRunTimeoutRef.current = setTimeout(() => {
+  //     if (code.trim()) {
+  //       handleRun();
+  //     }
+  //   }, 2000);
+  //
+  //   return () => {
+  //     if (autoRunTimeoutRef.current) clearTimeout(autoRunTimeoutRef.current);
+  //   };
+  // }, [code, selectedExtraCategory]);
 
   const handleCodeGenerated = useCallback((newCode: string) => {
     setCodeGlobal(newCode);
