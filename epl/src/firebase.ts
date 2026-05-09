@@ -39,7 +39,7 @@ if (!isOriginal) {
   // Point remixes to a non-existent local emulator so they don't affect production DB
   try {
     connectFirestoreEmulator(db, 'localhost', 8080);
-    connectAuthEmulator(auth, 'http://localhost:9099');
+    connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
   } catch (e) {
     // Ignore errors if already connected
   }
