@@ -904,14 +904,14 @@ export const tutorialContent = {
         },
         {
           type: 'info',
-          title: "Image Control",
-          content: "The 'Edit' tab now has 'Image Control'. Here you can view all your uploaded files, copy their URLs, and manage them."
+          title: "File Control",
+          content: "The 'Edit' tab now has 'File Control'. Here you can view all your uploaded files, copy their URLs, and manage them."
         },
         {
           type: 'challenge',
           title: "Level 27 Challenge",
           content: "Try uploading a file and copying its URL.",
-          task: "Upload any file via the 'Upload File' button, open 'Image Control', and copy the URL of the uploaded file."
+          task: "Upload any file via the 'Upload File' button, open 'File Control', and copy the URL of the uploaded file."
         }
       ]
     },
@@ -1719,14 +1719,14 @@ export const tutorialContent = {
         },
         {
           type: 'info',
-          title: "Image Control",
-          content: "Вкладка 'Edit' теперь содержит 'Image Control'. Здесь вы можете просматривать список всех ваших загруженных файлов, копировать их URL и управлять ими."
+          title: "File Control",
+          content: "Вкладка 'Edit' теперь содержит 'File Control'. Здесь вы можете просматривать список всех ваших загруженных файлов, копировать их URL и управлять ими."
         },
         {
           type: 'challenge',
           title: "Задание 27 уровня",
           content: "Попробуйте загрузить файл и скопировать его URL.",
-          task: "Загрузите любой файл через кнопку 'Загрузить файл', откройте 'Image Control' и скопируйте URL загруженного файла."
+          task: "Загрузите любой файл через кнопку 'Загрузить файл', откройте 'File Control' и скопируйте URL загруженного файла."
         }
       ]
     },
