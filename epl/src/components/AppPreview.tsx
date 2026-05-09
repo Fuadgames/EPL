@@ -1,6 +1,7 @@
 import React from 'react';
 import { clsx } from 'clsx';
 import { motion } from 'framer-motion';
+import { Smartphone } from 'lucide-react';
 
 import { useStore } from '../store/useStore';
 import { getDefaultAvatar } from '../lib/avatar';
@@ -413,12 +414,19 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
       </div>
 
       {uiMode?.type === 'position' && (
-        <div className="absolute top-4 right-4 bg-zinc-900 border border-zinc-800 p-4 rounded-xl shadow-2xl z-50 text-white w-72 pointer-events-auto shadow-[0_0_20px_rgba(16,185,129,0.2)] max-h-[80vh] overflow-y-auto">
+        <div className="absolute top-auto bottom-0 left-0 right-0 sm:top-4 sm:bottom-auto sm:left-auto sm:right-4 bg-zinc-900 sm:border border-t border-zinc-800 p-4 rounded-t-2xl sm:rounded-xl shadow-2xl z-50 text-white w-full sm:w-72 pointer-events-auto shadow-[0_-10px_20px_rgba(16,185,129,0.2)] sm:shadow-[0_0_20px_rgba(16,185,129,0.2)] max-h-[50vh] sm:max-h-[80vh] overflow-y-auto">
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-bold text-sm text-emerald-400">Position & Properties</h3>
             <span className="text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded uppercase font-bold">{uiMode.target}</span>
           </div>
           <p className="text-[10px] text-zinc-500 mb-4 uppercase tracking-wider font-semibold">Fine-tune your entity</p>
+
+          <button 
+            onClick={() => handleUIEvent('trigger_mobile_emulator?', uiMode.target)}
+            className="w-full py-2 mb-4 bg-zinc-800 hover:bg-zinc-700 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2 text-zinc-300"
+          >
+             <Smartphone className="w-4 h-4 text-emerald-400" /> Mobile UI
+          </button>
           
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3 text-xs">
@@ -586,7 +594,7 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
       )}
 
       {uiMode?.type === 'design' && (
-        <div className="absolute top-4 left-4 bg-zinc-900 border border-zinc-800 p-4 rounded-xl shadow-2xl z-50 text-white w-64 pointer-events-auto">
+        <div className="absolute top-auto bottom-0 left-0 right-0 sm:top-4 sm:bottom-auto sm:right-auto sm:left-4 bg-zinc-900 sm:border border-t border-zinc-800 p-4 rounded-t-2xl sm:rounded-xl shadow-2xl z-50 text-white w-full sm:w-64 pointer-events-auto max-h-[50vh] sm:max-h-[80vh] overflow-y-auto">
           <h3 className="font-bold text-sm mb-2 text-fuchsia-400">Design Tool</h3>
           <p className="text-xs text-zinc-400 mb-4">Adjust colors and textures for {uiMode.target}.</p>
           <div className="flex flex-col gap-3 text-xs">
@@ -616,7 +624,7 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
       )}
 
       {uiMode?.type === '3DEditor' && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-zinc-900 border border-zinc-800 p-4 rounded-xl shadow-2xl z-50 text-white w-80 pointer-events-auto text-center flex flex-col items-center">
+        <div className="absolute bottom-0 left-0 right-0 sm:bottom-4 sm:left-1/2 sm:-translate-x-1/2 bg-zinc-900 border-t sm:border border-zinc-800 p-4 rounded-t-2xl sm:rounded-xl shadow-2xl z-50 text-white w-full sm:w-80 pointer-events-auto text-center flex flex-col items-center max-h-[50vh] sm:max-h-[80vh] overflow-y-auto">
           <h3 className="font-bold text-sm mb-2 text-blue-400">3D Editor</h3>
           <p className="text-xs text-zinc-400 mb-4">Import models from Blender (.gltf, .glb).</p>
           <label className="bg-blue-600 hover:bg-blue-500 px-4 py-2 rounded-lg text-sm transition-colors shadow-lg cursor-pointer">
