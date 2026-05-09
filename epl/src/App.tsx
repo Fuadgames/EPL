@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, Suspense, lazy } from 'react';
 import Layout from './components/Layout';
 import { useStore } from './store/useStore';
 import { auth, subscribeToUserData, db } from './firebase';
@@ -10,18 +10,46 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import SuccessPage from './components/SuccessPage';
 
 // Lazy load components
-const StoreView = React.lazy(() => import('./components/StoreView'));
-const EditorView = React.lazy(() => import('./components/EditorView'));
-const MyAppsView = React.lazy(() => import('./components/MyAppsView'));
-const ProfileView = React.lazy(() => import('./components/ProfileView'));
-const PlayerView = React.lazy(() => import('./components/PlayerView'));
-const SettingsView = React.lazy(() => import('./components/SettingsView'));
-const PremiumView = React.lazy(() => import('./components/PremiumView'));
-const ControlView = React.lazy(() => import('./components/ControlView'));
-const AssetStoreView = React.lazy(() => import('./components/AssetStoreView'));
-const DonatePage = React.lazy(() => import('./components/DonatePage'));
+const StoreView = lazy(() => import('./components/StoreView'));
+const EditorView = lazy(() => import('./components/EditorView'));
+const MyAppsView = lazy(() => import('./components/MyAppsView'));
+const ProfileView = lazy(() => import('./components/ProfileView'));
+const PlayerView = lazy(() => import('./components/PlayerView'));
+const SettingsView = lazy(() => import('./components/SettingsView'));
+const PremiumView = lazy(() => import('./components/PremiumView'));
+const ControlView = lazy(() => import('./components/ControlView'));
+const AssetStoreView = lazy(() => import('./components/AssetStoreView'));
+const DonatePage = lazy(() => import('./components/DonatePage'));
+const LeaderboardsView = lazy(() => import('./components/LeaderboardsView'));
 
-const LeaderboardsView = React.lazy(() => import('./components/LeaderboardsView'));
+function ViewRenderer() {
+  const currentView = useStore(state => state.currentView);
+  const user = useStore(state => state.user);
+  const userData = useStore(state => state.userData);
+  const simulatedRole = useStore(state => state.simulatedRole);
+  
+  const actualRole = (user?.email === 'fufazada@gmail.com') ? 'developer' : userData?.role;
+  const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
+
+  switch (currentView) {
+    case 'store': return <StoreView />;
+    case 'editor': return <EditorView />;
+    case 'my-apps': return <MyAppsView />;
+    case 'profile': return <ProfileView />;
+    case 'player': return <PlayerView />;
+    case 'settings': return <SettingsView />;
+    case 'premium': return <PremiumView />;
+    case 'donate': return <DonatePage />;
+    case 'asset-store': return <AssetStoreView />;
+    case 'control': 
+      if (effectiveRole === 'developer' || effectiveRole === 'admin' || effectiveRole === 'moderator') {
+        return <ControlView />;
+      }
+      return <StoreView />;
+    case 'leaderboards': return <LeaderboardsView />;
+    default: return <StoreView />;
+  }
+}
 
 export default function App() {
   useAchievementEnforcer();
@@ -168,27 +196,6 @@ export default function App() {
     };
   }, [setUser, isBackdoor]);
 
-  const renderView = () => {
-    switch (currentView) {
-      case 'store': return <StoreView />;
-      case 'editor': return <EditorView />;
-      case 'my-apps': return <MyAppsView />;
-      case 'profile': return <ProfileView />;
-      case 'player': return <PlayerView />;
-      case 'settings': return <SettingsView />;
-      case 'premium': return <PremiumView />;
-      case 'donate': return <DonatePage />;
-      case 'asset-store': return <AssetStoreView />;
-      case 'control': 
-        if (effectiveRole === 'developer' || effectiveRole === 'admin' || effectiveRole === 'moderator') {
-          return <ControlView />;
-        }
-        return <StoreView />;
-      case 'leaderboards': return <LeaderboardsView />;
-      default: return <StoreView />;
-    }
-  };
-
   if (userData?.isBanned) {
     return (
       <div className="fixed inset-0 bg-red-950 text-white flex flex-col items-center justify-center p-8 z-[100]">
@@ -220,17 +227,19 @@ export default function App() {
           overflow: hidden;
         }
       `}} />
-      <Routes>
-        <Route path="/success" element={<SuccessPage />} />
-        <Route path="*" element={
-          <Layout>
-            <AchievementNotifications />
-            <React.Suspense fallback={<div className="flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div></div>}>
-              {renderView()}
-            </React.Suspense>
-          </Layout>
-        } />
-      </Routes>
+      <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-zinc-950 text-emerald-500"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div></div>}>
+        <Routes>
+          <Route path="/success" element={<SuccessPage />} />
+          <Route path="*" element={
+            <Layout>
+              <AchievementNotifications />
+              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div></div>}>
+                <ViewRenderer />
+              </Suspense>
+            </Layout>
+          } />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }
