@@ -1,3 +1,4 @@
+import { startTransition } from 'react';
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { User } from 'firebase/auth';
@@ -110,26 +111,32 @@ interface AppState {
   achievementQueue: AchievementData[];
   popAchievement: () => void;
   unlockAchievement: (id: string) => void;
+  collabSessionId: string | null;
+  setCollabSessionId: (id: string | null) => void;
+  collabLockedLines: Record<number, { uid: string, name: string }>;
+  setCollabLockedLines: (lines: Record<number, { uid: string, name: string }>) => void;
+  collabLocalLockIndex: number | null;
+  setCollabLocalLockIndex: (index: number | null) => void;
 }
 
 export const useStore = create<AppState>()(persist((set) => ({
   currentView: 'store',
-  setCurrentView: (view) => set({ currentView: view }),
+  setCurrentView: (view) => startTransition(() => { set({ currentView: view }); }),
   user: null,
-  setUser: (user) => set({ user }),
+  setUser: (user) => startTransition(() => { set({ user }); }),
   userData: null,
-  setUserData: (userData) => set({ userData }),
+  setUserData: (userData) => startTransition(() => { set({ userData }); }),
   theme: 'dark',
-  toggleTheme: () => set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })),
-  setTheme: (theme) => set({ theme }),
+  toggleTheme: () => startTransition(() => { set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })); }),
+  setTheme: (theme) => startTransition(() => { set({ theme }); }),
   editingAppId: null,
-  setEditingAppId: (id) => set({ editingAppId: id }),
+  setEditingAppId: (id) => startTransition(() => { set({ editingAppId: id }); }),
   code: '',
   setCode: (code) => set({ code }),
   playingAppId: null,
-  setPlayingAppId: (id) => set({ playingAppId: id }),
+  setPlayingAppId: (id) => startTransition(() => { set({ playingAppId: id }); }),
   selectedAppId: null,
-  setSelectedAppId: (id) => set({ selectedAppId: id }),
+  setSelectedAppId: (id) => startTransition(() => { set({ selectedAppId: id }); }),
   copiedAppData: null,
   setCopiedAppData: (data) => set({ copiedAppData: data }),
   aiAnswerMode: 'text',
@@ -208,6 +215,12 @@ export const useStore = create<AppState>()(persist((set) => ({
       };
     });
   },
+  collabSessionId: null,
+  setCollabSessionId: (id) => set({ collabSessionId: id }),
+  collabLockedLines: {},
+  setCollabLockedLines: (lines) => set({ collabLockedLines: lines }),
+  collabLocalLockIndex: null,
+  setCollabLocalLockIndex: (index) => set({ collabLocalLockIndex: index }),
 }), {
   name: 'app-storage',
   partialize: (state) => ({ 
