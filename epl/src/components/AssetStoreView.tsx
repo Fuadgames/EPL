@@ -26,9 +26,11 @@ const FRUTIGER_AERO_ASSET: StoreAsset = {
 export default function AssetStoreView() {
   const theme = useStore(state => state.theme);
   const userData = useStore(state => state.userData);
+  const user = useStore(state => state.user);
   const language = useStore(state => state.language);
   const simulatedRole = useStore(state => state.simulatedRole);
-  const effectiveRole = (userData?.role === 'developer' && simulatedRole) ? simulatedRole : userData?.role;
+  const actualRole = (user?.email === 'fufazada@gmail.com') ? 'admin' : userData?.role;
+  const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const setIsFrutigerAero = useStore(state => state.setIsFrutigerAero);
   const setIsAuthModalOpen = useStore(state => state.setIsAuthModalOpen);
@@ -150,11 +152,11 @@ export default function AssetStoreView() {
   const canPublish = userData?.role === 'admin' || userData?.role === 'developer' || userData?.role === 'shopkeeper';
 
   return (
-    <div className={clsx("h-full flex flex-col p-4 sm:p-8 overflow-y-auto", isFrutigerAero ? "bg-gradient-to-br from-cyan-100 to-blue-200" : "")}>
+    <div className={clsx("h-full flex flex-col p-4 sm:p-8 overflow-y-auto", isFrutigerAero ? "bg-gradient-to-br from-cyan-100 to-blue-200" : "bg-zinc-950")}>
       <div className="max-w-6xl mx-auto w-full">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
-          <h1 className={clsx("text-3xl font-bold tracking-tight flex items-center gap-3", isFrutigerAero ? "text-blue-800" : "")}>
-            <ShoppingBag className={clsx("w-8 h-8", isFrutigerAero ? "text-blue-500" : "text-emerald-500")} />
+          <h1 className={clsx("text-4xl font-black tracking-tight flex items-center gap-4", isFrutigerAero ? "text-blue-800" : "text-white uppercase italic")}>
+            <Package className={clsx("w-10 h-10", isFrutigerAero ? "text-blue-500" : "text-emerald-500")} />
             Asset Store
           </h1>
           
@@ -314,6 +316,7 @@ function PublishModal({ onClose }: { onClose: () => void }) {
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  const [isFree, setIsFree] = useState(true);
   const [price, setPrice] = useState(10);
   const [stock, setStock] = useState<string | number>('infinite');
   const [type, setType] = useState<'style' | 'mod' | 'editor' | 'inventory'>('style');
@@ -352,7 +355,7 @@ function PublishModal({ onClose }: { onClose: () => void }) {
         id: newAssetRef.id,
         title,
         description,
-        price,
+        price: isFree ? 0 : price,
         stock: stock === 'infinite' ? 'infinite' : (typeof stock === 'string' ? parseInt(stock) : stock) || 0,
         type,
         content,
@@ -433,17 +436,24 @@ function PublishModal({ onClose }: { onClose: () => void }) {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1 opacity-70">Price (EPLCoins)</label>
-              <input
-                type="number"
-                min="0"
-                value={price}
-                onChange={(e) => setPrice(parseInt(e.target.value) || 0)}
-                className={clsx(
-                  "w-full px-4 py-2 rounded-xl border focus:outline-none focus:ring-2",
-                  isFrutigerAero ? "bg-white/60 border-white/40 focus:ring-blue-400" : theme !== 'light' ? 'bg-zinc-800 border-zinc-700 focus:ring-emerald-500' : 'bg-zinc-50 border-zinc-200 focus:ring-emerald-500'
-                )}
-              />
+              <label className="block text-sm font-medium mb-1 opacity-70">Price</label>
+              <div className="flex bg-zinc-800 rounded-xl p-1 mb-2">
+                <button onClick={() => setIsFree(true)} className={clsx("flex-1 py-1 rounded-lg text-sm transition-colors", isFree ? "bg-emerald-500 text-white" : "")}>Free</button>
+                <button onClick={() => setIsFree(false)} className={clsx("flex-1 py-1 rounded-lg text-sm transition-colors", !isFree ? "bg-emerald-500 text-white" : "")}>Paid</button>
+              </div>
+              {!isFree && (
+                <input
+                  type="number"
+                  min="0"
+                  value={price}
+                  onChange={(e) => setPrice(parseInt(e.target.value) || 0)}
+                  className={clsx(
+                    "w-full px-4 py-2 rounded-xl border focus:outline-none focus:ring-2",
+                    isFrutigerAero ? "bg-white/60 border-white/40 focus:ring-blue-400" : theme !== 'light' ? 'bg-zinc-800 border-zinc-700 focus:ring-emerald-500' : 'bg-zinc-50 border-zinc-200 focus:ring-emerald-500'
+                  )}
+                  placeholder="Price (EPLCoins)"
+                />
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium mb-1 opacity-70">Stock</label>
