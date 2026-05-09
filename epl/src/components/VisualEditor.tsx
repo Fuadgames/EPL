@@ -198,8 +198,10 @@ function VisualLine({
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setInputValue(text);
-  }, [text]);
+    if (!isEditing) {
+      setInputValue(text);
+    }
+  }, [text, isEditing]);
 
   useEffect(() => {
     if (isFocused && !isLockedByOther) {
