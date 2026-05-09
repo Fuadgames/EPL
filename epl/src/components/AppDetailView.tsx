@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useTransition } from 'react';
 import { doc, getDoc, updateDoc, increment, setDoc, collection, query, where, getDocs, deleteDoc, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useStore } from '../store/useStore';
@@ -19,6 +19,7 @@ export default function AppDetailView() {
   const setEditingAppId = useStore(state => state.setEditingAppId);
   const isPremium = useStore(state => state.isPremium);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
+  const [isPending, startTransition] = useTransition();
   const [app, setApp] = useState<AppData | null>(null);
   const [loading, setLoading] = useState(true);
   const [userVote, setUserVote] = useState<'like' | 'dislike' | null>(null);
@@ -124,17 +125,21 @@ export default function AppDetailView() {
 
   const proceedToPlay = () => {
     if (!app) return;
-    setPlayingAppId(app.id);
-    setCurrentView('player');
-    setSelectedAppId(null);
+    startTransition(() => {
+      setPlayingAppId(app.id);
+      setCurrentView('player');
+      setSelectedAppId(null);
+    });
   };
 
   const handleCopy = () => {
     if (!app) return;
-    setCopiedAppData(app);
-    setEditingAppId(null);
-    setCurrentView('editor');
-    setSelectedAppId(null);
+    startTransition(() => {
+      setCopiedAppData(app);
+      setEditingAppId(null);
+      setCurrentView('editor');
+      setSelectedAppId(null);
+    });
   };
 
   const [downloadingApp, setDownloadingApp] = useState<string | null>(null);
