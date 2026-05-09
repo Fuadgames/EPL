@@ -1,191 +1,83 @@
-import { initializeApp } from "firebase/app";
-import { 
-  getAuth, 
-  GoogleAuthProvider, 
-  OAuthProvider,
-  signInWithPopup, 
-  signInWithEmailAndPassword, 
-  createUserWithEmailAndPassword, 
-  sendPasswordResetEmail,
-  updateProfile,
-  signOut,
-  connectAuthEmulator
-} from "firebase/auth";
-import { getFirestore, doc, updateDoc, increment, onSnapshot, фgetDoc, setDoc, connectFirestoreEmulator } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+    
+    function isDeveloper() {
+      // In a real app we'd check a secure admin collection.
+      // For now we check if their email matches the developer's email from the auth token.
+      return request.auth.token.email == 'fufazada@gmail.com';
+    }
 
-import firebaseConfig from '../firebase-applet-config.json';
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId);
+      // Prevent changing eplCoins or role directly
+      allow update: if isOwner(userId) &&
+        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'eplCoins'])) || isDeveloper();
+      allow delete: if isOwner(userId) || isDeveloper();
+    }
+    
+    match /users_public/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isOwner(userId) || isDeveloper();
+    }
+    
+    match /apps/{appId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+      allow update: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isDeveloper();
+      allow delete: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isDeveloper();
+    }
+    
+    match /assets/{assetId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+      allow update: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isDeveloper();
+      allow delete: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isDeveloper();
+    }
+    
+    match /comments/{commentId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+      allow update: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isDeveloper();
+      allow delete: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isDeveloper();
+    }
+    
+    match /votes/{voteId} {
+      allow read: if true;
+      allow create, update, delete: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+    }
+    
+    match /friendRequests/{requestId} {
+      allow read: if isSignedIn() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
+      allow create: if isSignedIn() && request.resource.data.senderId == request.auth.uid;
+      allow update: if isSignedIn() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
+      allow delete: if isSignedIn() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
+    }
+    
+    match /premium_codes/{codeId} {
+      allow read: if isSignedIn();
+      allow write: if isDeveloper();
+    }
 
-const allowedAIStudioProjectId = 'bcjac2exvccp37f2hoi3je';
+    match /adminRequests/{requestId} {
+      allow read: if isDeveloper() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow write: if isSignedIn();
+    }
 
-let isOriginal = true;
-if (typeof window !== 'undefined') {
-  const hostname = window.location.hostname;
-  if (hostname.endsWith('.run.app') && !hostname.includes(allowedAIStudioProjectId)) {
-    console.warn("Remix detected! Redirecting database to local emulator to protect the original project.");
-    isOriginal = false;
+    match /collabSessions/{sessionId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.resource.data.hostId == request.auth.uid;
+      allow update: if isSignedIn();
+      allow delete: if isSignedIn() && resource.data.hostId == request.auth.uid;
+    }
   }
 }
 
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-export const auth = getAuth(app);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
-export const storage = getStorage(app);
-
-if (!isOriginal) {
-  // Point remixes to a non-existent local emulator so they don't affect production DB
-  try {
-    connectFirestoreEmulator(db, 'localhost', 8080);
-    connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
-  } catch (e) {
-    // Ignore errors if already connected
-  }
-}
-
-export const logOut = () => signOut(auth);
-
-export const signInWithGoogle = async () => {
-  const provider = new GoogleAuthProvider();
-  try {
-    const result = await signInWithPopup(auth, provider);
-    const user = result.user;
-    
-    // Check if user document exists, if not create it
-    const userRef = doc(db, 'users', user.uid);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      await setDoc(userRef, {
-        uid: user.uid,
-        name: user.displayName || 'User',
-        email: user.email,
-        photoUrl: user.photoURL,
-        role: user.email === 'fufazada@gmail.com' ? 'developer' : 'user',
-        eplCoins: 0,
-        purchasedItems: [],
-        createdAt: new Date().toISOString()
-      });
-    }
-    
-    return { user, error: null };
-  } catch (error: any) {
-    return { user: null, error };
-  }
-};
-
-export const signInWithApple = async () => {
-  const provider = new OAuthProvider('apple.com');
-  try {
-    const result = await signInWithPopup(auth, provider);
-    const user = result.user;
-    
-    // Check if user document exists, if not create it
-    const userRef = doc(db, 'users', user.uid);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      await setDoc(userRef, {
-        uid: user.uid,
-        name: user.displayName || 'User',
-        email: user.email,
-        photoUrl: user.photoURL,
-        role: user.email === 'fufazada@gmail.com' ? 'developer' : 'user',
-        eplCoins: 0,
-        purchasedItems: [],
-        createdAt: new Date().toISOString()
-      });
-    }
-    
-    return { user, error: null };
-  } catch (error: any) {
-    return { user: null, error };
-  }
-};
-
-export const signInWithEmail = async (email: string, password: string) => {
-  try {
-    const result = await signInWithEmailAndPassword(auth, email, password);
-    return { user: result.user, error: null };
-  } catch (error: any) {
-    return { user: null, error };
-  }
-};
-
-export const signUpWithEmail = async (email: string, password: string, name: string) => {
-  try {
-    const result = await createUserWithEmailAndPassword(auth, email, password);
-    const user = result.user;
-    
-    if (user) {
-      await updateProfile(user, { displayName: name });
-      
-      // Create user document in Firestore
-      await setDoc(doc(db, 'users', user.uid), {
-        uid: user.uid,
-        name: name,
-        email: user.email,
-        role: user.email === 'fufazada@gmail.com' ? 'admin' : 'user',
-        eplCoins: 0,
-        purchasedItems: [],
-        createdAt: new Date().toISOString()
-      });
-    }
-    
-    return { user, error: null };
-  } catch (error: any) {
-    return { user: null, error };
-  }
-};
-
-export const resetPassword = async (email: string) => {
-  try {
-    await sendPasswordResetEmail(auth, email);
-    return { error: null };
-  } catch (error: any) {
-    return { error };
-  }
-};
-
-export const giveCoins = async (userId: string, amount: number) => {
-  try {
-    const userRef = doc(db, 'users', userId);
-    await updateDoc(userRef, {
-      eplCoins: increment(amount)
-    });
-    return { error: null };
-  } catch (error: any) {
-    return { error };
-  }
-};
-
-export const sendProjectToVerify = async (projectId: string) => {
-  try {
-    const appRef = doc(db, 'apps', projectId);
-    await updateDoc(appRef, {
-      status: 'pending'
-    });
-    return { error: null };
-  } catch (error: any) {
-    return { error };
-  }
-};
-
-export const verifyProject = async (projectId: string) => {
-  try {
-    const appRef = doc(db, 'apps', projectId);
-    await updateDoc(appRef, {
-      status: 'verified'
-    });
-    return { error: null };
-  } catch (error: any) {
-    return { error };
-  }
-};
-
-export const subscribeToUserData = (userId: string, callback: (data: any) => void) => {
-  const userRef = doc(db, 'users', userId);
-  return onSnapshot(userRef, (doc) => {
-    callback({ id: doc.id, ...doc.data() });
-  });
-};
