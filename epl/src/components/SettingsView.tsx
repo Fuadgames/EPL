@@ -5,6 +5,7 @@ import { updateProfile } from 'firebase/auth';
 import { Sun, Moon, User, Save, CheckCircle2, AlertCircle, Bot, Lock, Sparkles, ShieldCheck } from 'lucide-react';
 import { clsx } from 'clsx';
 import { DEFAULT_EMOJIS, getEmojiAvatar } from '../lib/avatar';
+import EmojiPicker, { Theme } from 'emoji-picker-react';
 
 export default function SettingsView() {
   const theme = useStore(state => state.theme);
@@ -33,7 +34,8 @@ export default function SettingsView() {
     setIsUpdating(true);
     setStatus(null);
     try {
-      await updateProfile(user, { displayName, photoURL: avatarUrl });
+      if (!auth.currentUser) throw new Error("No authenticated user");
+      await updateProfile(auth.currentUser, { displayName, photoURL: avatarUrl });
       
       // Update users and users_public collections
       const { doc, updateDoc } = await import('firebase/firestore');
@@ -309,20 +311,14 @@ export default function SettingsView() {
                     )}
                     placeholder="Enter avatar URL"
                   />
-                  <div className="grid grid-cols-5 sm:grid-cols-10 gap-2 mb-2">
-                    {DEFAULT_EMOJIS.map((emoji) => (
-                      <button
-                        key={emoji}
-                        type="button"
-                        onClick={() => setAvatarUrl(getEmojiAvatar(emoji))}
-                        className={clsx(
-                          "w-10 h-10 flex items-center justify-center text-2xl rounded-lg hover:bg-zinc-500/20 transition-colors",
-                          avatarUrl === getEmojiAvatar(emoji) && (isFrutigerAero ? "bg-blue-500/20 shadow-sm" : "bg-emerald-500/20 ring-1 ring-emerald-500")
-                        )}
-                      >
-                        {emoji}
-                      </button>
-                    ))}
+                  <div className="mb-2">
+                    <EmojiPicker 
+                      onEmojiClick={(emojiData) => setAvatarUrl(getEmojiAvatar(emojiData.emoji))}
+                      theme={theme === 'light' ? Theme.LIGHT : Theme.DARK}
+                      lazyLoadEmojis={true}
+                      width="100%"
+                      height={350}
+                    />
                   </div>
                 </div>
 
