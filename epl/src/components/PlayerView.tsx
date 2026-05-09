@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useTransition } from 'react';
 import { useStore } from '../store/useStore';
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -14,6 +14,7 @@ export default function PlayerView() {
   const aiAnswerMode = useStore(state => state.aiAnswerMode);
   const aiChangesEnabled = useStore(state => state.aiChangesEnabled);
   const unlockAchievement = useStore(state => state.unlockAchievement);
+  const [isPending, startTransition] = useTransition();
   const [appData, setAppData] = useState<any>(null);
   const [uiState, setUiState] = useState<any>({ entities: {} });
   const [output, setOutput] = useState<string[]>([]);
@@ -139,7 +140,7 @@ export default function PlayerView() {
     return (
       <div className="h-full flex flex-col items-center justify-center p-8">
         <div className="text-red-500 mb-4">{error}</div>
-        <button onClick={() => setCurrentView('store')} className="px-4 py-2 bg-zinc-800 text-white rounded-lg hover:bg-zinc-700">
+        <button onClick={() => startTransition(() => setCurrentView('store'))} className="px-4 py-2 bg-zinc-800 text-white rounded-lg hover:bg-zinc-700">
           Back to Store
         </button>
       </div>
@@ -162,7 +163,7 @@ export default function PlayerView() {
       )}>
         <div className="flex items-center gap-4">
           <button 
-            onClick={() => setCurrentView('store')}
+            onClick={() => startTransition(() => setCurrentView('store'))}
             className="p-2 -ml-2 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 transition-colors"
           >
             <ArrowLeft className="w-5 h-5" />
