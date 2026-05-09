@@ -8,18 +8,42 @@ import {
   createUserWithEmailAndPassword, 
   sendPasswordResetEmail,
   updateProfile,
-  signOut
+  signOut,
+  connectAuthEmulator
 } from "firebase/auth";
-import { getFirestore, doc, updateDoc, increment, onSnapshot, getDoc, setDoc } from "firebase/firestore";
+import { getFirestore, doc, updateDoc, increment, onSnapshot, getDoc, setDoc, connectFirestoreEmulator } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 import firebaseConfig from '../firebase-applet-config.json';
+
+const allowedDomains = [
+  'localhost', 
+  '127.0.0.1', 
+  'ais-dev-bcjac2exvccp37f2hoi3je-430427127459.europe-west2.run.app', 
+  'ais-pre-bcjac2exvccp37f2hoi3je-430427127459.europe-west2.run.app'
+];
+
+let isOriginal = true;
+if (typeof window !== 'undefined' && !allowedDomains.includes(window.location.hostname)) {
+  console.warn("Remix detected! Redirecting database to local emulator to protect the original project.");
+  isOriginal = false;
+}
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app);
+
+if (!isOriginal) {
+  // Point remixes to a non-existent local emulator so they don't affect production DB
+  try {
+    connectFirestoreEmulator(db, 'localhost', 8080);
+    connectAuthEmulator(auth, 'http://localhost:9099');
+  } catch (e) {
+    // Ignore errors if already connected
+  }
+}
 
 export const logOut = () => signOut(auth);
 
