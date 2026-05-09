@@ -7,6 +7,8 @@ import { db } from '../firebase';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 
 
+import { loadStripe } from '@stripe/stripe-js';
+
 export default function PremiumView() {
   const theme = useStore(state => state.theme);
   const isPremium = useStore(state => state.isPremium);
@@ -22,9 +24,36 @@ export default function PremiumView() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
+  const [isProcessingStripe, setIsProcessingStripe] = useState(false);
 
   const user = useStore(state => state.user);
   const t = translations[language].premiumFeatures;
+
+  const handleCheckout = async () => {
+    try {
+      setIsProcessingStripe(true);
+      setError('');
+      
+      const res = await fetch('/api/create-checkout-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user?.uid || 'guest' }),
+      });
+      
+      if (!res.ok) {
+        throw new Error('Failed to create checkout session');
+      }
+      
+      const data = await res.json();
+      if (data.url) {
+        window.location.href = data.url;
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(language === 'ru' ? 'Ошибка оплаты' : 'Payment error');
+      setIsProcessingStripe(false);
+    }
+  };
 
   const handleUnlock = async () => {
     if (!code.trim()) return;
@@ -123,7 +152,10 @@ export default function PremiumView() {
   };
 
   return (
-    <div className="h-full flex flex-col p-4 sm:p-8 overflow-y-auto">
+    <div className={clsx(
+      "h-full flex flex-col p-4 sm:p-8 overflow-y-auto",
+      theme === 'gradient' ? 'bg-transparent' : ''
+    )}>
       <div className="max-w-2xl mx-auto w-full">
         <h1 className="text-3xl font-bold tracking-tight mb-8 flex items-center gap-3">
           <Star className="w-8 h-8 text-yellow-400 fill-yellow-400" />
@@ -264,6 +296,21 @@ export default function PremiumView() {
               className="w-full py-3 px-6 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-medium transition-colors mb-4"
             >
               {t.unlockButton}
+            </button>
+
+            <div className="relative flex items-center justify-center my-6">
+              <div className="absolute inset-x-0 border-t border-zinc-200 dark:border-zinc-800"></div>
+              <span className="relative bg-white dark:bg-zinc-900 px-4 text-sm text-zinc-500">
+                {language === 'ru' ? 'или безопасно с картой' : 'or securely via card'}
+              </span>
+            </div>
+
+            <button
+              onClick={handleCheckout}
+              disabled={isProcessingStripe}
+              className="w-full py-3 px-6 bg-indigo-500 hover:bg-indigo-600 text-white rounded-xl font-medium transition-colors flex items-center justify-center mb-4 disabled:opacity-50"
+            >
+              {isProcessingStripe ? (language === 'ru' ? 'Загрузка...' : 'Loading...') : (language === 'ru' ? 'Оплатить через Stripe ($5.99)' : 'Pay with Stripe ($5.99)')}
             </button>
 
             <button
