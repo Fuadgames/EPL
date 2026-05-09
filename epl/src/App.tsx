@@ -19,7 +19,7 @@ const SettingsView = React.lazy(() => import('./components/SettingsView'));
 const PremiumView = React.lazy(() => import('./components/PremiumView'));
 const ControlView = React.lazy(() => import('./components/ControlView'));
 const AssetStoreView = React.lazy(() => import('./components/AssetStoreView'));
-const DonateView = React.lazy(() => import('./components/DonateView'));
+const DonatePage = React.lazy(() => import('./components/DonatePage'));
 
 const LeaderboardsView = React.lazy(() => import('./components/LeaderboardsView'));
 
@@ -177,7 +177,7 @@ export default function App() {
       case 'player': return <PlayerView />;
       case 'settings': return <SettingsView />;
       case 'premium': return <PremiumView />;
-      case 'donate': return <DonateView />;
+      case 'donate': return <DonatePage />;
       case 'asset-store': return <AssetStoreView />;
       case 'control': 
         if (effectiveRole === 'developer' || effectiveRole === 'admin' || effectiveRole === 'moderator') {
