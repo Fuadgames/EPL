@@ -35,6 +35,7 @@ interface CollabSession {
     timestamp: any;
   }[];
   typingUsers: string[];
+  lockedLines?: Record<number, { uid: string, name: string }>;
   status: 'lobby' | 'active';
   action: 'none' | 'test';
   allowOfflineAccess: boolean;
