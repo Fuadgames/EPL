@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { EPL_DICTIONARY, TOKEN_REGEX } from '../lib/epl-dictionary';
+import { EPL_DICTIONARY, TOKEN_REGEX } from '@/src/lib/epl-dictionary';
 import { Plus, X, HelpCircle, LayoutTemplate, Box, MousePointer2, Lock } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useStore } from '../store/useStore';
