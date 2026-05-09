@@ -1,245 +1,857 @@
-import React, { useEffect, Suspense, lazy } from 'react';
-import Layout from './components/Layout';
-import { useStore } from './store/useStore';
-import { auth, subscribeToUserData, db } from './firebase';
-import { onAuthStateChanged } from 'firebase/auth';
-import { setDoc, doc, updateDoc } from 'firebase/firestore';
-import { AchievementNotifications } from './components/AchievementNotifications';
-import { useAchievementEnforcer } from './hooks/useAchievementEnforcer';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import SuccessPage from './components/SuccessPage';
+import React, { useState, useRef, useEffect } from 'react';
+import { EPL_DICTIONARY, TOKEN_REGEX } from '../lib/epl-dictionary';
+import { Plus, X, HelpCircle, LayoutTemplate, Box, MousePointer2, Lock } from 'lucide-react';
+import { clsx } from 'clsx';
+import { useStore } from '../store/useStore';
+import { doc, updateDoc, deleteField } from 'firebase/firestore';
+import { db } from '../firebase';
+import AppPreview from './AppPreview';
+import Gradient from './Gradient';
+import TwoDEditor from './TwoDEditor';
+import ThreeDEditor from './ThreeDEditor';
 
-// Lazy load components
-const StoreView = lazy(() => import('./components/StoreView'));
-const EditorView = lazy(() => import('./components/EditorView'));
-const MyAppsView = lazy(() => import('./components/MyAppsView'));
-const ProfileView = lazy(() => import('./components/ProfileView'));
-const PlayerView = lazy(() => import('./components/PlayerView'));
-const SettingsView = lazy(() => import('./components/SettingsView'));
-const PremiumView = lazy(() => import('./components/PremiumView'));
-const ControlView = lazy(() => import('./components/ControlView'));
-const AssetStoreView = lazy(() => import('./components/AssetStoreView'));
-const DonatePage = lazy(() => import('./components/DonatePage'));
-const LeaderboardsView = lazy(() => import('./components/LeaderboardsView'));
-
-function ViewRenderer() {
-  const currentView = useStore(state => state.currentView);
-  const user = useStore(state => state.user);
-  const userData = useStore(state => state.userData);
-  const simulatedRole = useStore(state => state.simulatedRole);
-  
-  const actualRole = (user?.email === 'fufazada@gmail.com') ? 'developer' : userData?.role;
-  const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
-
-  switch (currentView) {
-    case 'store': return <StoreView />;
-    case 'editor': return <EditorView />;
-    case 'my-apps': return <MyAppsView />;
-    case 'profile': return <ProfileView />;
-    case 'player': return <PlayerView />;
-    case 'settings': return <SettingsView />;
-    case 'premium': return <PremiumView />;
-    case 'donate': return <DonatePage />;
-    case 'asset-store': return <AssetStoreView />;
-    case 'control': 
-      if (effectiveRole === 'developer' || effectiveRole === 'admin' || effectiveRole === 'moderator') {
-        return <ControlView />;
-      }
-      return <StoreView />;
-    case 'leaderboards': return <LeaderboardsView />;
-    default: return <StoreView />;
-  }
+interface VisualEditorProps {
+  code: string;
+  onChange: (code: string) => void;
+  entities?: any;
 }
 
-export default function App() {
-  useAchievementEnforcer();
-  const currentView = useStore(state => state.currentView);
-  const setUser = useStore(state => state.setUser);
-  const setUserData = useStore(state => state.setUserData);
+export default function VisualEditor({ code, onChange, entities = {} }: VisualEditorProps) {
+  const theme = useStore(state => state.theme);
+  const isFrutigerAero = useStore(state => state.isFrutigerAero);
+  const computerStyle = useStore(state => state.computerStyle);
+  const lines = code.split('\n');
+  const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
+  const [cursorPos, setCursorPos] = useState<number | null>(null);
+
+  const collabSessionId = useStore(state => state.collabSessionId);
+  const collabLockedLines = useStore(state => state.collabLockedLines);
   const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
-  const isBackdoor = useStore(state => state.isBackdoor);
-  const isFrutigerAero = useStore(state => state.isFrutigerAero);
-  const language = useStore(state => state.language);
-
-  const isPremium = useStore(state => state.isPremium);
-  const setIsPremium = useStore(state => state.setIsPremium);
-  const premiumExpiry = useStore(state => state.premiumExpiry);
-  const setPremiumExpiry = useStore(state => state.setPremiumExpiry);
-
-  const simulatedRole = useStore(state => state.simulatedRole);
-  const actualRole = (user?.email === 'fufazada@gmail.com') ? 'developer' : userData?.role;
-  const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
+  const setCollabLocalLockIndex = useStore(state => state.setCollabLocalLockIndex);
+  
+  const prevFocusedRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (isPremium && premiumExpiry) {
-      const expiryDate = new Date(premiumExpiry);
-      if (expiryDate < new Date()) {
-        setIsPremium(false);
-        setPremiumExpiry(null);
-        console.log("Premium expired.");
+    setCollabLocalLockIndex(focusedIndex);
+    if (collabSessionId && user) {
+      if (prevFocusedRef.current !== focusedIndex) {
+        let updates: any = {};
+        if (prevFocusedRef.current !== null) {
+           updates[`lockedLines.${prevFocusedRef.current}`] = deleteField();
+        }
+        if (focusedIndex !== null) {
+           updates[`lockedLines.${focusedIndex}`] = { uid: user.uid, name: userData?.name || 'User' };
+        }
+        if (Object.keys(updates).length > 0) {
+           updateDoc(doc(db, 'collabSessions', collabSessionId), updates).catch(e => console.error(e));
+        }
+        prevFocusedRef.current = focusedIndex;
       }
     }
-  }, [isPremium, premiumExpiry, setIsPremium, setPremiumExpiry]);
+  }, [focusedIndex, collabSessionId, user, userData]);
 
   useEffect(() => {
-    // Restore mock user if backdoor is active
-    if (isBackdoor && !user && userData) {
-      const mockUser = {
-        uid: userData.uid,
-        email: userData.email,
-        displayName: userData.name,
-        photoURL: null,
-        emailVerified: true,
-      } as any;
-      setUser(mockUser);
+    // When unmounting or switching documents, release lock
+    return () => {
+      if (collabSessionId && prevFocusedRef.current !== null) {
+         updateDoc(doc(db, 'collabSessions', collabSessionId), {
+           [`lockedLines.${prevFocusedRef.current}`]: deleteField()
+         }).catch(e => console.error(e));
+      }
+    };
+  }, [collabSessionId]);
+
+  const entityNames = React.useMemo(() => {
+    const names = new Set<string>();
+    // Add from code
+    const regex = /name=([^,}]+)/g;
+    let match;
+    while ((match = regex.exec(code)) !== null) {
+      names.add(match[1].trim());
     }
-  }, [isBackdoor, user, userData, setUser]);
+    // Add from entities prop
+    if (entities) {
+      Object.values(entities).forEach((e: any) => {
+        if (e && e.name) names.add(e.name);
+      });
+    }
+    return Array.from(names);
+  }, [code, entities]);
+
+  const handleLineChange = (index: number, newText: string) => {
+    const newLines = [...lines];
+    newLines[index] = newText;
+    onChange(newLines.join('\n'));
+  };
+
+  const handleSplitLine = (index: number, textBefore: string, textAfter: string) => {
+    const newLines = [...lines];
+    newLines.splice(index, 1, textBefore, textAfter);
+    onChange(newLines.join('\n'));
+    setFocusedIndex(index + 1);
+    setCursorPos(0);
+  };
+
+  const handleMergeLine = (index: number, textToAppend: string) => {
+    if (index === 0) return;
+    const newLines = [...lines];
+    const prevLineLength = newLines[index - 1].length;
+    newLines[index - 1] += textToAppend;
+    newLines.splice(index, 1);
+    onChange(newLines.join('\n'));
+    setFocusedIndex(index - 1);
+    setCursorPos(prevLineLength);
+  };
+
+  const handleMoveFocus = (index: number, direction: 'up' | 'down', pos: number) => {
+    if (direction === 'up' && index > 0) {
+      setFocusedIndex(index - 1);
+      setCursorPos(pos);
+    } else if (direction === 'down' && index < lines.length - 1) {
+      setFocusedIndex(index + 1);
+      setCursorPos(pos);
+    }
+  };
+
+  return (
+    <div 
+      className={clsx(
+        "flex-1 h-full overflow-y-auto p-6 font-mono text-sm cursor-text", 
+        isFrutigerAero && "frutiger-aero-bg",
+        computerStyle && "bg-transparent",
+        !isFrutigerAero && !computerStyle && (theme !== 'light' ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-50 text-zinc-800')
+      )}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          if (lines.length === 0 || lines[lines.length - 1] !== '') {
+            onChange(code + (code ? '\n' : ''));
+            setFocusedIndex(lines.length);
+            setCursorPos(0);
+          } else {
+            setFocusedIndex(lines.length - 1);
+            setCursorPos(0);
+          }
+        }
+      }}
+    >
+      {lines.map((line, i) => (
+        <VisualLine 
+          key={i} 
+          text={line} 
+          index={i}
+          entityNames={entityNames}
+          isFocused={focusedIndex === i}
+          initialCursorPos={focusedIndex === i ? cursorPos : null}
+          onChange={(t) => handleLineChange(i, t)} 
+          onSplit={(before, after) => handleSplitLine(i, before, after)}
+          onMerge={(append) => handleMergeLine(i, append)}
+          onMoveFocus={(dir, pos) => handleMoveFocus(i, dir, pos)}
+          onFocus={() => {
+            setFocusedIndex(i);
+            setCursorPos(null);
+          }}
+          onBlur={() => {
+            if (focusedIndex === i) {
+              setFocusedIndex(null);
+            }
+          }}
+          entities={entities}
+        />
+      ))}
+      <button
+        onClick={() => {
+          onChange(code + (code ? '\n' : ''));
+          setFocusedIndex(lines.length);
+          setCursorPos(0);
+        }}
+        className={clsx(
+          "mt-4 flex items-center gap-2 px-4 py-2 rounded-xl border transition-all text-sm font-medium",
+          isFrutigerAero ? "bg-white/40 border-white/50 text-blue-800 hover:bg-white/60" :
+          theme === 'dark' ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700" :
+          "bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+        )}
+      >
+        <Plus className="w-4 h-4" />
+        Add Line
+      </button>
+    </div>
+  );
+}
+
+interface VisualLineProps {
+  key?: any;
+  text: string;
+  index: number;
+  entityNames: string[];
+  isFocused: boolean;
+  initialCursorPos: number | null;
+  onChange: (t: string) => void;
+  onSplit: (before: string, after: string) => void;
+  onMerge: (append: string) => void;
+  onMoveFocus: (dir: 'up' | 'down', pos: number) => void;
+  onFocus: () => void;
+  onBlur: () => void;
+  entities: any;
+}
+
+function VisualLine({ 
+  text, index, entityNames, isFocused, initialCursorPos,
+  onChange, onSplit, onMerge, onMoveFocus, onFocus, onBlur, entities
+}: VisualLineProps) {
+  const isFrutigerAero = useStore(state => state.isFrutigerAero);
+  const collabSessionId = useStore(state => state.collabSessionId);
+  const collabLockedLines = useStore(state => state.collabLockedLines);
+  const user = useStore(state => state.user);
+  
+  const lineLock = collabSessionId ? collabLockedLines[index] : undefined;
+  const isLockedByOther = lineLock && lineLock.uid !== user?.uid;
+
+  const [isEditing, setIsEditing] = useState(false);
+  const [inputValue, setInputValue] = useState(text);
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    let unsubscribeUser: (() => void) | undefined;
+    if (!isEditing) {
+      setInputValue(text);
+    }
+  }, [text, isEditing]);
+
+  useEffect(() => {
+    if (isFocused && !isLockedByOther) {
+      setIsEditing(true);
+    } else {
+      setIsEditing(false);
+    }
+  }, [isFocused, isLockedByOther]);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      if (initialCursorPos !== null) {
+        inputRef.current.setSelectionRange(initialCursorPos, initialCursorPos);
+      }
+    }
+  }, [isEditing, initialCursorPos]);
+
+  const updateSuggestions = (value: string, pos: number | null) => {
+    if (pos === null) {
+      setSuggestions([]);
+      return;
+    }
+    const textBeforeCursor = value.slice(0, pos);
     
-    const unsubscribeAuth = onAuthStateChanged(auth, (fbUser) => {
-      // If we are in backdoor mode, don't let Firebase Auth reset the user to null
-      if (isBackdoor && !fbUser) {
+    // Check if we are inside a parameter block { ... }
+    const lastOpenBrace = textBeforeCursor.lastIndexOf('{');
+    const lastCloseBrace = textBeforeCursor.lastIndexOf('}');
+    
+    if (lastOpenBrace > lastCloseBrace) {
+      // Inside { }, suggest parameter names based on the preceding keyword
+      const keywordMatch = textBeforeCursor.substring(0, lastOpenBrace).trim().match(/([a-zA-Z0-9_?]+)$/);
+      if (keywordMatch) {
+        const keyword = keywordMatch[1];
+        const def = EPL_DICTIONARY[keyword];
+        if (def && def.schema) {
+          const currentParamPartial = textBeforeCursor.slice(lastOpenBrace + 1).split(',').pop()?.trim().split('=').shift()?.trim() || '';
+          const paramNames = Object.keys(def.schema).filter(p => 
+            p.toLowerCase().startsWith(currentParamPartial.toLowerCase()) && 
+            !textBeforeCursor.slice(lastOpenBrace + 1).includes(`${p}=`)
+          );
+          setSuggestions(paramNames.map(p => `${p}=`));
+          setSelectedIndex(0);
+          return;
+        }
+      }
+    }
+
+    const match = textBeforeCursor.match(/[a-zA-Z0-9_?]+$/);
+    if (match) {
+      const currentWord = match[0].toLowerCase();
+      const dictMatches = Object.keys(EPL_DICTIONARY).filter(k => 
+        k.toLowerCase().startsWith(currentWord) && k.toLowerCase() !== currentWord
+      );
+      const entityMatches = entityNames.filter(n => 
+        n.toLowerCase().startsWith(currentWord) && n.toLowerCase() !== currentWord
+      );
+      // Combine and remove duplicates
+      const allMatches = Array.from(new Set([...dictMatches, ...entityMatches]));
+      setSuggestions(allMatches);
+      setSelectedIndex(0);
+    } else {
+      setSuggestions([]);
+    }
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInputValue(val);
+    updateSuggestions(val, e.target.selectionStart);
+    onChange(val);
+  };
+
+  const handleKeyUp = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    // Only update suggestions on navigation keys to track cursor
+    if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(e.key)) {
+      updateSuggestions(inputValue, e.currentTarget.selectionStart);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (suggestions.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex((prev) => (prev + 1) % suggestions.length);
+        return;
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex((prev) => (prev - 1 + suggestions.length) % suggestions.length);
+        return;
+      } else if (e.key === 'Tab' || e.key === 'Enter') {
+        e.preventDefault();
+        const pos = inputRef.current?.selectionStart || inputValue.length;
+        const textBeforeCursor = inputValue.slice(0, pos);
+        const textAfterCursor = inputValue.slice(pos);
+        const match = textBeforeCursor.match(/[a-zA-Z0-9_?]+$/);
+        
+        if (match) {
+          const wordStart = pos - match[0].length;
+          const selectedWord = suggestions[selectedIndex];
+          const newValue = inputValue.slice(0, wordStart) + selectedWord + textAfterCursor;
+          setInputValue(newValue);
+          setSuggestions([]);
+          
+          setTimeout(() => {
+            if (inputRef.current) {
+              const newPos = wordStart + selectedWord.length;
+              inputRef.current.setSelectionRange(newPos, newPos);
+            }
+          }, 0);
+        }
+        return;
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        setSuggestions([]);
         return;
       }
+    }
+
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const pos = inputRef.current?.selectionStart || 0;
+      const newValue = inputValue.slice(0, pos) + '  ' + inputValue.slice(pos);
+      setInputValue(newValue);
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.setSelectionRange(pos + 2, pos + 2);
+        }
+      }, 0);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const pos = inputRef.current?.selectionStart || 0;
+      const textBefore = inputValue.slice(0, pos);
+      const textAfter = inputValue.slice(pos);
       
-      setUser(fbUser);
-      if (unsubscribeUser) {
-        unsubscribeUser();
-        unsubscribeUser = undefined;
-      }
-      if (fbUser) {
-        unsubscribeUser = subscribeToUserData(fbUser.uid, async (data) => {
-          if (!data || !data.role) {
-            // Document might not exist yet, create it
-            console.log("User document missing, creating...");
-            try {
-              const isDevEmail = fbUser.email === 'fufazada@gmail.com' || fbUser.uid === 'dev-backdoor-uid';
-              await setDoc(doc(db, 'users', fbUser.uid), {
-                uid: fbUser.uid,
-                name: fbUser.displayName || 'User',
-                email: fbUser.email,
-                photoUrl: fbUser.photoURL,
-                avatarUrl: fbUser.photoURL || '',
-                region: 'Global',
-                friends: [],
-                role: isDevEmail ? 'developer' : 'user',
-                eplCoins: 0,
-                purchasedItems: [],
-                purchasedApps: [],
-                createdAt: new Date().toISOString(),
-                premiumExpiry: null,
-                isPremium: false
-              });
-              await setDoc(doc(db, 'users_public', fbUser.uid), {
-                uid: fbUser.uid,
-                name: fbUser.displayName || 'User',
-                avatarUrl: fbUser.photoURL || '',
-                region: 'Global',
-                eplCoins: 0,
-                createdAt: new Date().toISOString()
-              });
-            } catch (err) {
-              console.error("Error creating user document in App.tsx", err);
-            }
-          } else {
-            // Force developer role for fufazada@gmail.com if not already set
-            const isDevEmail = fbUser.email === 'fufazada@gmail.com' || fbUser.uid === 'dev-backdoor-uid';
-            if (isDevEmail && data.role !== 'developer') {
-              try {
-                await updateDoc(doc(db, 'users', fbUser.uid), { role: 'developer' });
-                data.role = 'developer'; // Update local data object too
-              } catch (err) {
-                console.error("Error updating developer role for fufazada@gmail.com", err);
-              }
-            }
-            
-            setUserData(data);
-            
-            // Sync users_public
-            try {
-              await setDoc(doc(db, 'users_public', fbUser.uid), {
-                uid: fbUser.uid,
-                name: data.name || fbUser.displayName || 'User',
-                avatarUrl: data.avatarUrl || data.photoUrl || '',
-                region: data.region || 'Global',
-                eplCoins: data.eplCoins || 0,
-                createdAt: data.createdAt || new Date().toISOString()
-              }, { merge: true });
-            } catch (err) {
-              console.error("Error syncing users_public", err);
-            }
+      // Auto-indent: calculate indentation of current line
+      const indentMatch = textBefore.match(/^\s*/);
+      const indent = indentMatch ? indentMatch[0] : '';
+      
+      onChange(textBefore);
+      onSplit(textBefore, indent + textAfter.trimStart());
+    } else if (e.key === 'Backspace' && (inputRef.current?.selectionStart === 0 && inputRef.current?.selectionEnd === 0)) {
+      e.preventDefault();
+      onMerge(inputValue);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      onMoveFocus('up', inputRef.current?.selectionStart || 0);
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      onMoveFocus('down', inputRef.current?.selectionStart || 0);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setIsEditing(false);
+      onBlur();
+    }
+  };
 
-            if (data.isPremium !== undefined) {
-              setIsPremium(data.isPremium);
-            }
-            if (data.premiumExpiry) {
-              const expiryDate = new Date(data.premiumExpiry);
-              if (expiryDate < new Date()) {
-                setIsPremium(false);
-                setPremiumExpiry(null);
-              } else {
-                setIsPremium(true);
-                setPremiumExpiry(data.premiumExpiry);
-              }
-            }
-          }
-        });
-      }
-    });
+  const handleBlur = () => {
+    // Delay blur to allow clicking on suggestions
+    setTimeout(() => {
+      onChange(inputValue);
+      setIsEditing(false);
+      setSuggestions([]);
+      onBlur();
+    }, 150);
+  };
+
+  const applySuggestion = (suggestion: string) => {
+    const pos = inputRef.current?.selectionStart || inputValue.length;
+    const textBeforeCursor = inputValue.slice(0, pos);
+    const textAfterCursor = inputValue.slice(pos);
+    const match = textBeforeCursor.match(/[a-zA-Z0-9_?]+$/);
     
-    return () => {
-      unsubscribeAuth();
-      if (unsubscribeUser) unsubscribeUser();
-    };
-  }, [setUser, isBackdoor]);
+    if (match) {
+      const wordStart = pos - match[0].length;
+      const newValue = inputValue.slice(0, wordStart) + suggestion + textAfterCursor;
+      setInputValue(newValue);
+      setSuggestions([]);
+      
+      setTimeout(() => {
+        if (inputRef.current) {
+          const newPos = wordStart + suggestion.length;
+          inputRef.current.focus();
+          inputRef.current.setSelectionRange(newPos, newPos);
+        }
+      }, 0);
+    }
+  };
 
-  if (userData?.isBanned) {
+  if (isEditing) {
     return (
-      <div className="fixed inset-0 bg-red-950 text-white flex flex-col items-center justify-center p-8 z-[100]">
-        <style dangerouslySetInnerHTML={{__html: `body { background-color: #450a0a !important; }`}} />
-        <h1 className="text-4xl sm:text-6xl font-bold mb-4 text-red-500 text-center">
-          {language === 'ru' ? 'Извините, но вы были забанены' : 'You have been banned'}
-        </h1>
-        <p className="text-xl text-red-200 text-center max-w-lg mb-8">
-          {language === 'ru' ? 'Причина:' : 'Reason:'} {userData.banReason || (language === 'ru' ? 'Нарушение правил' : 'Violation of terms of service.')}
-        </p>
-        <button 
-          onClick={() => auth.signOut()}
-          className="px-8 py-4 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-lg transition-colors"
-        >
-          {language === 'ru' ? 'Выйти' : 'Log Out'}
-        </button>
+      <div className="flex items-center gap-2 my-1 relative">
+        <span className={clsx("w-6 text-right select-none", isFrutigerAero ? "text-blue-800/60" : "text-zinc-600")}>{index + 1}</span>
+        <div className="flex-1 relative">
+          <input
+            ref={inputRef}
+            value={inputValue}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onKeyUp={handleKeyUp}
+            onClick={(e) => updateSuggestions(inputValue, e.currentTarget.selectionStart)}
+            onBlur={handleBlur}
+            className={clsx(
+              "w-full border rounded px-2 py-1 outline-none font-mono",
+              isFrutigerAero ? "bg-white/50 border-blue-400 text-blue-900" : "bg-zinc-900 border-emerald-500/50 text-zinc-200"
+            )}
+            autoComplete="off"
+            spellCheck="false"
+          />
+          {suggestions.length > 0 && (
+            <div className={clsx("absolute top-full left-0 mt-1 w-64 border rounded-lg shadow-xl z-50 overflow-hidden", isFrutigerAero ? "bg-white/80 border-blue-400" : "bg-zinc-800 border-zinc-700")}>
+              {suggestions.map((s, i) => {
+                const def = EPL_DICTIONARY[s];
+                return (
+                  <div 
+                    key={s}
+                    onMouseDown={(e) => { e.preventDefault(); applySuggestion(s); }}
+                    className={clsx(
+                      "px-3 py-1.5 cursor-pointer flex items-center justify-between text-sm",
+                      i === selectedIndex 
+                        ? (isFrutigerAero ? "bg-blue-500/30 text-blue-900" : "bg-emerald-500/20 text-emerald-400") 
+                        : (isFrutigerAero ? "text-blue-800 hover:bg-white/50" : "text-zinc-300 hover:bg-zinc-700/50")
+                    )}
+                  >
+                    <span className="font-mono">{s}</span>
+                    <span className={clsx("text-xs opacity-50 capitalize", isFrutigerAero ? "text-blue-800" : "")}>{def?.type || 'Entity'}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
 
+  // Parse text into tokens
+  const parts = text.split(TOKEN_REGEX);
+  
   return (
-    <BrowserRouter>
-      <style dangerouslySetInnerHTML={{ __html: `
-        html, body, #root { 
-          background: ${isFrutigerAero ? 'url(\'https://images.unsplash.com/photo-1541450805268-4822a3a774ce?q=80&w=2670&auto=format&fit=crop\') center/cover fixed' : 'transparent'} !important;
-          margin: 0; 
-          padding: 0; 
-          height: 100%; 
-          overflow: hidden;
-        }
-      `}} />
-      <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-zinc-950 text-emerald-500"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div></div>}>
-        <Routes>
-          <Route path="/success" element={<SuccessPage />} />
-          <Route path="*" element={
-            <Layout>
-              <AchievementNotifications />
-              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div></div>}>
-                <ViewRenderer />
-              </Suspense>
-            </Layout>
-          } />
-        </Routes>
-      </Suspense>
-    </BrowserRouter>
+    <div className="flex items-start gap-2 my-1 min-h-[28px] group relative">
+      <span className={clsx("w-6 text-right select-none pt-1", isFrutigerAero ? "text-blue-800/60" : "text-zinc-600")}>{index + 1}</span>
+      <div 
+        className={clsx(
+          "flex-1 flex flex-wrap items-center gap-x-1 gap-y-2 py-1 px-2 rounded cursor-text min-h-[28px]",
+          isFrutigerAero ? "hover:bg-white/30 text-blue-900" : "hover:bg-zinc-800/30 text-zinc-300",
+          isLockedByOther && "opacity-50 pointer-events-none"
+        )}
+        onClick={() => {
+          if (!isLockedByOther) onFocus();
+        }}
+      >
+        {parts.length === 1 && !parts[0] ? (
+          <span className={clsx("italic opacity-50", isFrutigerAero ? "text-blue-800" : "text-zinc-600")}>Empty line... (click to edit)</span>
+        ) : (
+          parts.map((part, i) => {
+            const mod = i % 4;
+            if (mod === 0) {
+              // Plain text
+              return part ? <span key={i} className={clsx("whitespace-pre", isFrutigerAero ? "text-blue-900" : "text-zinc-300")}>{part}</span> : null;
+            } else if (mod === 1) {
+              // Keyword
+              const keyword = part;
+              const settingsStr = parts[i + 1];
+              if (!keyword) return null;
+              return (
+                <Token 
+                  key={i} 
+                  keyword={keyword} 
+                  settingsStr={settingsStr} 
+                  entityNames={entityNames}
+                  entities={entities}
+                  onUpdateSettings={(newSettings) => {
+                    const newParts = [...parts];
+                    newParts[i + 1] = newSettings;
+                    
+                    // Reconstruct string
+                    let newLine = '';
+                    for (let j = 0; j < newParts.length; j += 4) {
+                      newLine += newParts[j] || '';
+                      if (newParts[j + 1]) {
+                        newLine += newParts[j + 1];
+                        if (newParts[j + 2] !== undefined && newParts[j + 2] !== null) {
+                          newLine += '{' + newParts[j + 2] + '}';
+                        }
+                      }
+                      if (newParts[j + 3]) {
+                        newLine += newParts[j + 3];
+                      }
+                    }
+                    onChange(newLine);
+                  }}
+                />
+              );
+            } else if (mod === 3) {
+              // Comment
+              return part ? <span key={i} className={clsx("italic", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>{part}</span> : null;
+            }
+            return null;
+          })
+        )}
+        
+        {isLockedByOther && lineLock && (
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-[10px]">
+             <Lock className="w-3 h-3" />
+             {lineLock.name} is editing...
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Token({ keyword, settingsStr, entityNames, entities, onUpdateSettings }: { keyword: string, settingsStr: string | undefined, entityNames: string[], entities: any, onUpdateSettings: (s: string | undefined) => void, key?: React.Key }) {
+  const [showPopover, setShowPopover] = useState(false);
+  const [showHelpModal, setShowHelpModal] = useState(false);
+  const [editorMode, setEditorMode] = useState<'2d' | '3d' | 'position' | null>(null);
+  const def = EPL_DICTIONARY[keyword];
+  
+  // Parse settings string into object
+  const settingsObj: Record<string, string> = {};
+  if (settingsStr) {
+    settingsStr.split(',').forEach(pair => {
+      const [k, v] = pair.split('=');
+      if (k && v) settingsObj[k.trim()] = v.trim();
+    });
+  }
+
+  const [localSettings, setLocalSettings] = useState(settingsObj);
+
+  useEffect(() => {
+    setLocalSettings(settingsObj);
+  }, [settingsStr]);
+
+  if (!def) return <span>{keyword}</span>;
+
+  const handleSave = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const newStr = Object.entries(localSettings)
+      .filter(([_, v]) => v !== '')
+      .map(([k, v]) => `${k}=${v}`)
+      .join(', ');
+    
+    onUpdateSettings(newStr.length > 0 ? newStr : undefined);
+    setShowPopover(false);
+    setEditorMode(null);
+  };
+
+  const handleMiniEditorUIEvent = (eventName: string, target?: string) => {
+    console.log("MiniEditorEvent:", eventName, target, "SettingsName:", localSettings.name, "SettingsTarget:", localSettings.target);
+    if (eventName === 'manipulated?' && (target === localSettings.name || target === localSettings.target)) {
+      const draggedEntity = Object.values(entities || {}).find((e: any) => e.name === target) as any;
+      if (draggedEntity) {
+        const newSettings = {
+          ...localSettings,
+          ...(draggedEntity.x !== undefined && { x: draggedEntity.x.toString() }),
+          ...(draggedEntity.y !== undefined && { y: draggedEntity.y.toString() }),
+          ...(draggedEntity.width !== undefined && { width: draggedEntity.width.toString() }),
+          ...(draggedEntity.height !== undefined && { height: draggedEntity.height.toString() }),
+          ...(draggedEntity.size !== undefined && { size: draggedEntity.size.toString() }),
+          ...(draggedEntity.color !== undefined && { color: draggedEntity.color.toString() }),
+          ...(draggedEntity.image !== undefined && { image: draggedEntity.image.toString() }),
+        };
+        setLocalSettings(newSettings);
+        
+        // Auto-save the position back to the code immediately
+        const newStr = Object.entries(newSettings)
+          .filter(([_, v]) => v !== '')
+          .map(([k, v]) => `${k}=${v}`)
+          .join(', ');
+        
+        onUpdateSettings(newStr.length > 0 ? newStr : undefined);
+      }
+    }
+  };
+
+  return (
+    <div className="relative inline-flex items-center gap-1">
+      <span 
+        onClick={(e) => {
+          e.stopPropagation();
+          if (def.schema) setShowPopover(true);
+        }}
+        className={clsx(
+          "font-bold border-b-2 cursor-pointer transition-colors",
+          def.color,
+          def.schema ? "border-current hover:opacity-80" : "border-transparent cursor-default"
+        )}
+      >
+        {keyword}
+      </span>
+      
+      {settingsStr && (
+        <span 
+          onClick={(e) => {
+            e.stopPropagation();
+            if (def.schema) setShowPopover(true);
+          }}
+          className="text-zinc-400 cursor-pointer hover:text-zinc-300 transition-colors flex items-center"
+        >
+          <span className="text-zinc-500">{"{"}</span>
+          {settingsStr.split(',').map((part, i, arr) => {
+            const hasEquals = part.includes('=');
+            const [k, ...vParts] = part.split('=');
+            const v = vParts.join('=');
+            return (
+              <React.Fragment key={i}>
+                <span className="text-blue-400">{k?.trim()}</span>
+                {hasEquals && (
+                  <>
+                    <span className="text-zinc-500">=</span>
+                    <span className="text-orange-400">{v?.trim()}</span>
+                  </>
+                )}
+                {i < arr.length - 1 && <span className="text-zinc-500">, </span>}
+              </React.Fragment>
+            );
+          })}
+          <span className="text-zinc-500">{"}"}</span>
+        </span>
+      )}
+
+      {showPopover && def.schema && (
+        <>
+          <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={(e) => { e.stopPropagation(); setShowPopover(false); }} />
+          <div 
+            className={clsx(
+              "z-50 p-6 bg-zinc-900 border border-zinc-700 shadow-2xl rounded-xl overflow-y-auto",
+              editorMode 
+                ? "fixed inset-4 sm:inset-auto sm:top-8 sm:bottom-8 sm:left-1/2 sm:-translate-x-1/2 sm:w-[95vw] sm:max-w-6xl flex flex-col"
+                : "fixed inset-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-[90vw] sm:max-w-xl sm:max-h-[90vh]"
+            )}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Gradient className="absolute -top-20 -right-20 w-40 h-40 z-0" variant="purple" absolute={true} />
+
+            <div className="flex justify-between items-center mb-3 relative z-10">
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-bold text-zinc-200 capitalize">{keyword} Settings</h4>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setShowHelpModal(true); }}
+                  className="text-zinc-400 hover:text-zinc-200 transition-colors rounded-full p-1 hover:bg-zinc-800"
+                  title="Show Information"
+                >
+                  <HelpCircle className="w-4 h-4" />
+                </button>
+              </div>
+              <button onClick={(e) => { e.stopPropagation(); setShowPopover(false); }} className="text-zinc-500 hover:text-zinc-300"><X className="w-4 h-4" /></button>
+            </div>
+            
+            <div className="space-y-3">
+              {Object.entries(def.schema).map(([key, type]) => (
+                <div key={key}>
+                  <label className="block text-xs text-zinc-400 mb-1 capitalize">{key}</label>
+                  {key === 'color' || key === 'background' || key === 'gradient' ? (
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={localSettings[key] || '#ffffff'}
+                        onChange={(e) => setLocalSettings({ ...localSettings, [key]: e.target.value })}
+                        className="w-8 h-8 rounded cursor-pointer bg-transparent border-0 p-0"
+                      />
+                      <input
+                        type="text"
+                        value={localSettings[key] || ''}
+                        onChange={(e) => setLocalSettings({ ...localSettings, [key]: e.target.value })}
+                        className="flex-1 bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-emerald-500"
+                        placeholder={`Enter ${key}...`}
+                      />
+                      <div className="flex flex-wrap gap-1 w-20">
+                        {['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#a855f7', '#ec4899', '#ffffff', '#000000'].map(c => (
+                          <button key={c} onClick={() => setLocalSettings({ ...localSettings, [key]: c })} className="w-5 h-5 rounded-full border border-zinc-700" style={{ backgroundColor: c }} />
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        type={type === 'number' ? 'number' : 'text'}
+                        value={localSettings[key] || ''}
+                        onChange={(e) => setLocalSettings({ ...localSettings, [key]: e.target.value })}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-emerald-500"
+                        placeholder={`Enter ${key}...`}
+                        list={key === 'target' || key === 'name' ? `autocomplete-${keyword}-${key}` : undefined}
+                      />
+                      {(key === 'target' || key === 'name') && (
+                        <datalist id={`autocomplete-${keyword}-${key}`}>
+                          {entityNames.map(name => <option key={name} value={name} />)}
+                        </datalist>
+                      )}
+                    </>
+                  )}
+                </div>
+              ))}
+              
+              {editorMode === '3d' && (
+                <div>
+                  <label className="block text-xs text-zinc-400 mb-1 capitalize">Shape</label>
+                  <div className="flex gap-2">
+                    {['cube', 'triangle', 'cylinder', 'sphere'].map(shape => (
+                      <button 
+                        key={shape} 
+                        onClick={() => setLocalSettings({ ...localSettings, shape })}
+                        className={clsx("px-2 py-1 rounded text-xs border", localSettings.shape === shape ? "bg-blue-600 border-blue-500 text-white" : "bg-zinc-800 border-zinc-700 text-zinc-300")}
+                      >
+                        {shape}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            
+            {(def.type === 'entity' || def.type === 'action') && (
+              <div className="flex gap-2 mt-4">
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setEditorMode(editorMode === 'position' ? null : 'position'); }} 
+                  className={clsx("flex-1 text-white flex items-center justify-center gap-1 rounded py-1.5 text-xs transition-colors", editorMode === 'position' ? "bg-amber-600" : "bg-zinc-800 hover:bg-zinc-700")}
+                >
+                  <MousePointer2 className="w-3.5 h-3.5" /> Position
+                </button>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); console.log("2D button clicked"); setEditorMode(editorMode === '2d' ? null : '2d'); }} 
+                  className={clsx("flex-1 text-white flex items-center justify-center gap-1 rounded py-1.5 text-xs transition-colors", editorMode === '2d' ? "bg-emerald-600" : "bg-zinc-800 hover:bg-zinc-700")}
+                >
+                  <LayoutTemplate className="w-3.5 h-3.5" /> 2D Paint
+                </button>
+                <button 
+                  onClick={(e) => { e.stopPropagation(); console.log("3D button clicked"); setEditorMode(editorMode === '3d' ? null : '3d'); }} 
+                  className={clsx("flex-1 text-white flex items-center justify-center gap-1 rounded py-1.5 text-xs transition-colors", editorMode === '3d' ? "bg-blue-600" : "bg-zinc-800 hover:bg-zinc-700")}
+                >
+                  <Box className="w-3.5 h-3.5" /> 3D Editor
+                </button>
+              </div>
+            )}
+
+            {editorMode && (
+              <div className="mt-4 flex-1 rounded-lg overflow-hidden relative bg-black shadow-inner border border-zinc-700 min-h-[500px] shrink-0">
+                <div className="absolute top-2 left-2 bg-black/50 text-white text-[10px] px-2 py-0.5 rounded pointer-events-none z-10 font-bold uppercase">
+                  {editorMode === 'position' ? 'Position Object' : editorMode === '2d' ? '2D Paint Canvas' : '3D Interactive Viewport'}
+                </div>
+                {editorMode === 'position' ? (
+                  <AppPreview 
+                    entities={entities} 
+                    uiMode={{ 
+                      type: 'position', 
+                      target: localSettings.name || localSettings.target 
+                    }} 
+                    handleUIEvent={handleMiniEditorUIEvent} 
+                  />
+                ) : editorMode === '2d' ? (
+                  <TwoDEditor 
+                    targetEntity={Object.values(entities || {}).find((e: any) => e.name === (localSettings.name || localSettings.target))}
+                    onSave={(dataUrl) => {
+                      const name = localSettings.name || localSettings.target;
+                      const targetEntity = Object.values(entities || {}).find((e: any) => e.name === name) as any;
+                      if (targetEntity) {
+                        const key = targetEntity.image !== undefined ? 'image' : 'file';
+                        const newSettings = { ...localSettings, [key]: dataUrl };
+                        setLocalSettings(newSettings);
+                        
+                        const newStr = Object.entries(newSettings)
+                          .filter(([_, v]) => v !== '')
+                          .map(([k, v]) => `${k}=${v}`)
+                          .join(', ');
+                        
+                        onUpdateSettings(newStr.length > 0 ? newStr : undefined);
+                      }
+                    }}
+                  />
+                ) : (
+                  <ThreeDEditor 
+                    initialSettings={localSettings} 
+                    onSave={(newSettings) => {
+                      const mergedSettings = { ...localSettings, ...newSettings };
+                      setLocalSettings(mergedSettings);
+                      
+                      const newStr = Object.entries(mergedSettings)
+                        .filter(([_, v]) => v !== '')
+                        .map(([k, v]) => `${k}=${v}`)
+                        .join(', ');
+                      
+                      onUpdateSettings(newStr.length > 0 ? newStr : undefined);
+                    }} 
+                  />
+                )}
+              </div>
+            )}
+
+            <button 
+              onClick={handleSave}
+              className="w-full mt-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg py-3 text-sm font-bold transition-colors shrink-0"
+            >
+              Apply Changes
+            </button>
+          </div>
+        </>
+      )}
+
+      {showHelpModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={(e) => { e.stopPropagation(); setShowHelpModal(false); }} />
+          <div className="relative bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl w-full max-w-md p-6 flex flex-col gap-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-center">
+              <h3 className="text-lg font-bold text-white capitalize">{keyword} Information</h3>
+              <button onClick={(e) => { e.stopPropagation(); setShowHelpModal(false); }} className="text-zinc-500 hover:text-zinc-300">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="text-zinc-300 text-sm leading-relaxed">
+              {def.description}
+            </div>
+            {def.schema && (
+              <div className="mt-2">
+                <h4 className="text-sm font-semibold text-zinc-400 mb-2 uppercase tracking-wider">Available Parameters</h4>
+                <div className="bg-zinc-950 rounded-lg border border-zinc-800 p-3 space-y-2">
+                  {Object.entries(def.schema).map(([key, type]) => (
+                    <div key={key} className="flex justify-between items-center border-b border-zinc-800/50 last:border-0 pb-2 last:pb-0">
+                      <span className="font-mono text-emerald-400 text-xs">{key}</span>
+                      <span className="font-mono text-zinc-500 text-xs">{type}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <button 
+              onClick={(e) => { e.stopPropagation(); setShowHelpModal(false); }}
+              className="mt-4 w-full bg-zinc-800 hover:bg-zinc-700 text-white rounded-lg py-2 text-sm font-medium transition-colors"
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
