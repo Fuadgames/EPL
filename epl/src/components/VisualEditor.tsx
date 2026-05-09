@@ -1,8 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { EPL_DICTIONARY, TOKEN_REGEX } from '../lib/epl-dictionary';
-import { Plus, X, HelpCircle, LayoutTemplate, Box, MousePointer2 } from 'lucide-react';
+import { Plus, X, HelpCircle, LayoutTemplate, Box, MousePointer2, Lock } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useStore } from '../store/useStore';
+import { doc, updateDoc, deleteField } from 'firebase/firestore';
+import { db } from '../firebase';
 import AppPreview from './AppPreview';
 import Gradient from './Gradient';
 import TwoDEditor from './TwoDEditor';
@@ -22,15 +24,60 @@ export default function VisualEditor({ code, onChange, entities = {} }: VisualEd
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const [cursorPos, setCursorPos] = useState<number | null>(null);
 
+  const collabSessionId = useStore(state => state.collabSessionId);
+  const collabLockedLines = useStore(state => state.collabLockedLines);
+  const user = useStore(state => state.user);
+  const userData = useStore(state => state.userData);
+  const setCollabLocalLockIndex = useStore(state => state.setCollabLocalLockIndex);
+  
+  const prevFocusedRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setCollabLocalLockIndex(focusedIndex);
+    if (collabSessionId && user) {
+      if (prevFocusedRef.current !== focusedIndex) {
+        let updates: any = {};
+        if (prevFocusedRef.current !== null) {
+           updates[`lockedLines.${prevFocusedRef.current}`] = deleteField();
+        }
+        if (focusedIndex !== null) {
+           updates[`lockedLines.${focusedIndex}`] = { uid: user.uid, name: userData?.name || 'User' };
+        }
+        if (Object.keys(updates).length > 0) {
+           updateDoc(doc(db, 'collabSessions', collabSessionId), updates).catch(e => console.error(e));
+        }
+        prevFocusedRef.current = focusedIndex;
+      }
+    }
+  }, [focusedIndex, collabSessionId, user, userData]);
+
+  useEffect(() => {
+    // When unmounting or switching documents, release lock
+    return () => {
+      if (collabSessionId && prevFocusedRef.current !== null) {
+         updateDoc(doc(db, 'collabSessions', collabSessionId), {
+           [`lockedLines.${prevFocusedRef.current}`]: deleteField()
+         }).catch(e => console.error(e));
+      }
+    };
+  }, [collabSessionId]);
+
   const entityNames = React.useMemo(() => {
     const names = new Set<string>();
+    // Add from code
     const regex = /name=([^,}]+)/g;
     let match;
     while ((match = regex.exec(code)) !== null) {
       names.add(match[1].trim());
     }
+    // Add from entities prop
+    if (entities) {
+      Object.values(entities).forEach((e: any) => {
+        if (e && e.name) names.add(e.name);
+      });
+    }
     return Array.from(names);
-  }, [code]);
+  }, [code, entities]);
 
   const handleLineChange = (index: number, newText: string) => {
     const newLines = [...lines];
@@ -137,6 +184,13 @@ function VisualLine({
   onChange, onSplit, onMerge, onMoveFocus, onFocus, onBlur, entities
 }: VisualLineProps) {
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
+  const collabSessionId = useStore(state => state.collabSessionId);
+  const collabLockedLines = useStore(state => state.collabLockedLines);
+  const user = useStore(state => state.user);
+  
+  const lineLock = collabSessionId ? collabLockedLines[index] : undefined;
+  const isLockedByOther = lineLock && lineLock.uid !== user?.uid;
+
   const [isEditing, setIsEditing] = useState(false);
   const [inputValue, setInputValue] = useState(text);
   const [suggestions, setSuggestions] = useState<string[]>([]);
@@ -148,12 +202,12 @@ function VisualLine({
   }, [text]);
 
   useEffect(() => {
-    if (isFocused) {
+    if (isFocused && !isLockedByOther) {
       setIsEditing(true);
     } else {
       setIsEditing(false);
     }
-  }, [isFocused]);
+  }, [isFocused, isLockedByOther]);
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -362,14 +416,17 @@ function VisualLine({
   const parts = text.split(TOKEN_REGEX);
   
   return (
-    <div className="flex items-start gap-2 my-1 min-h-[28px] group">
+    <div className="flex items-start gap-2 my-1 min-h-[28px] group relative">
       <span className={clsx("w-6 text-right select-none pt-1", isFrutigerAero ? "text-blue-800/60" : "text-zinc-600")}>{index + 1}</span>
       <div 
         className={clsx(
           "flex-1 flex flex-wrap items-center gap-x-1 gap-y-2 py-1 px-2 rounded cursor-text min-h-[28px]",
-          isFrutigerAero ? "hover:bg-white/30 text-blue-900" : "hover:bg-zinc-800/30 text-zinc-300"
+          isFrutigerAero ? "hover:bg-white/30 text-blue-900" : "hover:bg-zinc-800/30 text-zinc-300",
+          isLockedByOther && "opacity-50 pointer-events-none"
         )}
-        onClick={() => onFocus()}
+        onClick={() => {
+          if (!isLockedByOther) onFocus();
+        }}
       >
         {parts.length === 1 && !parts[0] ? (
           <span className={clsx("italic opacity-50", isFrutigerAero ? "text-blue-800" : "text-zinc-600")}>Empty line... (click to edit)</span>
@@ -419,6 +476,13 @@ function VisualLine({
             }
             return null;
           })
+        )}
+        
+        {isLockedByOther && lineLock && (
+          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-[10px]">
+             <Lock className="w-3 h-3" />
+             {lineLock.name} is editing...
+          </div>
         )}
       </div>
     </div>
