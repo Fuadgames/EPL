@@ -159,6 +159,22 @@ export default function VisualEditor({ code, onChange, entities = {} }: VisualEd
           entities={entities}
         />
       ))}
+      <button
+        onClick={() => {
+          onChange(code + (code ? '\n' : ''));
+          setFocusedIndex(lines.length);
+          setCursorPos(0);
+        }}
+        className={clsx(
+          "mt-4 flex items-center gap-2 px-4 py-2 rounded-xl border transition-all text-sm font-medium",
+          isFrutigerAero ? "bg-white/40 border-white/50 text-blue-800 hover:bg-white/60" :
+          theme === 'dark' ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700" :
+          "bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+        )}
+      >
+        <Plus className="w-4 h-4" />
+        Add Line
+      </button>
     </div>
   );
 }
@@ -226,6 +242,30 @@ function VisualLine({
       return;
     }
     const textBeforeCursor = value.slice(0, pos);
+    
+    // Check if we are inside a parameter block { ... }
+    const lastOpenBrace = textBeforeCursor.lastIndexOf('{');
+    const lastCloseBrace = textBeforeCursor.lastIndexOf('}');
+    
+    if (lastOpenBrace > lastCloseBrace) {
+      // Inside { }, suggest parameter names based on the preceding keyword
+      const keywordMatch = textBeforeCursor.substring(0, lastOpenBrace).trim().match(/([a-zA-Z0-9_?]+)$/);
+      if (keywordMatch) {
+        const keyword = keywordMatch[1];
+        const def = EPL_DICTIONARY[keyword];
+        if (def && def.schema) {
+          const currentParamPartial = textBeforeCursor.slice(lastOpenBrace + 1).split(',').pop()?.trim().split('=').shift()?.trim() || '';
+          const paramNames = Object.keys(def.schema).filter(p => 
+            p.toLowerCase().startsWith(currentParamPartial.toLowerCase()) && 
+            !textBeforeCursor.slice(lastOpenBrace + 1).includes(`${p}=`)
+          );
+          setSuggestions(paramNames.map(p => `${p}=`));
+          setSelectedIndex(0);
+          return;
+        }
+      }
+    }
+
     const match = textBeforeCursor.match(/[a-zA-Z0-9_?]+$/);
     if (match) {
       const currentWord = match[0].toLowerCase();
@@ -749,7 +789,20 @@ function Token({ keyword, settingsStr, entityNames, entities, onUpdateSettings }
                     }}
                   />
                 ) : (
-                  <ThreeDEditor />
+                  <ThreeDEditor 
+                    initialSettings={localSettings} 
+                    onSave={(newSettings) => {
+                      const mergedSettings = { ...localSettings, ...newSettings };
+                      setLocalSettings(mergedSettings);
+                      
+                      const newStr = Object.entries(mergedSettings)
+                        .filter(([_, v]) => v !== '')
+                        .map(([k, v]) => `${k}=${v}`)
+                        .join(', ');
+                      
+                      onUpdateSettings(newStr.length > 0 ? newStr : undefined);
+                    }} 
+                  />
                 )}
               </div>
             )}
