@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { collection, doc, setDoc, getDoc, updateDoc, deleteDoc, onSnapshot, arrayUnion, arrayRemove, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase';
-import { X, Users, Copy, Check, Play, LogOut, UserMinus, MessageSquare, Send, ShieldAlert, MonitorPlay, Save } from 'lucide-react';
+import { X, Users, Copy, Check, Play, LogOut, UserMinus, MessageSquare, Send, ShieldAlert, MonitorPlay, Save, ChevronDown, ChevronUp } from 'lucide-react';
 import { clsx } from 'clsx';
 import { getDefaultAvatar } from '../lib/avatar';
 
@@ -60,8 +60,20 @@ export default function CollabModal({ isOpen, onClose, currentCode, onCodeChange
   const [loading, setLoading] = useState(false);
   const [messageText, setMessageText] = useState('');
   const [allowOffline, setAllowOffline] = useState(true);
+  const [isMinimized, setIsMinimized] = useState(false);
   const chatMessagesRef = useRef<HTMLDivElement>(null);
   
+  const currentCodeRef = useRef(currentCode);
+  const localSyncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  useEffect(() => {
+    currentCodeRef.current = currentCode;
+  }, [currentCode]);
+
+  useEffect(() => {
+    useStore.getState().setCollabSessionId(sessionId);
+  }, [sessionId]);
+
   // Real-time listener
   useEffect(() => {
     if (!sessionId) return;
@@ -70,9 +82,43 @@ export default function CollabModal({ isOpen, onClose, currentCode, onCodeChange
         const data = docSnap.data() as CollabSession;
         setSession(data);
         
+        // Update locked lines in store
+        useStore.getState().setCollabLockedLines(data.lockedLines || {});
+        
         // Sync code if we are not the one who just typed and code differs
-        if (data.code !== currentCode) {
-          onCodeChange(data.code);
+        if (data.code !== currentCodeRef.current && !docSnap.metadata.hasPendingWrites) {
+          // Merge remote code with our locked lines
+          const remoteLines = data.code.split('\n');
+          const localLines = currentCodeRef.current.split('\n');
+          const lockedLines = data.lockedLines || {};
+          
+          const mergedLines = [];
+          const maxLen = Math.max(remoteLines.length, localLines.length);
+          const localLockIndex = useStore.getState().collabLocalLockIndex;
+          
+          let hasLocalLocks = false;
+          
+          for (let i = 0; i < maxLen; i++) {
+            const lock = lockedLines[i];
+            const isOurs = (lock && lock.uid === user?.uid) || localLockIndex === i;
+            if (isOurs) {
+              mergedLines.push(localLines[i] ?? '');
+              hasLocalLocks = true;
+            } else {
+              if (i < remoteLines.length) {
+                mergedLines.push(remoteLines[i]);
+              }
+            }
+          }
+          const mergedCode = mergedLines.join('\n');
+          
+          if (!hasLocalLocks && !localSyncTimeoutRef.current) {
+            // We have no local locks and aren't typing, just accept remote
+             onCodeChange(data.code);
+          } else if (mergedCode !== currentCodeRef.current) {
+            // We have locks or are typing, merge!
+            onCodeChange(mergedCode);
+          }
         }
         
         // Trigger test if host asked to test together
@@ -86,7 +132,7 @@ export default function CollabModal({ isOpen, onClose, currentCode, onCodeChange
     });
 
     return () => unsubscribe();
-  }, [sessionId, currentCode]);
+  }, [sessionId]); // Removed currentCode dependency
 
   useEffect(() => {
     if (chatMessagesRef.current) {
@@ -96,19 +142,27 @@ export default function CollabModal({ isOpen, onClose, currentCode, onCodeChange
 
   // Sync our local code changes to the session
   useEffect(() => {
-    if (sessionId && session && session.code !== currentCode) {
-      const syncCode = async () => {
+    if (sessionId && session && session.code !== currentCodeRef.current) {
+      if (localSyncTimeoutRef.current) clearTimeout(localSyncTimeoutRef.current);
+      
+      const timeoutId = setTimeout(async () => {
         try {
           // If active, record typing status briefly
           let typingArr = session.typingUsers || [];
           if (!typingArr.includes(user?.uid || '')) {
              typingArr = [...typingArr, user?.uid || ''];
           }
+          
           await updateDoc(doc(db, 'collabSessions', sessionId), {
-            code: currentCode,
+            code: currentCodeRef.current,
             typingUsers: typingArr
           });
           
+          // Only nullify if this timeout is still the active one
+          if (localSyncTimeoutRef.current === timeoutId) {
+            localSyncTimeoutRef.current = null;
+          }
+
           // Clear typing indicator after 2s
           setTimeout(() => {
             updateDoc(doc(db, 'collabSessions', sessionId), {
@@ -117,10 +171,20 @@ export default function CollabModal({ isOpen, onClose, currentCode, onCodeChange
           }, 2000);
         } catch (error) {
           console.error("Error syncing code:", error);
+          if (localSyncTimeoutRef.current === timeoutId) {
+            localSyncTimeoutRef.current = null;
+          }
+        }
+      }, 500);
+      
+      localSyncTimeoutRef.current = timeoutId;
+      
+      return () => {
+        if (localSyncTimeoutRef.current === timeoutId) {
+          clearTimeout(localSyncTimeoutRef.current);
+          localSyncTimeoutRef.current = null;
         }
       };
-      const timeout = setTimeout(syncCode, 500);
-      return () => clearTimeout(timeout);
     }
   }, [currentCode, sessionId, user?.uid]);
 
@@ -332,38 +396,62 @@ export default function CollabModal({ isOpen, onClose, currentCode, onCodeChange
 
   if (!isOpen) return null;
 
-  // Let's make the active modal positioned fixed to the right
+  // Let's make the active modal positioned fixed to the right on desktop, and bottom on mobile
   const isActive = session?.status === 'active';
 
   return (
     <>
       <div className={clsx(
-        "fixed z-[100] transition-all duration-300",
-        isActive ? "right-4 top-20 bottom-20 w-80 flex flex-col" : "inset-0 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm pointer-events-auto"
+        "fixed z-[200] transition-all duration-300",
+        isActive 
+          ? isMinimized 
+            ? "bottom-4 right-4 left-4 sm:left-auto sm:right-4 sm:w-64 h-14" 
+            : "bottom-0 left-0 right-0 sm:bottom-20 sm:left-auto sm:right-4 sm:top-20 sm:w-80 flex flex-col h-[60vh] sm:h-auto rounded-t-3xl sm:rounded-2xl" 
+          : "inset-0 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm pointer-events-auto"
       )}>
         <div className={clsx(
-          "rounded-2xl overflow-hidden flex flex-col relative w-full pointer-events-auto",
-          isActive ? "h-full border shadow-2xl backdrop-blur-md" : "max-w-md shadow-2xl max-h-[90vh]",
+          "overflow-hidden flex flex-col relative w-full pointer-events-auto transition-all duration-300",
+          isActive 
+            ? isMinimized ? "h-full rounded-2xl border shadow-xl" : "h-full sm:rounded-2xl rounded-t-3xl border sm:border shadow-2xl backdrop-blur-md" 
+            : "max-w-md rounded-2xl shadow-2xl max-h-[90vh]",
           isFrutigerAero ? "bg-white/90 border-white/50" :
           theme === 'dark' || isActive ? "bg-zinc-900 border-zinc-800" :
           theme === 'gradient' ? "bg-zinc-900/90 border-emerald-800/50" :
           "bg-white border-zinc-200"
         )}>
           <div className={clsx(
-            "flex items-center justify-between p-4 border-b shrink-0",
+            "flex items-center justify-between p-3 sm:p-4 border-b shrink-0",
             isFrutigerAero ? "border-white/40 bg-white/40" :
-            "border-zinc-800"
-          )}>
-            <h2 className={clsx("text-lg font-bold flex items-center gap-2", isFrutigerAero ? "text-blue-900" : "text-white")}>
-              <Users className="w-5 h-5" />
-              Together Create {isActive && <span className="ml-2 w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
+            "border-zinc-800",
+            isActive && isMinimized ? "cursor-pointer" : ""
+          )} onClick={() => isActive && isMinimized && setIsMinimized(false)}>
+            <h2 className={clsx("text-base sm:text-lg font-bold flex items-center gap-2", isFrutigerAero ? "text-blue-900" : "text-white")}>
+              <Users className="w-4 h-4 sm:w-5 sm:h-5" />
+              <span className="hidden sm:inline">Together Create</span>
+              <span className="sm:hidden">Together</span>
+              {isActive && <span className="ml-1 sm:ml-2 w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>}
             </h2>
-            <button onClick={onClose} className="p-2 rounded-lg hover:bg-zinc-500/20 text-zinc-400 transition-colors">
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-1">
+              {isActive && (
+                <button 
+                  onClick={(e) => { e.stopPropagation(); setIsMinimized(!isMinimized); }} 
+                  className="p-1 sm:p-2 rounded-lg hover:bg-zinc-500/20 text-zinc-400 transition-colors"
+                >
+                  {isMinimized ? <ChevronUp className="w-4 h-4 sm:w-5 sm:h-5" /> : <ChevronDown className="w-4 h-4 sm:w-5 sm:h-5" />}
+                </button>
+              )}
+              <button 
+                onClick={(e) => { e.stopPropagation(); onClose(); }} 
+                className="p-1 sm:p-2 rounded-lg hover:bg-zinc-500/20 text-zinc-400 transition-colors"
+                title="Close"
+              >
+                <X className="w-4 h-4 sm:w-5 sm:h-5" />
+              </button>
+            </div>
           </div>
 
-          <div className="p-4 overflow-y-auto flex-1 flex flex-col no-scrollbar">
+          {!isMinimized && (
+            <div className="p-3 sm:p-4 overflow-y-auto flex-1 flex flex-col no-scrollbar">
             {!sessionId ? (
               <div className="space-y-6">
                 <div className="space-y-4">
@@ -529,12 +617,13 @@ export default function CollabModal({ isOpen, onClose, currentCode, onCodeChange
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
       
       {/* Join Requests Overlay for Host */}
       {session && session.hostId === user?.uid && session.joinRequests?.length > 0 && (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[210] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl w-full max-w-sm shadow-2xl">
             <h3 className="text-xl font-bold text-white mb-4">Join Requests</h3>
             <div className="space-y-3">
