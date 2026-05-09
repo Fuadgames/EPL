@@ -11,22 +11,20 @@ import {
   signOut,
   connectAuthEmulator
 } from "firebase/auth";
-import { getFirestore, doc, updateDoc, increment, onSnapshot, getDoc, setDoc, connectFirestoreEmulator } from "firebase/firestore";
+import { getFirestore, doc, updateDoc, increment, onSnapshot, фgetDoc, setDoc, connectFirestoreEmulator } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 import firebaseConfig from '../firebase-applet-config.json';
 
-const allowedDomains = [
-  'localhost', 
-  '127.0.0.1', 
-  'ais-dev-bcjac2exvccp37f2hoi3je-430427127459.europe-west2.run.app', 
-  'ais-pre-bcjac2exvccp37f2hoi3je-430427127459.europe-west2.run.app'
-];
+const allowedAIStudioProjectId = 'bcjac2exvccp37f2hoi3je';
 
 let isOriginal = true;
-if (typeof window !== 'undefined' && !allowedDomains.includes(window.location.hostname)) {
-  console.warn("Remix detected! Redirecting database to local emulator to protect the original project.");
-  isOriginal = false;
+if (typeof window !== 'undefined') {
+  const hostname = window.location.hostname;
+  if (hostname.endsWith('.run.app') && !hostname.includes(allowedAIStudioProjectId)) {
+    console.warn("Remix detected! Redirecting database to local emulator to protect the original project.");
+    isOriginal = false;
+  }
 }
 
 // Initialize Firebase
