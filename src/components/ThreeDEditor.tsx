@@ -19,13 +19,45 @@ function Model({ url, color, isSelected }: { url: string, color: string, isSelec
   );
 }
 
-export default function ThreeDEditor() {
-  const [shapes, setShapes] = useState<Shape[]>([
-    { id: '1', type: 'box', position: [0, 0, 0], color: '#10b981' }
-  ]);
+interface ThreeDEditorProps {
+  onSave?: (settings: any) => void;
+  initialSettings?: any;
+}
+
+export default function ThreeDEditor({ onSave, initialSettings }: ThreeDEditorProps) {
+  const [shapes, setShapes] = useState<Shape[]>(() => {
+    if (initialSettings?.shape) {
+      return [{ 
+        id: '1', 
+        type: initialSettings.shape, 
+        position: [
+          parseFloat(initialSettings.x || '0'), 
+          parseFloat(initialSettings.y || '0'), 
+          parseFloat(initialSettings.z || '0')
+        ], 
+        color: initialSettings.color || '#10b981' 
+      }];
+    }
+    return [
+      { id: '1', type: 'box', position: [0, 0, 0], color: '#10b981' }
+    ];
+  });
   const [selectedId, setSelectedId] = useState<string>('1');
-  const [currentColor, setCurrentColor] = useState('#10b981');
+  const [currentColor, setCurrentColor] = useState(initialSettings?.color || '#10b981');
   const [dragMode, setDragMode] = useState<'translate' | 'rotate' | 'scale'>('translate');
+
+  const handleSave = () => {
+    if (onSave && shapes.length > 0) {
+      const mainShape = shapes[0];
+      onSave({
+        shape: mainShape.type,
+        x: mainShape.position[0].toFixed(2),
+        y: mainShape.position[1].toFixed(2),
+        z: mainShape.position[2].toFixed(2),
+        color: mainShape.color
+      });
+    }
+  };
 
   // Handle keyboard deletes
   useEffect(() => {
@@ -121,6 +153,15 @@ export default function ThreeDEditor() {
           className="w-8 h-8 rounded cursor-pointer border-0 p-0 self-center"
           title="Color"
         />
+
+        <div className="w-px h-6 bg-zinc-600 self-center mx-2" />
+
+        <button 
+          onClick={handleSave}
+          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded shadow transition-colors self-center"
+        >
+          Save to Code
+        </button>
       </div>
 
       <div className="flex-1 w-full h-full min-h-[300px] bg-zinc-950 relative">

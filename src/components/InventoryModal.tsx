@@ -12,6 +12,8 @@ export default function InventoryModal({ onClose }: { onClose: () => void }) {
   const userData = useStore(state => state.userData);
   const setCodeGlobal = useStore(state => state.setCode);
   const code = useStore(state => state.code);
+  const selectedExtraCategory = useStore(state => state.selectedExtraCategory);
+  const addSceneNode = useStore(state => state.addSceneNode);
   
   const [inventoryItems, setInventoryItems] = useState<StoreAsset[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,13 +50,26 @@ export default function InventoryModal({ onClose }: { onClose: () => void }) {
     fetchInventory();
   }, [userData?.purchasedItems]);
 
-  const handleAddToCode = (itemCode: string) => {
-    setCodeGlobal(code + '\n' + itemCode);
+  const handleAddToCode = (item: StoreAsset) => {
+    if (selectedExtraCategory === 'PreviewEditing') {
+      // Add as a new Script node in the visual environment
+      addSceneNode({
+        type: 'Script',
+        name: item.title.replace(/\s+/g, '_'),
+        properties: {
+          scriptContent: item.content
+        }
+      });
+      alert(`Added "${item.title}" as a Script object to your scene!`);
+    } else {
+      // Standard code appending
+      setCodeGlobal(code + '\n' + item.content);
+    }
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className={clsx(
         "w-full max-w-lg rounded-2xl p-6 shadow-2xl max-h-[90vh] flex flex-col",
         isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
@@ -109,7 +124,7 @@ export default function InventoryModal({ onClose }: { onClose: () => void }) {
                 <div className="flex items-center justify-between gap-3 pt-3 border-t border-current/10">
                   <span className="text-[10px] font-mono opacity-40 uppercase tracking-wider">EPL Snippet</span>
                   <button 
-                    onClick={() => handleAddToCode(item.content)}
+                    onClick={() => handleAddToCode(item)}
                     className={clsx(
                       "px-4 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95",
                       isFrutigerAero ? "bg-blue-500 hover:bg-blue-600 text-white shadow-md" : "bg-emerald-600 hover:bg-emerald-500 text-white"

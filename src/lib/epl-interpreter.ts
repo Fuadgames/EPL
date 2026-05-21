@@ -1,4 +1,4 @@
-import { TOKEN_REGEX } from './epl-dictionary';
+import { TOKEN_REGEX } from '@/src/lib/epl-dictionary';
 import { GoogleGenAI } from "@google/genai";
 
 type EPLValue = string | number | boolean | null;

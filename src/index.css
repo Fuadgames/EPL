@@ -1,12 +1,38 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  @keyframes gradient-slow {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+  }
+}
+
 @layer base {
+  .animate-gradient-slow {
+    background-size: 200% 200%;
+    animation: gradient-slow 15s ease infinite;
+  }
   * {
     cursor: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 2V22L9.5 16.5L13.5 24L16.5 22.5L12.5 15H19L4 2Z' fill='black' stroke='white' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E"), auto !important;
   }
 
   button, a, .cursor-pointer, input, textarea, select {
     cursor: url("data:image/svg+xml,%3Csvg width='24' height='24' viewBox='0 0 24 24' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M4 2V22L9.5 16.5L13.5 24L16.5 22.5L12.5 15H19L4 2Z' fill='black' stroke='white' stroke-width='1.5' stroke-linejoin='round'/%3E%3C/svg%3E"), auto !important;
+  }
+}
+
+@layer base {
+  html, body, #root {
+    background-color: #09090b !important;
+    color: #fafafa;
+    min-height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
   }
 }
 
@@ -116,5 +142,10 @@
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
+  }
+
+  /* Hide the middle finger emoji in EmojiPicker */
+  button[data-unified^="1f595"] {
+    display: none !important;
   }
 }

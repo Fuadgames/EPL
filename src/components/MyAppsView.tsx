@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, where, getDocs, deleteDoc, doc } from 'firebase/firestore';
+import { collection, query, where, getDocs, deleteDoc, doc, onSnapshot } from 'firebase/firestore';
 import { db, auth } from '../firebase';
 import { useStore } from '../store/useStore';
 import { Package, Edit2, Trash2, Plus, Terminal, Lock, Key } from 'lucide-react';
@@ -23,42 +23,38 @@ export default function MyAppsView() {
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const setCurrentView = useStore(state => state.setCurrentView);
   const setEditingAppId = useStore(state => state.setEditingAppId);
+  const setSelectedExtraCategory = useStore(state => state.setSelectedExtraCategory);
   const user = useStore(state => state.user);
 
   const [appToDelete, setAppToDelete] = useState<string | null>(null);
 
-  const fetchApps = async () => {
+  useEffect(() => {
     if (!user) {
       setLoading(false);
       return;
     }
-    try {
-      const q = query(collection(db, 'apps'), where('authorId', '==', user.uid));
-      const snapshot = await getDocs(q);
+    const q = query(collection(db, 'apps'), where('authorId', '==', user.uid));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
       const appsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppData));
-      // Sort in memory to avoid needing a composite index
       appsData.sort((a, b) => {
         const dateA = (a as any).updatedAt ? new Date((a as any).updatedAt).getTime() : 0;
         const dateB = (b as any).updatedAt ? new Date((b as any).updatedAt).getTime() : 0;
         return dateB - dateA;
       });
       setApps(appsData);
-    } catch (error) {
-      console.error("Error fetching user apps", error);
-    } finally {
       setLoading(false);
-    }
-  };
+    }, (error) => {
+      console.error("Error fetching user apps", error);
+      setLoading(false);
+    });
 
-  useEffect(() => {
-    fetchApps();
+    return () => unsubscribe();
   }, [user]);
 
   const handleDelete = async () => {
     if (appToDelete) {
       try {
         await deleteDoc(doc(db, 'apps', appToDelete));
-        setApps(apps.filter(app => app.id !== appToDelete));
       } catch (error) {
         console.error("Error deleting app", error);
       } finally {
@@ -87,6 +83,7 @@ export default function MyAppsView() {
         <button
           onClick={() => {
             setEditingAppId(null);
+            setSelectedExtraCategory('Normal');
             setCurrentView('editor');
           }}
           className={clsx(
@@ -113,6 +110,7 @@ export default function MyAppsView() {
           <button
             onClick={() => {
               setEditingAppId(null);
+              setSelectedExtraCategory('Normal');
               setCurrentView('editor');
             }}
             className={clsx(
@@ -165,6 +163,7 @@ export default function MyAppsView() {
                 <button 
                   onClick={() => {
                     setEditingAppId(app.id);
+                    setSelectedExtraCategory('Normal');
                     setCurrentView('editor');
                   }}
                   className={clsx(

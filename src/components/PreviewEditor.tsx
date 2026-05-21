@@ -132,8 +132,15 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
   });
 
   const syncToCodeRef = useRef<any>(null);
+  const [lastParsedCode, setLastParsedCode] = useState<string>('');
+
   useEffect(() => {
-    if (!code || nodes.length > 0) return;
+    // Only re-parse if the code has changed from outside and is different from the last parsed version
+    if (!code || code === lastParsedCode) return;
+    
+    // If nodes are not empty, we might be overwriting unsaved changes. 
+    // However, the user expects the editor to reflect the current code.
+    // We'll skip re-parsing if the change was likely from our own syncToCode (by checking lastParsedCode)
     
     let targetLines: string[] = [];
     const markerStart = '// --- VISUAL_SCENE_START ---';
@@ -145,11 +152,6 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
       const visualSection = code.substring(startIdx + markerStart.length, endIdx);
       targetLines = visualSection.split('\n');
       
-      // Look for metadata
-      const typeMatch = visualSection.match(/\/\/ mode=(2D|3D)/);
-      if (typeMatch) {
-        // We can't easily change the 'type' prop from here, but we can update camera
-      }
       const camMatch = visualSection.match(/\/\/ camera=(.*)/);
       if (camMatch) {
          try {
@@ -158,9 +160,11 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
          } catch(e) {}
       }
     } else {
-      // Fallback: only parse if specifically looking for entities to avoid over-parsing
-      // But user complained about over-parsing, so let's be strict.
-      // If no marker, we don't auto-restore to avoid "unintended blocks"
+      // If we are loading a completely new app or code without markers, and we already had nodes, we should clear them
+      if (lastParsedCode && !code.includes(markerStart)) {
+         setNodes([]);
+         setLastParsedCode(code);
+      }
       return;
     }
 
@@ -171,7 +175,6 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('// camera=') || trimmed.startsWith('// mode=')) return;
 
-      // Detect Script start
       const scriptMatch = trimmed.match(/^\/\/ --- Script: (.*) ---/);
       if (scriptMatch) {
         if (currentScript) {
@@ -192,7 +195,6 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
         return;
       }
 
-      // Match variables or entities
       const entityMatch = trimmed.match(/^(\w+)\s*\{(.*)\}/);
       if (entityMatch) {
         const [, typeK, propStr] = entityMatch;
@@ -228,7 +230,6 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
       }
     });
 
-    // Final script
     if (currentScript) {
       newNodes.push({
         id: Math.random().toString(36).substr(2, 9),
@@ -239,10 +240,9 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
       });
     }
 
-    if (newNodes.length > 0) {
-      setNodes(newNodes);
-    }
-  }, [code]);
+    setNodes(newNodes);
+    setLastParsedCode(code);
+  }, [code, lastParsedCode]);
 
   useEffect(() => {
     setAddSceneNode((nodeData: any) => {
@@ -657,6 +657,7 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
     }
 
     onChange(newCode);
+    setLastParsedCode(newCode);
     if (showAlert) alert("Visual scene successfully synced to code!");
   };
 

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { EPL_DICTIONARY, TOKEN_REGEX } from '../lib/epl-dictionary';
+import { EPL_DICTIONARY, TOKEN_REGEX } from '@/src/lib/epl-dictionary';
 import { Plus, X, HelpCircle, LayoutTemplate, Box, MousePointer2, Lock } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useStore } from '../store/useStore';
@@ -159,22 +159,6 @@ export default function VisualEditor({ code, onChange, entities = {} }: VisualEd
           entities={entities}
         />
       ))}
-      <button
-        onClick={() => {
-          onChange(code + (code ? '\n' : ''));
-          setFocusedIndex(lines.length);
-          setCursorPos(0);
-        }}
-        className={clsx(
-          "mt-4 flex items-center gap-2 px-4 py-2 rounded-xl border transition-all text-sm font-medium",
-          isFrutigerAero ? "bg-white/40 border-white/50 text-blue-800 hover:bg-white/60" :
-          theme === 'dark' ? "bg-zinc-900 border-zinc-800 text-zinc-400 hover:text-zinc-200 hover:border-zinc-700" :
-          "bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50"
-        )}
-      >
-        <Plus className="w-4 h-4" />
-        Add Line
-      </button>
     </div>
   );
 }
