@@ -463,7 +463,16 @@ export default function StoreView() {
                         <div className={clsx("flex flex-col gap-6 pt-6 border-t", isFrutigerAero ? "border-white/30" : "border-zinc-800/50")}>
                           <div className={clsx("flex items-center justify-between text-sm", isFrutigerAero ? "text-blue-700/70" : "text-zinc-500")}>
                             <div className="flex items-center gap-2 truncate max-w-[200px]">
-                              <span className="font-bold text-emerald-500/80">by {app.authorName}</span>
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  useStore.getState().setViewingProfileId(app.authorId);
+                                  useStore.getState().setCurrentView('public-profile');
+                                }}
+                                className="font-bold text-emerald-500/80 hover:underline cursor-pointer"
+                              >
+                                by {app.authorName}
+                              </button>
                               <span className="opacity-30">•</span>
                               <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {app.visits || 0}</span>
                             </div>

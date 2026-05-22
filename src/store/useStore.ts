@@ -6,7 +6,7 @@ import { ACHIEVEMENTS_DB, AchievementData } from '../lib/achievements';
 import { updateDoc, doc } from 'firebase/firestore';
 import { db } from '../firebase';
 
-type View = 'store' | 'editor' | 'my-apps' | 'profile' | 'settings' | 'player' | 'premium' | 'control' | 'asset-store' | 'leaderboards' | 'donate';
+type View = 'store' | 'editor' | 'my-apps' | 'profile' | 'public-profile' | 'settings' | 'player' | 'premium' | 'control' | 'asset-store' | 'leaderboards' | 'donate';
 
 export interface UserPermissions {
   accessRecent: boolean;
@@ -108,6 +108,8 @@ interface AppState {
   setPremiumCode: (code: string | null) => void;
   premiumExpiry: string | null;
   setPremiumExpiry: (expiry: string | null) => void;
+  viewingProfileId: string | null;
+  setViewingProfileId: (id: string | null) => void;
   achievementQueue: AchievementData[];
   popAchievement: () => void;
   unlockAchievement: (id: string) => void;
@@ -183,6 +185,8 @@ export const useStore = create<AppState>()(persist((set) => ({
   setPremiumCode: (code) => set({ premiumCode: code }),
   premiumExpiry: null,
   setPremiumExpiry: (expiry) => set({ premiumExpiry: expiry }),
+  viewingProfileId: null,
+  setViewingProfileId: (id) => set({ viewingProfileId: id }),
   achievementQueue: [],
   popAchievement: () => set((state) => {
     try {

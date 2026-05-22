@@ -819,8 +819,6 @@ export default function EditorView() {
         originalAppId,
         originalAppName,
         events,
-        comments: [],
-        isVerified: false,
         updatedAt: new Date().toISOString()
       };
 
@@ -830,6 +828,8 @@ export default function EditorView() {
         appData.rating = 0;
         appData.likes = 0;
         appData.dislikes = 0;
+        appData.comments = [];
+        appData.isVerified = false;
       }
 
       await setDoc(doc(db, 'apps', appId), appData, { merge: true });
@@ -876,8 +876,6 @@ export default function EditorView() {
         originalAppId,
         originalAppName,
         events,
-        comments: [],
-        isVerified: false,
         updatedAt: new Date().toISOString()
       };
 
@@ -887,6 +885,8 @@ export default function EditorView() {
         appData.rating = 0;
         appData.likes = 0;
         appData.dislikes = 0;
+        appData.comments = [];
+        appData.isVerified = false;
       }
 
       await setDoc(doc(db, 'apps', appId), appData, { merge: true });

@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { auth } from '../firebase';
 import { updateProfile } from 'firebase/auth';
-import { Sun, Moon, User, Save, CheckCircle2, AlertCircle, Bot, Lock, Sparkles, ShieldCheck } from 'lucide-react';
+import { Sun, Moon, User, Save, CheckCircle2, AlertCircle, Bot, Lock, Sparkles, ShieldCheck, Upload } from 'lucide-react';
 import { clsx } from 'clsx';
 import { DEFAULT_EMOJIS, getEmojiAvatar } from '../lib/avatar';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
@@ -23,11 +23,35 @@ export default function SettingsView() {
   const setUserData = useStore(state => state.setUserData);
   const simulatedRole = useStore(state => state.simulatedRole);
   const setSimulatedRole = useStore(state => state.setSimulatedRole);
+  
   const [displayName, setDisplayName] = useState(user?.displayName || '');
+  const [bio, setBio] = useState((userData as any)?.bio || '');
   const [avatarUrl, setAvatarUrl] = useState(userData?.avatarUrl || user?.photoURL || '');
   const [region, setRegion] = useState(userData?.region || 'Global');
+  
   const [isUpdating, setIsUpdating] = useState(false);
   const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !user) return;
+    setIsUpdating(true);
+    setStatus(null);
+    try {
+      const { ref, uploadBytes, getDownloadURL } = await import('firebase/storage');
+      const { storage } = await import('../firebase');
+      const storageRef = ref(storage, `avatars/${user.uid}_${Date.now()}`);
+      await uploadBytes(storageRef, file);
+      const url = await getDownloadURL(storageRef);
+      setAvatarUrl(url);
+      setStatus({ type: 'success', message: 'Avatar uploaded! Click "Save Changes" to apply.' });
+    } catch (error: any) {
+      setStatus({ type: 'error', message: 'Upload failed: ' + error.message });
+    } finally {
+      setIsUpdating(false);
+    }
+  };
 
   const handleUpdateProfile = async () => {
     if (!user) return;
@@ -37,25 +61,36 @@ export default function SettingsView() {
       if (!auth.currentUser) throw new Error("No authenticated user");
       await updateProfile(auth.currentUser, { displayName, photoURL: avatarUrl });
       
-      // Update users and users_public collections
-      const { doc, updateDoc } = await import('firebase/firestore');
+      const { doc, updateDoc, setDoc, addDoc, collection } = await import('firebase/firestore');
       const { db } = await import('../firebase');
       
-      await updateDoc(doc(db, 'users', user.uid), {
+      const updateData = {
         name: displayName,
+        bio,
         avatarUrl,
         region
-      });
+      };
       
-      await updateDoc(doc(db, 'users_public', user.uid), {
-        name: displayName,
-        avatarUrl,
-        region
-      });
+      await updateDoc(doc(db, 'users', user.uid), updateData);
+      await updateDoc(doc(db, 'users_public', user.uid), updateData);
 
-      // Update local store user object
+      const oldAvatar = userData?.avatarUrl || user.photoURL || '';
+      if (avatarUrl !== oldAvatar) {
+        await setDoc(doc(db, 'adminRequests', `${user.uid}_avatar_${Date.now()}`), {
+          id: `${user.uid}_avatar_${Date.now()}`,
+          type: 'avatar_change',
+          targetId: user.uid,
+          targetName: displayName,
+          requesterId: user.uid,
+          requesterName: displayName,
+          avatarUrl,
+          status: 'pending',
+          createdAt: new Date().toISOString()
+        });
+      }
+
       setUser({ ...user, displayName, photoURL: avatarUrl } as any);
-      setUserData({ ...userData, name: displayName, avatarUrl, region } as any);
+      setUserData({ ...userData, name: displayName, bio, avatarUrl, region } as any);
       
       setStatus({ type: 'success', message: 'Profile updated successfully!' });
     } catch (error: any) {
@@ -299,18 +334,54 @@ export default function SettingsView() {
                 </div>
 
                 <div>
-                  <label className={clsx("block text-sm font-medium mb-1", isFrutigerAero ? "text-blue-800/80" : "text-zinc-500")}>Avatar URL (Or choose an emoji below)</label>
-                  <input
-                    type="text"
-                    value={avatarUrl}
-                    onChange={(e) => setAvatarUrl(e.target.value)}
+                  <label className={clsx("block text-sm font-medium mb-1", isFrutigerAero ? "text-blue-800/80" : "text-zinc-500")}>Bio (Description)</label>
+                  <textarea
+                    value={bio}
+                    onChange={(e) => setBio(e.target.value)}
+                    maxLength={500}
+                    rows={3}
                     className={clsx(
-                      "w-full px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 transition-all mb-3",
+                      "w-full px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 transition-all resize-none",
                       isFrutigerAero ? "bg-white/60 border-white/40 text-blue-900 focus:ring-blue-400 shadow-inner" :
                       theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white focus:ring-emerald-500/50' : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:ring-emerald-500/50'
                     )}
-                    placeholder="Enter avatar URL"
+                    placeholder="Tell us about yourself..."
                   />
+                  <div className={clsx("text-xs text-right mt-1", isFrutigerAero ? "text-blue-800/60" : "text-zinc-500")}>{bio.length}/500</div>
+                </div>
+
+                <div>
+                  <label className={clsx("block text-sm font-medium mb-1", isFrutigerAero ? "text-blue-800/80" : "text-zinc-500")}>Avatar URL (Or upload / choose emoji)</label>
+                  <div className="flex gap-2 mb-3">
+                    <input
+                      type="text"
+                      value={avatarUrl}
+                      onChange={(e) => setAvatarUrl(e.target.value)}
+                      className={clsx(
+                        "flex-1 px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 transition-all",
+                        isFrutigerAero ? "bg-white/60 border-white/40 text-blue-900 focus:ring-blue-400 shadow-inner" :
+                        theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white focus:ring-emerald-500/50' : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:ring-emerald-500/50'
+                      )}
+                      placeholder="Enter avatar URL"
+                    />
+                    <input 
+                      type="file" 
+                      accept="image/*" 
+                      ref={fileInputRef} 
+                      onChange={handleAvatarUpload} 
+                      className="hidden" 
+                    />
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className={clsx(
+                        "px-4 py-2.5 rounded-xl border transition-all flex justify-center items-center gap-2 font-medium shrink-0",
+                        isFrutigerAero ? "bg-white/60 border-white/40 text-blue-800 hover:bg-white/80" :
+                        theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700' : 'bg-white border-zinc-200 text-zinc-800 hover:bg-zinc-50'
+                      )}
+                    >
+                      <Upload className="w-4 h-4" /> Upload
+                    </button>
+                  </div>
                   <div className="mb-2">
                     <EmojiPicker 
                       onEmojiClick={(emojiData) => setAvatarUrl(getEmojiAvatar(emojiData.emoji))}

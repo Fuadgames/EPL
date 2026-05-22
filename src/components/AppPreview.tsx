@@ -14,6 +14,19 @@ interface AppPreviewProps {
 }
 
 export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScreen }: AppPreviewProps) {
+  const [isMobileUI, setIsMobileUI] = React.useState(false);
+  const [isRealMobile, setIsRealMobile] = React.useState(typeof window !== 'undefined' ? window.innerWidth < 640 : false);
+  
+  React.useEffect(() => {
+    const handleResize = () => setIsRealMobile(window.innerWidth < 640);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const displayMobile = isMobileUI || isRealMobile;
+  const getX = (entity: any) => displayMobile && entity.mobile_x !== undefined ? entity.mobile_x : (entity.x || 0);
+  const getY = (entity: any) => displayMobile && entity.mobile_y !== undefined ? entity.mobile_y : (entity.y || 0);
+
   const computerStyle = useStore(state => state.computerStyle);
   const camera = Object.values(entities).find((e: any) => e.type === '3DCamera') as any;
 
@@ -42,9 +55,12 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
   };
 
   return (
-    <div 
-      className={clsx("w-full h-full relative overflow-hidden", )}
-      style={{
+    <div className={clsx("w-full h-full relative flex items-center justify-center", displayMobile && "bg-black/80 z-10")}>
+      <div 
+        className={clsx("relative overflow-hidden", displayMobile ? "w-[375px] h-[812px] bg-white rounded-[40px] border-[8px] border-zinc-900 shadow-2xl shrink-0" : "w-full h-full")}
+        style={{
+          boxShadow: displayMobile ? '0 0 0 1px #333, 0 10px 40px rgba(0,0,0,0.5)' : undefined,
+
         backgroundColor: computerStyle ? 'transparent' : ((Object.values(entities).find((e: any) => e.type === 'world') as any)?.background || (Object.values(entities).find((e: any) => e.type === 'world') as any)?.color || '#ffffff'),
         backgroundImage: (Object.values(entities).find((e: any) => e.type === 'world') as any)?.backgroundImage ? `url(${(Object.values(entities).find((e: any) => e.type === 'world') as any)?.backgroundImage})` : 'none',
         backgroundSize: 'cover',
@@ -67,8 +83,8 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               src={entity.image || getDefaultAvatar(entity.name)}
               className="absolute"
               style={{ 
-                left: entity.x || 0, 
-                top: entity.y || 0, 
+                left: getX(entity), 
+                top: getY(entity), 
                 width: entity.width || 64, 
                 height: entity.height || 64,
                 filter: computerStyle ? 'grayscale(1) sepia(1) hue-rotate(80deg) saturate(500%) brightness(0.8) contrast(2) drop-shadow(0 0 8px rgba(16,185,129,0.8))' : 'none',
@@ -86,8 +102,13 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               transition={{ duration: 0 }}
               onDragEnd={(e, info) => {
                 if (uiMode?.type === 'position' && (!uiMode.target || uiMode.target === entity.name)) {
-                  entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
-                  entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  if (displayMobile) {
+                    entity.mobile_x = Math.round(parseFloat(entity.mobile_x || entity.x || 0) + info.offset.x);
+                    entity.mobile_y = Math.round(parseFloat(entity.mobile_y || entity.y || 0) + info.offset.y);
+                  } else {
+                    entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
+                    entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  }
                   handleUIEvent('manipulated?', entity.name); // trigger update
                 } else if (entity.isDraggable) {
                   handleUIEvent('dragged?', entity.name);
@@ -103,8 +124,8 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               onClick={() => handleUIEvent('clicked?', entity.name)}
               className={clsx("absolute px-4 py-2 font-medium shadow-md transition-all hover:scale-105", computerStyle ? "border-2 border-emerald-500 text-emerald-500 bg-black shadow-[0_0_10px_rgba(16,185,129,0.5)]" : "text-white", (entity.borderRadius === undefined && entity.corner === undefined) && "rounded-lg")}
               style={{ 
-                left: entity.x || 0, 
-                top: entity.y || 0,
+                left: getX(entity), 
+                top: getY(entity),
                 backgroundColor: computerStyle ? '#050505' : (entity.color || '#10b981'),
                 borderRadius: getBorderRadius(entity),
                 transitionProperty: 'left, top, background-color, transform',
@@ -118,8 +139,13 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               transition={{ duration: 0 }}
               onDragEnd={(e, info) => {
                 if (uiMode?.type === 'position' && (!uiMode.target || uiMode.target === entity.name)) {
-                  entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
-                  entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  if (displayMobile) {
+                    entity.mobile_x = Math.round(parseFloat(entity.mobile_x || entity.x || 0) + info.offset.x);
+                    entity.mobile_y = Math.round(parseFloat(entity.mobile_y || entity.y || 0) + info.offset.y);
+                  } else {
+                    entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
+                    entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  }
                   handleUIEvent('manipulated?', entity.name); // trigger update
                 } else if (entity.isDraggable) {
                   handleUIEvent('dragged?', entity.name);
@@ -136,8 +162,8 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               key={`${entity.id}_${entity.x||""}_${entity.y||""}`}
               className={clsx("absolute", computerStyle && "border-2 border-emerald-500 bg-black shadow-[0_0_10px_rgba(16,185,129,0.5)]")}
               style={{ 
-                left: entity.x || 0, 
-                top: entity.y || 0,
+                left: getX(entity), 
+                top: getY(entity),
                 width: entity.width || 50,
                 height: entity.height || 50,
                 backgroundColor: computerStyle ? '#050505' : (entity.color || '#3f3f46'),
@@ -154,8 +180,13 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               transition={{ duration: 0 }}
               onDragEnd={(e, info) => {
                 if (uiMode?.type === 'position' && (!uiMode.target || uiMode.target === entity.name)) {
-                  entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
-                  entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  if (displayMobile) {
+                    entity.mobile_x = Math.round(parseFloat(entity.mobile_x || entity.x || 0) + info.offset.x);
+                    entity.mobile_y = Math.round(parseFloat(entity.mobile_y || entity.y || 0) + info.offset.y);
+                  } else {
+                    entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
+                    entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  }
                   handleUIEvent('manipulated?', entity.name); // trigger update
                 } else if (entity.isDraggable) {
                   handleUIEvent('dragged?', entity.name);
@@ -170,8 +201,8 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               key={`${entity.id}_${entity.x||""}_${entity.y||""}`}
               className={clsx("absolute", computerStyle && "border-2 border-emerald-500 bg-black shadow-[4px_4px_0px_rgba(16,185,129,0.5)]")}
               style={{ 
-                left: entity.x || 0, 
-                top: entity.y || 0,
+                left: getX(entity), 
+                top: getY(entity),
                 width: entity.size || 50,
                 height: entity.size || 50,
                 backgroundColor: computerStyle ? '#050505' : (entity.color || '#3f3f46'),
@@ -188,8 +219,13 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               transition={{ duration: 0 }}
               onDragEnd={(e, info) => {
                 if (uiMode?.type === 'position' && (!uiMode.target || uiMode.target === entity.name)) {
-                  entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
-                  entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  if (displayMobile) {
+                    entity.mobile_x = Math.round(parseFloat(entity.mobile_x || entity.x || 0) + info.offset.x);
+                    entity.mobile_y = Math.round(parseFloat(entity.mobile_y || entity.y || 0) + info.offset.y);
+                  } else {
+                    entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
+                    entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  }
                   handleUIEvent('manipulated?', entity.name); // trigger update
                 } else if (entity.isDraggable) {
                   handleUIEvent('dragged?', entity.name);
@@ -204,8 +240,8 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               key={`${entity.id}_${entity.x||""}_${entity.y||""}`}
               className={clsx("absolute font-bold", computerStyle && "text-emerald-500")}
               style={{ 
-                left: entity.x || 0, 
-                top: entity.y || 0,
+                left: getX(entity), 
+                top: getY(entity),
                 color: computerStyle ? '#10b981' : (entity.color || '#000000'),
                 textShadow: computerStyle ? '0 0 8px rgba(16,185,129,0.8)' : undefined,
                 fontSize: entity.size ? `${entity.size}px` : '16px',
@@ -221,8 +257,13 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               transition={{ duration: 0 }}
               onDragEnd={(e, info) => {
                 if (uiMode?.type === 'position' && (!uiMode.target || uiMode.target === entity.name)) {
-                  entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
-                  entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  if (displayMobile) {
+                    entity.mobile_x = Math.round(parseFloat(entity.mobile_x || entity.x || 0) + info.offset.x);
+                    entity.mobile_y = Math.round(parseFloat(entity.mobile_y || entity.y || 0) + info.offset.y);
+                  } else {
+                    entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
+                    entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  }
                   handleUIEvent('manipulated?', entity.name); // trigger update
                 } else if (entity.isDraggable) {
                   handleUIEvent('dragged?', entity.name);
@@ -246,8 +287,8 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               }}
               className={clsx("absolute px-3 py-2 focus:outline-none transition-colors", computerStyle ? "bg-black border border-emerald-500 text-emerald-500 focus:border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.3)]" : "bg-zinc-900 border border-zinc-700 text-white focus:border-emerald-500", (entity.borderRadius === undefined && entity.corner === undefined) && "rounded-lg")}
               style={{ 
-                left: entity.x || 0, 
-                top: entity.y || 0,
+                left: getX(entity), 
+                top: getY(entity),
                 width: entity.width || 200,
                 borderRadius: getBorderRadius(entity),
                 transitionProperty: 'left, top, transform',
@@ -261,8 +302,13 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               transition={{ duration: 0 }}
               onDragEnd={(e, info) => {
                 if (uiMode?.type === 'position' && (!uiMode.target || uiMode.target === entity.name)) {
-                  entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
-                  entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  if (displayMobile) {
+                    entity.mobile_x = Math.round(parseFloat(entity.mobile_x || entity.x || 0) + info.offset.x);
+                    entity.mobile_y = Math.round(parseFloat(entity.mobile_y || entity.y || 0) + info.offset.y);
+                  } else {
+                    entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
+                    entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  }
                   handleUIEvent('manipulated?', entity.name); // trigger update
                 } else if (entity.isDraggable) {
                   handleUIEvent('dragged?', entity.name);
@@ -277,8 +323,8 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               key={`${entity.id}_${entity.x||""}_${entity.y||""}`}
               className={clsx("absolute", computerStyle && "border-2 border-emerald-500 bg-black shadow-[0_0_10px_rgba(16,185,129,0.5)]", (entity.borderRadius === undefined && entity.corner === undefined) && "rounded-full")}
               style={{ 
-                left: entity.x || 0, 
-                top: entity.y || 0,
+                left: getX(entity), 
+                top: getY(entity),
                 width: (entity.radius || 25) * 2,
                 height: (entity.radius || 25) * 2,
                 backgroundColor: computerStyle ? '#050505' : (entity.color || '#3f3f46'),
@@ -295,8 +341,13 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               transition={{ duration: 0 }}
               onDragEnd={(e, info) => {
                 if (uiMode?.type === 'position' && (!uiMode.target || uiMode.target === entity.name)) {
-                  entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
-                  entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  if (displayMobile) {
+                    entity.mobile_x = Math.round(parseFloat(entity.mobile_x || entity.x || 0) + info.offset.x);
+                    entity.mobile_y = Math.round(parseFloat(entity.mobile_y || entity.y || 0) + info.offset.y);
+                  } else {
+                    entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
+                    entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  }
                   handleUIEvent('manipulated?', entity.name); // trigger update
                 } else if (entity.isDraggable) {
                   handleUIEvent('dragged?', entity.name);
@@ -332,8 +383,13 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               transition={{ duration: 0 }}
               onDragEnd={(e, info) => {
                 if (uiMode?.type === 'position' && (!uiMode.target || uiMode.target === entity.name)) {
-                  entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
-                  entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  if (displayMobile) {
+                    entity.mobile_x = Math.round(parseFloat(entity.mobile_x || entity.x || 0) + info.offset.x);
+                    entity.mobile_y = Math.round(parseFloat(entity.mobile_y || entity.y || 0) + info.offset.y);
+                  } else {
+                    entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
+                    entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  }
                   handleUIEvent('manipulated?', entity.name); // trigger update
                 } else if (entity.isDraggable) {
                   handleUIEvent('dragged?', entity.name);
@@ -348,8 +404,8 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               key={`${entity.id}_${entity.x||""}_${entity.y||""}`}
               className="absolute bg-black text-green-500 font-mono p-4 rounded-lg shadow-lg overflow-y-auto border border-zinc-800"
               style={{ 
-                left: entity.x || 0, 
-                top: entity.y || 0,
+                left: getX(entity), 
+                top: getY(entity),
                 width: entity.width || 400,
                 height: entity.height || 300,
                 opacity: entity.opacity !== undefined ? entity.opacity : 1
@@ -360,8 +416,13 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               transition={{ duration: 0 }}
               onDragEnd={(e, info) => {
                 if (uiMode?.type === 'position' && (!uiMode.target || uiMode.target === entity.name)) {
-                  entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
-                  entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  if (displayMobile) {
+                    entity.mobile_x = Math.round(parseFloat(entity.mobile_x || entity.x || 0) + info.offset.x);
+                    entity.mobile_y = Math.round(parseFloat(entity.mobile_y || entity.y || 0) + info.offset.y);
+                  } else {
+                    entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
+                    entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  }
                   handleUIEvent('manipulated?', entity.name); // trigger update
                 } else if (entity.isDraggable) {
                   handleUIEvent('dragged?', entity.name);
@@ -385,8 +446,8 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               key={`${entity.id}_${entity.x||""}_${entity.y||""}`}
               className={`absolute blur-[80px] rounded-full mix-blend-screen opacity-50 bg-${variant}-500`}
               style={{
-                left: entity.x || 0,
-                top: entity.y || 0,
+                left: getX(entity),
+                top: getY(entity),
                 width: size,
                 height: size,
                 backgroundColor: entity.variant === 'purple' ? '#a855f7' : entity.variant === 'blue' ? '#3b82f6' : '#10b981',
@@ -399,8 +460,13 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               transition={{ duration: 0 }}
               onDragEnd={(e, info) => {
                 if (uiMode?.type === 'position' && (!uiMode.target || uiMode.target === entity.name)) {
-                  entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
-                  entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  if (displayMobile) {
+                    entity.mobile_x = Math.round(parseFloat(entity.mobile_x || entity.x || 0) + info.offset.x);
+                    entity.mobile_y = Math.round(parseFloat(entity.mobile_y || entity.y || 0) + info.offset.y);
+                  } else {
+                    entity.x = Math.round(parseFloat(entity.x || 0) + info.offset.x);
+                    entity.y = Math.round(parseFloat(entity.y || 0) + info.offset.y);
+                  }
                   handleUIEvent('manipulated?', entity.name); // trigger update
                 } else if (entity.isDraggable) {
                   handleUIEvent('dragged?', entity.name);
@@ -412,6 +478,7 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
         return null;
       })}
       </div>
+      </div>
 
       {uiMode?.type === 'position' && (
         <div className="absolute top-auto bottom-0 left-0 right-0 sm:top-4 sm:bottom-auto sm:left-auto sm:right-4 bg-zinc-900 sm:border border-t border-zinc-800 p-4 rounded-t-2xl sm:rounded-xl shadow-2xl z-50 text-white w-full sm:w-72 pointer-events-auto shadow-[0_-10px_20px_rgba(16,185,129,0.2)] sm:shadow-[0_0_20px_rgba(16,185,129,0.2)] max-h-[50vh] sm:max-h-[80vh] overflow-y-auto">
@@ -422,10 +489,10 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
           <p className="text-[10px] text-zinc-500 mb-4 uppercase tracking-wider font-semibold">Fine-tune your entity</p>
 
           <button 
-            onClick={() => handleUIEvent('trigger_mobile_emulator?', uiMode.target)}
-            className="w-full py-2 mb-4 bg-zinc-800 hover:bg-zinc-700 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2 text-zinc-300"
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); setIsMobileUI(!isMobileUI); }}
+            className={clsx("w-full py-2 mb-4 hover:bg-zinc-700 text-sm font-medium rounded-lg transition-colors flex items-center justify-center gap-2", isMobileUI ? "bg-emerald-600 text-white" : "bg-zinc-800 text-emerald-400")}
           >
-             <Smartphone className="w-4 h-4 text-emerald-400" /> Mobile UI
+             <Smartphone className="w-4 h-4" /> {isMobileUI ? "PC UI (default)" : "Mobile UI"}
           </button>
           
           <div className="space-y-4">
@@ -433,12 +500,13 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               <div className="flex flex-col">
                 <label className="text-zinc-500 mb-1">X Position</label>
                 <input type="number" 
-                  value={(Object.values(entities).find((en: any) => en.name === uiMode.target) as any)?.x || 0}
+                  value={(Object.values(entities).find((en: any) => en.name === uiMode.target) as any)?.[displayMobile ? 'mobile_x' : 'x'] || (Object.values(entities).find((en: any) => en.name === uiMode.target) as any)?.x || 0}
                   className="bg-zinc-800 p-2 rounded outline-none w-full border border-zinc-700 focus:border-emerald-500" 
                   onChange={(e) => {
                   const targetEntity = Object.values(entities).find((en: any) => en.name === uiMode.target) as any;
                   if (targetEntity) {
-                    targetEntity.x = Number(e.target.value);
+                    if (displayMobile) targetEntity.mobile_x = Number(e.target.value);
+                    else targetEntity.x = Number(e.target.value);
                     handleUIEvent('manipulated?', uiMode.target);
                   }
                 }} />
@@ -446,12 +514,13 @@ export default function AppPreview({ entities, uiMode, handleUIEvent, isFullScre
               <div className="flex flex-col">
                 <label className="text-zinc-500 mb-1">Y Position</label>
                 <input type="number" 
-                  value={(Object.values(entities).find((en: any) => en.name === uiMode.target) as any)?.y || 0}
+                  value={(Object.values(entities).find((en: any) => en.name === uiMode.target) as any)?.[displayMobile ? 'mobile_y' : 'y'] || (Object.values(entities).find((en: any) => en.name === uiMode.target) as any)?.y || 0}
                   className="bg-zinc-800 p-2 rounded outline-none w-full border border-zinc-700 focus:border-emerald-500" 
                   onChange={(e) => {
                   const targetEntity = Object.values(entities).find((en: any) => en.name === uiMode.target) as any;
                   if (targetEntity) {
-                    targetEntity.y = Number(e.target.value);
+                    if (displayMobile) targetEntity.mobile_y = Number(e.target.value);
+                    else targetEntity.y = Number(e.target.value);
                     handleUIEvent('manipulated?', uiMode.target);
                   }
                 }} />

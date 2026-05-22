@@ -14,6 +14,7 @@ const StoreView = lazy(() => import('./components/StoreView'));
 const EditorView = lazy(() => import('./components/EditorView'));
 const MyAppsView = lazy(() => import('./components/MyAppsView'));
 const ProfileView = lazy(() => import('./components/ProfileView'));
+const PublicProfileView = lazy(() => import('./components/PublicProfileView'));
 const PlayerView = lazy(() => import('./components/PlayerView'));
 const SettingsView = lazy(() => import('./components/SettingsView'));
 const PremiumView = lazy(() => import('./components/PremiumView'));
@@ -36,6 +37,7 @@ function ViewRenderer() {
     case 'editor': return <EditorView />;
     case 'my-apps': return <MyAppsView />;
     case 'profile': return <ProfileView />;
+    case 'public-profile': return <PublicProfileView />;
     case 'player': return <PlayerView />;
     case 'settings': return <SettingsView />;
     case 'premium': return <PremiumView />;
@@ -220,7 +222,7 @@ export default function App() {
     <BrowserRouter>
       <style dangerouslySetInnerHTML={{ __html: `
         html, body, #root { 
-          background: ${isFrutigerAero ? 'url(\'https://images.unsplash.com/photo-1541450805268-4822a3a774ce?q=80&w=2670&auto=format&fit=crop\') center/cover fixed' : 'transparent'} !important;
+          ${isFrutigerAero ? `background: url('https://images.unsplash.com/photo-1541450805268-4822a3a774ce?q=80&w=2670&auto=format&fit=crop') center/cover fixed !important;` : ''}
           margin: 0; 
           padding: 0; 
           height: 100%; 

@@ -559,6 +559,8 @@ function Token({ keyword, settingsStr, entityNames, entities, onUpdateSettings }
           ...localSettings,
           ...(draggedEntity.x !== undefined && { x: draggedEntity.x.toString() }),
           ...(draggedEntity.y !== undefined && { y: draggedEntity.y.toString() }),
+          ...(draggedEntity.mobile_x !== undefined && { mobile_x: draggedEntity.mobile_x.toString() }),
+          ...(draggedEntity.mobile_y !== undefined && { mobile_y: draggedEntity.mobile_y.toString() }),
           ...(draggedEntity.width !== undefined && { width: draggedEntity.width.toString() }),
           ...(draggedEntity.height !== undefined && { height: draggedEntity.height.toString() }),
           ...(draggedEntity.size !== undefined && { size: draggedEntity.size.toString() }),

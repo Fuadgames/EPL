@@ -285,7 +285,16 @@ export default function AppDetailView() {
                     )}
                   </h1>
                   <div className="flex flex-wrap items-center gap-4 text-sm text-zinc-400">
-                    <span className="flex items-center gap-1.5"><User className="w-4 h-4" /> {app.authorName}</span>
+                    <button 
+                      onClick={() => {
+                        useStore.getState().setViewingProfileId(app.authorId);
+                        useStore.getState().setCurrentView('public-profile');
+                        useStore.getState().setSelectedAppId(null);
+                      }}
+                      className="flex items-center gap-1.5 hover:text-emerald-400 hover:underline transition-colors"
+                    >
+                      <User className="w-4 h-4" /> {app.authorName}
+                    </button>
                     <span className="flex items-center gap-1.5"><Tag className="w-4 h-4" /> {app.category}</span>
                     <span className="flex items-center gap-1.5"><Calendar className="w-4 h-4" /> {new Date(app.createdAt).toLocaleDateString()}</span>
                     {app.originalAppId && app.originalAppName && (

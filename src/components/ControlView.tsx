@@ -721,6 +721,12 @@ export default function ControlView() {
                           "{req.reason}"
                         </p>
                       )}
+                      {req.type === 'avatar_change' && req.avatarUrl && (
+                        <div className="mt-4">
+                          <p className="text-sm mb-2 text-zinc-500">Avatar Image:</p>
+                          <img src={req.avatarUrl} alt="New Avatar" className="w-24 h-24 rounded-full object-cover border border-zinc-700 bg-zinc-800" />
+                        </div>
+                      )}
                     </div>
                     
                     <div className="flex flex-col gap-2 min-w-[140px]">
@@ -754,11 +760,24 @@ export default function ControlView() {
                             }}
                             className="w-full px-4 py-2 bg-emerald-500 text-white rounded-xl text-sm font-medium hover:bg-emerald-600 transition-colors"
                           >
-                            Approve
+                            {req.type === 'avatar_change' ? 'Allow' : 'Approve'}
                           </button>
                           <button
                             onClick={async () => {
-                              await updateDoc(doc(db, 'adminRequests', req.id), { status: 'rejected' });
+                              if (req.type === 'avatar_change') {
+                                try {
+                                  // Reject avatar = reset to emoji
+                                  const defaultAvatar = 'https://ui-avatars.com/api/?name=' + req.targetName;
+                                  await updateDoc(doc(db, 'users', req.targetId), { avatarUrl: defaultAvatar });
+                                  await updateDoc(doc(db, 'users_public', req.targetId), { avatarUrl: defaultAvatar });
+                                  await updateDoc(doc(db, 'adminRequests', req.id), { status: 'rejected' });
+                                  alert(language === 'ru' ? 'Отклонено' : 'Rejected');
+                                } catch(e) {
+                                  console.error(e);
+                                }
+                              } else {
+                                await updateDoc(doc(db, 'adminRequests', req.id), { status: 'rejected' });
+                              }
                             }}
                             className="w-full px-4 py-2 bg-red-500/10 text-red-500 rounded-xl text-sm font-medium hover:bg-red-500 hover:text-white transition-colors"
                           >
@@ -769,7 +788,7 @@ export default function ControlView() {
                       
                       {(effectiveRole === 'developer' || effectiveRole === 'admin' || req.requesterId === userData?.uid) && (
                         <>
-                          {req.requesterId === userData?.uid && req.status === 'pending' && (
+                          {req.requesterId === userData?.uid && req.status === 'pending' && req.type !== 'avatar_change' && (
                             <button
                               onClick={async () => {
                                 const newReason = prompt('New format/reason:', req.reason);
