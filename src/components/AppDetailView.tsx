@@ -2,9 +2,10 @@ import React, { useEffect, useState, useTransition } from 'react';
 import { doc, getDoc, updateDoc, increment, setDoc, collection, query, where, getDocs, deleteDoc, addDoc, serverTimestamp, orderBy } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useStore } from '../store/useStore';
-import { X, Star, Download, Play, Monitor, Smartphone, Apple, Terminal, ThumbsUp, ThumbsDown, User, Calendar, Tag, CheckCircle, Coins, MessageSquare, Code2, RefreshCw } from 'lucide-react';
+import { X, Star, Download, Play, Monitor, Smartphone, Apple, Terminal, ThumbsUp, ThumbsDown, User, Calendar, Tag, CheckCircle, Coins, MessageSquare, Code2, RefreshCw, CheckCircle2, Layers } from 'lucide-react';
 import { clsx } from 'clsx';
 import { AppData, UserVote } from '../types';
+import BuildDownloadModal from './BuildDownloadModal';
 
 export default function AppDetailView() {
   const selectedAppId = useStore(state => state.selectedAppId);
@@ -27,6 +28,11 @@ export default function AppDetailView() {
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState('');
   const [buying, setBuying] = useState(false);
+  const isAppInstalled = useStore(state => state.isAppInstalled);
+  const installApp = useStore(state => state.installApp);
+  const [buildPlatform, setBuildPlatform] = useState<string>('windows');
+  const [isBuildModalOpen, setIsBuildModalOpen] = useState(false);
+  const [gettingApp, setGettingApp] = useState(false);
 
   useEffect(() => {
     const fetchApp = async () => {
@@ -146,29 +152,19 @@ export default function AppDetailView() {
 
   const handleDownload = (platform: string) => {
     if (!app) return;
-    const url = (app as any)[`${platform}Url`];
-    if (url && platform !== 'source') {
-      window.open(url, '_blank');
-      updateDoc(doc(db, 'apps', app.id), { downloads: increment(1) });
-    } else {
-      // Fallback to simulated download of raw code
-      setDownloadingApp(`${app.id}-${platform}`);
-      setTimeout(() => {
-        const blob = new Blob([app.code], { type: 'text/plain' });
-        const downloadUrl = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        
-        let ext = '.epl';
-        if (platform === 'windows') ext = '.exe';
-        if (platform === 'macos') ext = '.app';
-        if (platform === 'linux') ext = '.AppImage';
-        if (platform === 'apk') ext = '.apk';
-        
-        a.download = `${app.title}${ext}`;
-        a.click();
-        setDownloadingApp(null);
-      }, 1000);
+    setBuildPlatform(platform);
+    setIsBuildModalOpen(true);
+  };
+
+  const handleGet = async () => {
+    if (!app) return;
+    setGettingApp(true);
+    try {
+      await installApp(app);
+    } catch (e) {
+      console.error('Error installing app:', e);
+    } finally {
+      setGettingApp(false);
     }
   };
 
@@ -432,41 +428,46 @@ export default function AppDetailView() {
                       </div>
                       
                       <div className="grid grid-cols-1 gap-3 sm:gap-4">
-                        {['windows', 'macos', 'linux', 'apk', 'source'].map(platform => {
-                          const url = platform !== 'source' ? (app as any)[`${platform}Url`] : null;
-                          if (platform !== 'source' && !url) return null;
+                        {[
+                          { id: 'windows', name: 'Windows', ext: '.exe', icon: Monitor, desc: 'Standalone Portable App' },
+                          { id: 'macos', name: 'macOS', ext: '.dmg', icon: Apple, desc: 'Apple Disk Image (.app)' },
+                          { id: 'linux', name: 'Linux', ext: '.AppImage', icon: Terminal, desc: 'Universal AppImage' },
+                          { id: 'android', name: 'Android', ext: '.apk', icon: Smartphone, desc: 'Android Package' },
+                          { id: 'ios', name: 'iOS', ext: '.mobileconfig', icon: Smartphone, desc: 'Apple WebClip Profile' },
+                        ].map(p => {
+                          const IconComponent = p.icon;
                           return (
                             <button
-                              key={platform}
-                              onClick={() => handleDownload(platform)}
+                              key={p.id}
+                              onClick={() => handleDownload(p.id)}
                               className={clsx(
-                                "flex items-center justify-between p-4 sm:p-5 rounded-3xl transition-all group border",
+                                "flex items-center justify-between p-4 sm:p-5 rounded-3xl transition-all group border cursor-pointer",
                                 theme !== 'light' ? 'bg-zinc-900/50 hover:bg-zinc-800/80 border-zinc-800 hover:border-zinc-700' : 'bg-white hover:bg-zinc-50 border-zinc-200 hover:border-zinc-300'
                               )}
                             >
                               <div className="flex items-center gap-4">
                                 <div className={clsx(
                                   "w-12 h-12 flex items-center justify-center rounded-2xl transition-all group-hover:scale-110 duration-300",
-                                  theme !== 'light' ? 'bg-zinc-800 text-zinc-400 group-hover:text-emerald-400' : 'bg-zinc-100 text-zinc-500 group-hover:text-emerald-500'
+                                  theme !== 'light' ? 'bg-zinc-800 text-zinc-400 group-hover:text-blue-400' : 'bg-zinc-100 text-zinc-500 group-hover:text-blue-500'
                                 )}>
-                                  {platform === 'windows' && <Monitor className="w-6 h-6" />}
-                                  {platform === 'macos' && <Apple className="w-6 h-6" />}
-                                  {platform === 'linux' && <Terminal className="w-6 h-6" />}
-                                  {platform === 'apk' && <Smartphone className="w-6 h-6" />}
-                                  {platform === 'source' && <Code2 className="w-6 h-6" />}
+                                  <IconComponent className="w-6 h-6" />
                                 </div>
                                 <div className="text-left">
-                                  <div className="font-bold text-base sm:text-lg capitalize leading-tight">{platform === 'source' ? 'Source Code' : platform}</div>
+                                  <div className="font-bold text-base sm:text-lg leading-tight flex items-center gap-2">
+                                    <span>{p.name}</span>
+                                    <span className="text-xs font-mono text-blue-400 font-semibold">{p.ext}</span>
+                                  </div>
                                   <div className={clsx("text-[10px] sm:text-xs uppercase tracking-widest font-semibold", theme !== 'light' ? 'text-zinc-500' : 'text-zinc-400')}>
-                                    {platform === 'apk' ? 'Android Package' : platform === 'source' ? '.epl Project File' : 'Desktop Version'}
+                                    {p.desc}
                                   </div>
                                 </div>
                               </div>
                               <div className={clsx(
-                                "w-10 h-10 flex items-center justify-center rounded-full transition-all",
-                                theme !== 'light' ? 'bg-zinc-800 text-zinc-400 group-hover:bg-emerald-500 group-hover:text-white' : 'bg-zinc-100 text-zinc-500 group-hover:bg-emerald-500 group-hover:text-white'
+                                "px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2",
+                                theme !== 'light' ? 'bg-blue-600/20 text-blue-400 group-hover:bg-blue-600 group-hover:text-white' : 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white'
                               )}>
-                                {downloadingApp === `${app.id}-${platform}` ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
+                                <Download className="w-4 h-4" />
+                                <span>Build & Download</span>
                               </div>
                             </button>
                           );
@@ -554,29 +555,47 @@ export default function AppDetailView() {
                   </section>
                 </div>
 
-                <div className="space-y-6">
-                  {!isPurchased ? (
-                    <button 
-                      onClick={handleBuy}
-                      disabled={buying}
-                      className="w-full flex items-center justify-center gap-3 py-4 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-2xl text-lg font-bold shadow-xl shadow-emerald-500/20 transition-all active:scale-[0.98]"
-                    >
-                      <Coins className="w-6 h-6" /> Buy for {app.price} Coins
-                    </button>
+                <div className="space-y-4">
+                  {isAppInstalled(app.id) ? (
+                    <div className="space-y-3">
+                      <div className="w-full flex items-center justify-center gap-2 py-3 rounded-2xl bg-zinc-800/80 border border-emerald-500/30 text-emerald-400 font-bold text-sm">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                        <span>INSTALLED</span>
+                      </div>
+
+                      <button 
+                        onClick={handlePlay}
+                        className="w-full flex items-center justify-center gap-3 py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl text-lg font-bold shadow-xl shadow-blue-500/25 transition-all active:scale-[0.98] cursor-pointer"
+                      >
+                        <Play className="w-6 h-6 fill-current" /> LAUNCH
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setSelectedAppId(null);
+                          setCurrentView('installed-apps');
+                        }}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 transition-colors cursor-pointer"
+                      >
+                        <Layers className="w-4 h-4" />
+                        <span>View in Installed Apps</span>
+                      </button>
+                    </div>
                   ) : (
                     <button 
-                      onClick={handlePlay}
-                      className="w-full flex items-center justify-center gap-3 py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl text-lg font-bold shadow-xl shadow-emerald-500/20 transition-all active:scale-[0.98]"
+                      onClick={handleGet}
+                      disabled={gettingApp}
+                      className="w-full flex items-center justify-center gap-3 py-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-2xl text-lg font-bold shadow-xl shadow-blue-500/25 transition-all active:scale-[0.98] cursor-pointer"
                     >
-                      <Play className="w-6 h-6 fill-current" /> Play Now
+                      <Download className="w-6 h-6" /> {gettingApp ? 'INSTALLING...' : 'GET'}
                     </button>
                   )}
-                  {app.allowCopy !== false && isPurchased && (
+                  {app.allowCopy !== false && (
                     <button 
                       onClick={handleCopy}
-                      className="w-full flex items-center justify-center gap-3 py-4 bg-zinc-800 hover:bg-zinc-700 text-white rounded-2xl text-lg font-bold shadow-xl transition-all active:scale-[0.98]"
+                      className="w-full flex items-center justify-center gap-3 py-3.5 bg-zinc-800 hover:bg-zinc-700 text-white rounded-2xl text-sm font-bold shadow-lg transition-all active:scale-[0.98] cursor-pointer"
                     >
-                      <Terminal className="w-6 h-6" /> Copy & Edit App
+                      <Terminal className="w-5 h-5" /> Copy & Edit App
                     </button>
                   )}
                 </div>
@@ -635,6 +654,14 @@ export default function AppDetailView() {
           </div>
         </div>
       )}
+
+      {/* Build & Download Modal */}
+      <BuildDownloadModal
+        isOpen={isBuildModalOpen}
+        app={app}
+        initialPlatform={buildPlatform}
+        onClose={() => setIsBuildModalOpen(false)}
+      />
     </div>
   );
 }

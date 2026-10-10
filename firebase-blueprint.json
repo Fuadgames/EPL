@@ -157,12 +157,31 @@
         "createdAt": { "type": "string", "format": "date-time", "description": "When the asset was published." }
       },
       "required": ["id", "title", "description", "price", "stock", "authorId", "authorName", "type", "content", "createdAt"]
+    },
+    "InstalledApp": {
+      "title": "InstalledApp",
+      "description": "An application installed by a user into their library.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "The user's UID." },
+        "projectId": { "type": "string", "description": "The app's unique ID." },
+        "projectName": { "type": "string", "description": "The title of the app." },
+        "version": { "type": "string", "description": "The version string." },
+        "installedAt": { "type": "string", "format": "date-time", "description": "When the app was installed." },
+        "icon": { "type": "string", "description": "The app icon URL." },
+        "status": { "type": "string", "enum": ["ready", "installed", "updating"], "description": "Installation status." }
+      },
+      "required": ["userId", "projectId", "projectName", "version", "installedAt", "status"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": { "$ref": "#/entities/User" },
       "description": "Stores user profiles."
+    },
+    "/installed_apps/{installId}": {
+      "schema": { "$ref": "#/entities/InstalledApp" },
+      "description": "Stores user installed applications."
     },
     "/users_public/{userId}": {
       "schema": { "$ref": "#/entities/UserPublic" },

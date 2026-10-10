@@ -3,7 +3,7 @@ import Layout from './components/Layout';
 import { useStore } from './store/useStore';
 import { auth, subscribeToUserData, db } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { setDoc, doc, updateDoc } from 'firebase/firestore';
+import { setDoc, doc, updateDoc, getDocs, collection, query, where } from 'firebase/firestore';
 import { AchievementNotifications } from './components/AchievementNotifications';
 import { useAchievementEnforcer } from './hooks/useAchievementEnforcer';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
@@ -22,6 +22,7 @@ const ControlView = lazy(() => import('./components/ControlView'));
 const AssetStoreView = lazy(() => import('./components/AssetStoreView'));
 const DonatePage = lazy(() => import('./components/DonatePage'));
 const LeaderboardsView = lazy(() => import('./components/LeaderboardsView'));
+const InstalledAppsView = lazy(() => import('./components/InstalledAppsView'));
 
 function ViewRenderer() {
   const currentView = useStore(state => state.currentView);
@@ -34,6 +35,7 @@ function ViewRenderer() {
 
   switch (currentView) {
     case 'store': return <StoreView />;
+    case 'installed-apps': return <InstalledAppsView />;
     case 'editor': return <EditorView />;
     case 'my-apps': return <MyAppsView />;
     case 'profile': return <ProfileView />;
@@ -159,6 +161,21 @@ export default function App() {
             }
             
             setUserData(data);
+
+            // Restore user's installed apps from cloud if available
+            try {
+              if (data.installedAppsList && Array.isArray(data.installedAppsList) && data.installedAppsList.length > 0) {
+                useStore.getState().setInstalledAppsList(data.installedAppsList);
+              } else {
+                const installedSnap = await getDocs(query(collection(db, 'installed_apps'), where('userId', '==', fbUser.uid)));
+                if (!installedSnap.empty) {
+                  const cloudInstalled = installedSnap.docs.map(d => ({ id: d.id, ...d.data() } as any));
+                  useStore.getState().setInstalledAppsList(cloudInstalled);
+                }
+              }
+            } catch (err) {
+              console.warn("Error restoring installed apps from cloud:", err);
+            }
             
             // Sync users_public
             try {

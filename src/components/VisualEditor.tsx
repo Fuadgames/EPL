@@ -114,13 +114,17 @@ export default function VisualEditor({ code, onChange, entities = {} }: VisualEd
     }
   };
 
+  const selectedExtraCategory = useStore(state => state.selectedExtraCategory);
+  const isCustomEditor = selectedExtraCategory && !['Normal', 'OS', 'Asset', 'PreviewEditing', 'CustomEditor'].includes(selectedExtraCategory);
+
   return (
     <div 
       className={clsx(
         "flex-1 h-full overflow-y-auto p-6 font-mono text-sm cursor-text", 
         isFrutigerAero && "frutiger-aero-bg",
-        computerStyle && "bg-transparent",
-        !isFrutigerAero && !computerStyle && (theme !== 'light' ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-50 text-zinc-800')
+        (computerStyle || isCustomEditor) && "bg-transparent",
+        !isFrutigerAero && !computerStyle && !isCustomEditor && (theme !== 'light' ? 'bg-zinc-950 text-zinc-300' : 'bg-zinc-50 text-zinc-800'),
+        isCustomEditor && (theme !== 'light' ? 'text-zinc-200' : 'text-zinc-900')
       )}
       onClick={(e) => {
         if (e.target === e.currentTarget) {

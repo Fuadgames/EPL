@@ -6,7 +6,7 @@ import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'fir
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { EPLInterpreter } from '../lib/epl-interpreter';
 import { EPL_DICTIONARY } from '@/src/lib/epl-dictionary';
-import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2, Monitor, Smartphone } from 'lucide-react';
+import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2, Monitor, Smartphone, Eye } from 'lucide-react';
 import { clsx } from 'clsx';
 import { GoogleGenAI } from "@google/genai";
 import VisualEditor from './VisualEditor';
@@ -53,6 +53,8 @@ export default function EditorView() {
   const setPreviewType = useStore(state => state.setPreviewType);
   const unlockAchievement = useStore(state => state.unlockAchievement);
   const setCurrentView = useStore(state => state.setCurrentView);
+  const livePreviewEnabled = useStore(state => state.livePreviewEnabled);
+  const setLivePreviewEnabled = useStore(state => state.setLivePreviewEnabled);
   const [isPending, startTransition] = useTransition();
   const t = translations[language];
   const [history, setHistory] = useState<string[]>([DEFAULT_CODE]);
@@ -61,6 +63,13 @@ export default function EditorView() {
   const [uiState, setUiState] = useState<any>({ entities: {} });
   const [isRunning, setIsRunning] = useState(false);
   const [runMode, setRunMode] = useState<'none' | 'pc' | 'mobile' | 'run'>('none');
+
+  // Live Preview State
+  const liveInterpreterRef = useRef<EPLInterpreter | null>(null);
+  const [liveUiState, setLiveUiState] = useState<{ entities: Record<string, any> }>({ entities: {} });
+  const [liveOutput, setLiveOutput] = useState<string[]>([]);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const [showLiveConsole, setShowLiveConsole] = useState(false);
   const [isPhoneRotated, setIsPhoneRotated] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isSavingLocally, setIsSavingLocally] = useState(false);
@@ -70,6 +79,7 @@ export default function EditorView() {
   const [originalAppId, setOriginalAppId] = useState<string | null>(null);
   const [originalAppName, setOriginalAppName] = useState<string | null>(null);
   const [isFullScreen, setIsFullScreen] = useState(false);
+  const [customEditors, setCustomEditors] = useState<any[]>([]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -80,6 +90,24 @@ export default function EditorView() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  useEffect(() => {
+    if (!user) return;
+    const fetchCustomEditors = async () => {
+      try {
+        const { getDocs, query, collection, where } = await import('firebase/firestore');
+        const q = query(collection(db, 'assets'), where('type', '==', 'editor'));
+        const querySnapshot = await getDocs(q);
+        const editors = querySnapshot.docs
+          .map(doc => doc.data())
+          .filter(data => data.authorId === user.uid || (userData?.purchasedItems || []).includes(data.id));
+        setCustomEditors(editors);
+      } catch (err) {
+        console.error('Error fetching custom editors:', err);
+      }
+    };
+    fetchCustomEditors();
+  }, [user, userData?.purchasedItems]);
   const [isMobilePlayerOpen, setIsMobilePlayerOpen] = useState(false);
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
@@ -244,7 +272,7 @@ export default function EditorView() {
 
   const [showPreviewTypeModal, setShowPreviewTypeModal] = useState(false);
 
-  const confirmNewFile = (category: 'Normal' | 'OS' | 'Asset' | 'PreviewEditing') => {
+  const confirmNewFile = (category: 'Normal' | 'OS' | 'Asset' | 'PreviewEditing' | 'CustomEditor' | string) => {
     if (extraModalAction === 'new') {
       setCodeGlobal('');
       setEditingAppId(null);
@@ -258,27 +286,44 @@ export default function EditorView() {
     setSelectedExtraCategory(category);
     setShowExtraCategoryModal(false);
     
-    if (extraModalAction === 'new' && category === 'Asset') {
-      setUiState({
-        entities: {
-          'world': { id: 'world', type: 'world', name: 'world', background: '#09090b' },
-          // Sidebar
-          'sidebar': { id: 'sidebar', type: 'block', name: 'sidebar', x: 0, y: 0, width: 256, height: 600, color: '#18181b' },
-          'title': { id: 'title', type: 'text_label', name: 'Title', text: 'EPL Studio', x: 20, y: 30, color: '#10b981', size: 24 },
-          'subtitle': { id: 'subtitle', type: 'text_label', name: 'Subtitle', text: 'Easy Programming Language', x: 20, y: 60, color: '#a1a1aa', size: 12 },
-          'nav_store': { id: 'nav_store', type: 'button', name: 'Store', text: 'Store', x: 20, y: 100, color: '#27272a', width: 216 },
-          'nav_editor': { id: 'nav_editor', type: 'button', name: 'Editor', text: 'Editor', x: 20, y: 140, color: '#27272a', width: 216 },
-          'nav_myapps': { id: 'nav_myapps', type: 'button', name: 'MyApps', text: 'My Apps', x: 20, y: 180, color: '#27272a', width: 216 },
-          'nav_asset': { id: 'nav_asset', type: 'button', name: 'AssetStore', text: 'Asset Store', x: 20, y: 220, color: '#27272a', width: 216 },
-          'fullscreen_button': { id: 'fullscreen_button', type: 'button', name: 'FullScreen', text: 'Full Screen', x: 20, y: 260, color: '#3b82f6', width: 216 },
-          // Main Content
-          'main': { id: 'main', type: 'block', name: 'main', x: 256, y: 0, width: 544, height: 600, color: '#09090b' },
-          'toolbar': { id: 'toolbar', type: 'block', name: 'toolbar', x: 256, y: 0, width: 544, height: 50, color: '#18181b' },
-          'run_button': { id: 'run_button', type: 'button', name: 'RunButton', text: 'Run', x: 270, y: 10, color: '#10b981', width: 80 },
-          'main_title': { id: 'main_title', type: 'text_label', name: 'MainTitle', text: 'Welcome to EPL Studio', x: 276, y: 80, color: '#ffffff', size: 20 },
-          'main_desc': { id: 'main_desc', type: 'text_label', name: 'MainDesc', text: 'Start building your app by adding assets.', x: 276, y: 110, color: '#a1a1aa', size: 14 }
+    if (extraModalAction === 'new') {
+      if (category === 'Asset') {
+        setUiState({
+          entities: {
+            'world': { id: 'world', type: 'world', name: 'world', background: '#09090b' },
+            // Sidebar
+            'sidebar': { id: 'sidebar', type: 'block', name: 'sidebar', x: 0, y: 0, width: 256, height: 600, color: '#18181b' },
+            'title': { id: 'title', type: 'text_label', name: 'Title', text: 'EPL Studio', x: 20, y: 30, color: '#10b981', size: 24 },
+            'subtitle': { id: 'subtitle', type: 'text_label', name: 'Subtitle', text: 'Easy Programming Language', x: 20, y: 60, color: '#a1a1aa', size: 12 },
+            'nav_store': { id: 'nav_store', type: 'button', name: 'Store', text: 'Store', x: 20, y: 100, color: '#27272a', width: 216 },
+            'nav_editor': { id: 'nav_editor', type: 'button', name: 'Editor', text: 'Editor', x: 20, y: 140, color: '#27272a', width: 216 },
+            'nav_myapps': { id: 'nav_myapps', type: 'button', name: 'MyApps', text: 'My Apps', x: 20, y: 180, color: '#27272a', width: 216 },
+            'nav_asset': { id: 'nav_asset', type: 'button', name: 'AssetStore', text: 'Asset Store', x: 20, y: 220, color: '#27272a', width: 216 },
+            'fullscreen_button': { id: 'fullscreen_button', type: 'button', name: 'FullScreen', text: 'Full Screen', x: 20, y: 260, color: '#3b82f6', width: 216 },
+            // Main Content
+            'main': { id: 'main', type: 'block', name: 'main', x: 256, y: 0, width: 544, height: 600, color: '#09090b' },
+            'toolbar': { id: 'toolbar', type: 'block', name: 'toolbar', x: 256, y: 0, width: 544, height: 50, color: '#18181b' },
+            'run_button': { id: 'run_button', type: 'button', name: 'RunButton', text: 'Run', x: 270, y: 10, color: '#10b981', width: 80 },
+            'main_title': { id: 'main_title', type: 'text_label', name: 'MainTitle', text: 'Welcome to EPL Studio', x: 276, y: 80, color: '#ffffff', size: 20 },
+            'main_desc': { id: 'main_desc', type: 'text_label', name: 'MainDesc', text: 'Start building your app by adding assets.', x: 276, y: 110, color: '#a1a1aa', size: 14 }
+          }
+        });
+      } else if (!['Normal', 'OS', 'PreviewEditing', 'CustomEditor'].includes(category)) {
+        const customEditor = customEditors.find(e => e.id === category);
+        if (customEditor) {
+          const interpreter = new EPLInterpreter(
+            (msg) => console.log(msg),
+            (entities) => setUiState({ entities }),
+            { answerMode: aiAnswerMode, changesEnabled: aiChangesEnabled },
+            userData?.purchasedItems || [],
+            isPremium,
+            userData?.uploadedFiles || []
+          );
+          interpreter.run(customEditor.content);
         }
-      });
+      } else {
+        setUiState({ entities: {} });
+      }
     }
   };
 
@@ -516,6 +561,66 @@ export default function EditorView() {
       handleRun();
     }, 100);
   }, [handleStop, handleRun]);
+
+  // Live Preview engine: automatically execute code as it changes in real-time
+  useEffect(() => {
+    if (!livePreviewEnabled) {
+      if (liveInterpreterRef.current) {
+        liveInterpreterRef.current.stop();
+      }
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        setLiveError(null);
+        if (liveInterpreterRef.current) {
+          liveInterpreterRef.current.stop();
+        }
+        liveInterpreterRef.current = new EPLInterpreter(
+          (msg) => setLiveOutput(prev => [...prev.slice(-30), msg]),
+          (entities) => setLiveUiState({ entities }),
+          { answerMode: aiAnswerMode, changesEnabled: aiChangesEnabled },
+          userData?.purchasedItems || [],
+          isPremium,
+          userData?.uploadedFiles || []
+        );
+        await liveInterpreterRef.current.run(code);
+      } catch (err: any) {
+        setLiveError(err.message || 'Error running live code');
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [code, livePreviewEnabled, aiAnswerMode, aiChangesEnabled, userData?.purchasedItems, userData?.uploadedFiles, isPremium]);
+
+  const handleLiveUIEvent = useCallback((eventName: string, target?: string) => {
+    if (eventName === 'premium_unlocked?') {
+      setIsPremium(true);
+      return;
+    }
+    if (liveInterpreterRef.current) {
+      liveInterpreterRef.current.triggerEvent(eventName, target);
+    }
+  }, [setIsPremium]);
+
+  const handleLiveRestart = useCallback(async () => {
+    if (liveInterpreterRef.current) {
+      liveInterpreterRef.current.stop();
+    }
+    setLiveUiState({ entities: {} });
+    setLiveOutput([]);
+    setLiveError(null);
+    liveInterpreterRef.current = new EPLInterpreter(
+      (msg) => setLiveOutput(prev => [...prev.slice(-30), msg]),
+      (entities) => setLiveUiState({ entities }),
+      { answerMode: aiAnswerMode, changesEnabled: aiChangesEnabled },
+      userData?.purchasedItems || [],
+      isPremium,
+      userData?.uploadedFiles || []
+    );
+    await liveInterpreterRef.current.run(code);
+  }, [code, aiAnswerMode, aiChangesEnabled, userData, isPremium]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -839,6 +944,36 @@ export default function EditorView() {
     } catch (error) {
       const errInfo = handleFirestoreError(error, OperationType.WRITE, `apps/${editingAppId || 'new'}`);
       console.error("Error publishing app", error);
+    } finally {
+      setIsPublishing(false);
+    }
+  };
+
+  const handlePublishToAssetStore = async () => {
+    if (!user) return alert("You must be signed in to publish assets.");
+    setIsPublishing(true);
+    try {
+      const assetRef = doc(collection(db, 'assets'));
+      const assetData: any = {
+        id: assetRef.id,
+        title: appTitle,
+        description: appDesc,
+        coverUrl: appBannerUrl || appScreenshotUrl || appIconUrl || '',
+        price: appPrice,
+        stock: 'infinite',
+        authorId: user.uid,
+        authorName: user.displayName || 'Anonymous',
+        type: 'editor',
+        content: code,
+        createdAt: new Date().toISOString(),
+        visits: 0
+      };
+      await setDoc(assetRef, assetData);
+      setShowPublishModal(false);
+      alert("Published to Asset Store successfully!");
+    } catch (error) {
+      console.error("Error publishing asset", error);
+      alert("Failed to publish to Asset Store.");
     } finally {
       setIsPublishing(false);
     }
@@ -1171,6 +1306,20 @@ export default function EditorView() {
           <div className="flex items-center gap-2">
             {!isRunning ? (
               <>
+                <button 
+                  onClick={() => setLivePreviewEnabled(!livePreviewEnabled)} 
+                  className={clsx(
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-all whitespace-nowrap cursor-pointer",
+                    livePreviewEnabled 
+                      ? (isFrutigerAero ? "bg-blue-500 text-white border border-blue-600 shadow-md" : "bg-blue-600 text-white shadow-md shadow-blue-500/25") 
+                      : (isFrutigerAero ? "bg-white/40 hover:bg-white/60 text-blue-900 border border-white/40" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200")
+                  )}
+                  title={livePreviewEnabled ? "Live Preview is ON (real-time)" : "Live Preview is OFF"}
+                >
+                  <Eye className="w-4 h-4" />
+                  <span className="hidden md:inline">Live Preview</span>
+                  <span className={clsx("w-2 h-2 rounded-full", livePreviewEnabled ? "bg-emerald-400 animate-pulse" : "bg-zinc-500")} />
+                </button>
                 <button onClick={() => handleRun('pc')} className={clsx(
                   "flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
                   isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-900 border border-white/50" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
@@ -1334,8 +1483,28 @@ export default function EditorView() {
               theme === 'dark' ? 'border-zinc-800 bg-zinc-950' : 
               theme === 'gradient' ? 'border-emerald-500/20 bg-black/40 backdrop-blur-xl' : 'border-zinc-200 bg-white'
             )}>
-              <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
-                <VisualEditor code={code} onChange={handleCodeChange} entities={uiState.entities} />
+              <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
+                {selectedExtraCategory === 'CustomEditor' && runMode === 'run' ? (
+                  <>
+                    <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} isFullScreen={true} />
+                    <button onClick={handleStop} className="absolute top-4 right-4 z-50 px-4 py-2 bg-red-500 text-white font-bold rounded-lg shadow-lg hover:bg-red-600 flex items-center gap-2">
+                      <StopCircle className="w-5 h-5" /> Stop
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {selectedExtraCategory && !['Normal', 'OS', 'Asset', 'PreviewEditing', 'CustomEditor'].includes(selectedExtraCategory) && (
+                      <div className="absolute inset-0 z-0">
+                        <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} isFullScreen={true} />
+                      </div>
+                    )}
+                    <div className="relative z-10 h-full flex flex-col pointer-events-none">
+                      <div className="pointer-events-auto h-full flex flex-col">
+                        <VisualEditor code={code} onChange={handleCodeChange} entities={uiState.entities} />
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
               <AIAgent 
                 onCodeGenerated={handleCodeGenerated}
@@ -1345,13 +1514,120 @@ export default function EditorView() {
             </div>
 
             {/* Resize Handle */}
-            <div 
-              className={clsx(
-                "hidden sm:block w-2 hover:w-3 cursor-col-resize transition-all z-20",
-                isFrutigerAero ? "bg-blue-500/20 hover:bg-blue-500/50 border-x border-white/20" : "bg-zinc-800 hover:bg-emerald-500"
-              )}
-              onMouseDown={handleMouseDown}
-            />
+            {livePreviewEnabled && (
+              <div 
+                className={clsx(
+                  "hidden sm:block w-2 hover:w-3 cursor-col-resize transition-all z-20 shrink-0",
+                  isFrutigerAero ? "bg-blue-500/20 hover:bg-blue-500/50 border-x border-white/20" : "bg-zinc-800 hover:bg-emerald-500"
+                )}
+                onMouseDown={handleMouseDown}
+              />
+            )}
+
+            {/* Live Preview Side Panel */}
+            {livePreviewEnabled && (
+              <div 
+                style={{ 
+                  width: typeof window !== 'undefined' && window.innerWidth >= 640 ? `${Math.max(280, Math.min(rightPanelWidth, 800))}px` : undefined 
+                }}
+                className={clsx(
+                  "flex flex-col border-t sm:border-t-0 sm:border-l relative overflow-hidden transition-all shrink-0 h-80 sm:h-auto sm:flex-1 md:flex-initial",
+                  isFrutigerAero ? "bg-white/30 border-white/40 backdrop-blur-md" :
+                  theme !== 'light' ? "bg-zinc-900/60 border-zinc-800" : "bg-zinc-50 border-zinc-200"
+                )}
+              >
+                {/* Header */}
+                <div className={clsx(
+                  "h-10 px-3.5 flex items-center justify-between border-b text-xs select-none shrink-0",
+                  theme !== 'light' ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"
+                )}>
+                  <div className="flex items-center gap-2">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                    <span className="font-bold uppercase tracking-wider text-[11px] text-zinc-300">
+                      {language === 'ru' ? 'Живой просмотр' : 'Live Preview'}
+                    </span>
+                    {liveError && (
+                      <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-red-500/20 text-red-400 border border-red-500/30 truncate max-w-[140px]" title={liveError}>
+                        {liveError}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    <button 
+                      onClick={() => setShowLiveConsole(!showLiveConsole)}
+                      className={clsx(
+                        "p-1.5 rounded-lg transition-colors cursor-pointer",
+                        showLiveConsole ? "bg-zinc-800 text-blue-400" : "hover:bg-zinc-800 text-zinc-400 hover:text-white"
+                      )}
+                      title={showLiveConsole ? "Hide Console" : "Show Console"}
+                    >
+                      <Terminal className="w-3.5 h-3.5" />
+                    </button>
+                    <button 
+                      onClick={handleLiveRestart}
+                      className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                      title="Restart Live Preview"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => handleRun('run')}
+                      className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                      title="Open Fullscreen Player"
+                    >
+                      <Maximize className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setLivePreviewEnabled(false)}
+                      className="p-1.5 rounded-lg hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors cursor-pointer"
+                      title="Turn off Live Preview"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+
+                {/* Viewport */}
+                <div className="flex-1 relative overflow-hidden bg-black flex items-center justify-center">
+                  {Object.keys(liveUiState.entities).length === 0 ? (
+                    <div className="text-center p-6 space-y-2">
+                      <div className="w-10 h-10 rounded-2xl bg-zinc-800/80 text-zinc-400 flex items-center justify-center mx-auto mb-2">
+                        <LayoutTemplate className="w-5 h-5" />
+                      </div>
+                      <p className="text-xs text-zinc-400 font-medium">{t.noEntities}</p>
+                      <p className="text-[11px] text-zinc-600 max-w-xs">
+                        {language === 'ru' 
+                          ? 'Напишите в коде create block или background чтобы увидеть результат.'
+                          : 'Write EPL code like create block to see elements live.'}
+                      </p>
+                    </div>
+                  ) : (
+                    <AppPreview entities={liveUiState.entities} handleUIEvent={handleLiveUIEvent} />
+                  )}
+                </div>
+
+                {/* Live Console Drawer */}
+                {showLiveConsole && (
+                  <div className="h-32 border-t border-zinc-800 bg-zinc-950 font-mono text-[11px] p-2.5 overflow-y-auto text-emerald-400 space-y-0.5 shrink-0">
+                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1 flex items-center justify-between font-sans">
+                      <span>Console output</span>
+                      <button onClick={() => setLiveOutput([])} className="hover:text-zinc-300">clear</button>
+                    </div>
+                    {liveOutput.length === 0 ? (
+                      <div className="italic text-zinc-600 text-xs">Ready.</div>
+                    ) : (
+                      liveOutput.map((l, idx) => (
+                        <div key={idx} className="leading-tight break-all">{l}</div>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
@@ -1405,7 +1681,7 @@ export default function EditorView() {
         </div>
       )}
 
-      {runMode === 'run' && (
+      {runMode === 'run' && selectedExtraCategory !== 'CustomEditor' && (
         <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-4 sm:p-8">
           <div className="w-full max-w-6xl h-[85vh] flex flex-col lg:flex-row bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
             <div className="flex-[2] flex flex-col border-b lg:border-b-0 lg:border-r border-zinc-800">
@@ -1551,6 +1827,31 @@ export default function EditorView() {
                 <div className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>EPL Asset for the Asset Store</div>
               </button>
               <button 
+                onClick={() => confirmNewFile('CustomEditor')}
+                className={clsx(
+                  "w-full text-left p-4 rounded-xl border transition-colors",
+                  isFrutigerAero ? "bg-white/50 border-white/60 hover:bg-white/70 shadow-sm" : "border-zinc-700 hover:bg-zinc-800"
+                )}
+              >
+                <div className={clsx("font-bold", isFrutigerAero ? "text-blue-900" : "")}>Custom Editor</div>
+                <div className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>Build a custom editor using EPL code</div>
+              </button>
+              
+              {customEditors.map(editor => (
+                <button 
+                  key={editor.id}
+                  onClick={() => confirmNewFile(editor.id)}
+                  className={clsx(
+                    "w-full text-left p-4 rounded-xl border transition-colors",
+                    isFrutigerAero ? "bg-white/50 border-white/60 hover:bg-white/70 shadow-sm" : "border-zinc-700 hover:bg-zinc-800"
+                  )}
+                >
+                  <div className={clsx("font-bold", isFrutigerAero ? "text-blue-900" : "text-emerald-500")}>{editor.title}</div>
+                  <div className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>Custom Editor</div>
+                </button>
+              ))}
+
+              <button 
                 onClick={() => {
                   setShowExtraCategoryModal(false);
                   setShowPreviewTypeModal(true);
@@ -1639,7 +1940,7 @@ export default function EditorView() {
                   onChange={(e) => setAppCategory(e.target.value)}
                   className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors"
                 >
-                  {['games', 'apps', 'work', 'AI', 'Programming Language', 'Store', 'Other'].map(cat => (
+                  {['games', 'apps', 'work', 'AI', 'Programming Language', 'Store', 'Custom Editor', 'Other'].map(cat => (
                     <option key={cat} value={cat}>{cat}</option>
                   ))}
                 </select>
@@ -1931,6 +2232,15 @@ export default function EditorView() {
               >
                 {t.cancel}
               </button>
+              {appCategory === 'Custom Editor' && (
+                <button
+                  onClick={handlePublishToAssetStore}
+                  disabled={isPublishing}
+                  className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+                >
+                  <Package className="w-4 h-4" /> Asset Store
+                </button>
+              )}
               <button
                 onClick={handlePublish}
                 disabled={isPublishing}

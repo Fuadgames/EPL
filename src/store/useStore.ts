@@ -3,10 +3,26 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { User } from 'firebase/auth';
 import { ACHIEVEMENTS_DB, AchievementData } from '../lib/achievements';
-import { updateDoc, doc } from 'firebase/firestore';
+import { updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
-type View = 'store' | 'editor' | 'my-apps' | 'profile' | 'public-profile' | 'settings' | 'player' | 'premium' | 'control' | 'asset-store' | 'leaderboards' | 'donate';
+export type View = 'store' | 'installed-apps' | 'editor' | 'my-apps' | 'profile' | 'public-profile' | 'settings' | 'player' | 'premium' | 'control' | 'asset-store' | 'leaderboards' | 'donate';
+
+export interface InstalledAppItem {
+  id: string; // projectId
+  projectId: string;
+  projectName: string;
+  version: string;
+  installedAt: string;
+  icon?: string;
+  description?: string;
+  authorName?: string;
+  category?: string;
+  status: 'ready' | 'installed' | 'updating';
+  supportedPlatforms?: string[];
+  code?: string;
+  webUrl?: string;
+}
 
 export interface UserPermissions {
   accessRecent: boolean;
@@ -35,6 +51,7 @@ export interface UserData {
   uploadedFiles?: { name: string; url: string }[];
   permissions?: UserPermissions;
   installedApps?: { [appId: string]: string }; // appId -> version
+  installedAppsList?: InstalledAppItem[];
   purchasedApps?: string[]; // list of appIds
   unlockedAchievements?: string[]; // list of achievement ids
   createdAt?: string;
@@ -90,8 +107,8 @@ interface AppState {
   setLastResetTime: (time: string) => void;
   computerStyle: boolean;
   setComputerStyle: (enabled: boolean) => void;
-  selectedExtraCategory: 'Normal' | 'OS' | 'Asset' | 'PreviewEditing' | null;
-  setSelectedExtraCategory: (category: 'Normal' | 'OS' | 'Asset' | 'PreviewEditing' | null) => void;
+  selectedExtraCategory: 'Normal' | 'OS' | 'Asset' | 'PreviewEditing' | 'CustomEditor' | string | null;
+  setSelectedExtraCategory: (category: 'Normal' | 'OS' | 'Asset' | 'PreviewEditing' | 'CustomEditor' | string | null) => void;
   previewType: '2D' | '3D' | null;
   setPreviewType: (type: '2D' | '3D' | null) => void;
   addSceneNode: (node: any) => void;
@@ -119,15 +136,33 @@ interface AppState {
   setCollabLockedLines: (lines: Record<number, { uid: string, name: string }>) => void;
   collabLocalLockIndex: number | null;
   setCollabLocalLockIndex: (index: number | null) => void;
+  installedAppsList: InstalledAppItem[];
+  setInstalledAppsList: (apps: InstalledAppItem[]) => void;
+  installApp: (app: any) => Promise<void>;
+  removeInstalledApp: (projectId: string) => Promise<void>;
+  isAppInstalled: (projectId: string) => boolean;
+  livePreviewEnabled: boolean;
+  setLivePreviewEnabled: (enabled: boolean) => void;
 }
 
-export const useStore = create<AppState>()(persist((set) => ({
+export const useStore = create<AppState>()(persist((set, get) => ({
   currentView: 'store',
   setCurrentView: (view) => startTransition(() => { set({ currentView: view }); }),
   user: null,
   setUser: (user) => startTransition(() => { set({ user }); }),
   userData: null,
-  setUserData: (userData) => startTransition(() => { set({ userData }); }),
+  setUserData: (userData) => startTransition(() => {
+    // When userData updates from Firestore, also sync installedAppsList
+    const listFromUser = userData?.installedAppsList || [];
+    set((state) => {
+      // Merge if user has items or local state has items
+      const merged = listFromUser.length > 0 ? listFromUser : state.installedAppsList;
+      return { 
+        userData: userData ? { ...userData, installedAppsList: merged } : null,
+        installedAppsList: merged
+      };
+    });
+  }),
   theme: 'dark',
   toggleTheme: () => startTransition(() => { set((state) => ({ theme: state.theme === 'light' ? 'dark' : 'light' })); }),
   setTheme: (theme) => startTransition(() => { set({ theme }); }),
@@ -225,6 +260,107 @@ export const useStore = create<AppState>()(persist((set) => ({
   setCollabLockedLines: (lines) => set({ collabLockedLines: lines }),
   collabLocalLockIndex: null,
   setCollabLocalLockIndex: (index) => set({ collabLocalLockIndex: index }),
+  installedAppsList: [],
+  setInstalledAppsList: (apps) => set({ installedAppsList: apps }),
+  isAppInstalled: (projectId: string) => {
+    const state = get();
+    if (!projectId) return false;
+    if (state.userData?.installedApps?.[projectId]) return true;
+    if (state.userData?.installedAppsList?.some(i => i.projectId === projectId || i.id === projectId)) return true;
+    if (state.installedAppsList?.some(i => i.projectId === projectId || i.id === projectId)) return true;
+    return false;
+  },
+  installApp: async (app: any) => {
+    const state = get();
+    const projectId = app.id || app.projectId;
+    if (!projectId) return;
+
+    const newItem: InstalledAppItem = {
+      id: projectId,
+      projectId: projectId,
+      projectName: app.title || app.projectName || 'Untitled App',
+      version: app.version || '1.0.0',
+      installedAt: new Date().toISOString(),
+      icon: app.iconUrl || app.icon || '',
+      description: app.description || '',
+      authorName: app.authorName || 'Unknown',
+      category: app.category || 'apps',
+      status: 'ready',
+      supportedPlatforms: app.supportedPlatforms || ['windows', 'macos', 'linux', 'android', 'ios'],
+      code: app.code || ''
+    };
+
+    const currentList = state.installedAppsList || [];
+    const exists = currentList.some(item => item.projectId === projectId || item.id === projectId);
+    const updatedList = exists 
+      ? currentList.map(item => (item.projectId === projectId || item.id === projectId) ? { ...item, ...newItem } : item)
+      : [newItem, ...currentList];
+
+    const currentInstalledMap = { ...(state.userData?.installedApps || {}), [projectId]: newItem.version };
+
+    // Update state immediately
+    set({
+      installedAppsList: updatedList,
+      userData: state.userData ? {
+        ...state.userData,
+        installedApps: currentInstalledMap,
+        installedAppsList: updatedList
+      } : null
+    });
+
+    // Sync with Firestore if user is authenticated
+    if (state.user?.uid) {
+      try {
+        const userRef = doc(db, 'users', state.user.uid);
+        await updateDoc(userRef, {
+          [`installedApps.${projectId}`]: newItem.version,
+          installedAppsList: updatedList
+        });
+
+        // Also save to top-level installed_apps collection
+        const installDocRef = doc(db, 'installed_apps', `${state.user.uid}_${projectId}`);
+        await setDoc(installDocRef, {
+          userId: state.user.uid,
+          ...newItem
+        }, { merge: true });
+      } catch (err) {
+        console.error('Error saving installed app to Firestore:', err);
+      }
+    }
+  },
+  removeInstalledApp: async (projectId: string) => {
+    const state = get();
+    const updatedList = (state.installedAppsList || []).filter(item => item.projectId !== projectId && item.id !== projectId);
+    
+    const currentInstalledMap = { ...(state.userData?.installedApps || {}) };
+    delete currentInstalledMap[projectId];
+
+    set({
+      installedAppsList: updatedList,
+      userData: state.userData ? {
+        ...state.userData,
+        installedApps: currentInstalledMap,
+        installedAppsList: updatedList
+      } : null
+    });
+
+    if (state.user?.uid) {
+      try {
+        const userRef = doc(db, 'users', state.user.uid);
+        await updateDoc(userRef, {
+          installedApps: currentInstalledMap,
+          installedAppsList: updatedList
+        });
+
+        const installDocRef = doc(db, 'installed_apps', `${state.user.uid}_${projectId}`);
+        await deleteDoc(installDocRef).catch(() => {});
+      } catch (err) {
+        console.error('Error removing installed app from Firestore:', err);
+      }
+    }
+  },
+  livePreviewEnabled: true,
+  setLivePreviewEnabled: (enabled) => set({ livePreviewEnabled: enabled }),
 }), {
   name: 'app-storage',
   partialize: (state) => ({ 
@@ -245,6 +381,8 @@ export const useStore = create<AppState>()(persist((set) => ({
     simulatedRole: state.simulatedRole,
     premiumCode: state.premiumCode,
     premiumExpiry: state.premiumExpiry,
-    code: state.code
+    code: state.code,
+    installedAppsList: state.installedAppsList,
+    livePreviewEnabled: state.livePreviewEnabled
   }),
 }));

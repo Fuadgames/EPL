@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useTransition } from 'react';
 import { useStore } from '../store/useStore';
-import { Store, Code2, Package, User, Settings, LogOut, Sun, Moon, Star, ArrowLeft, ShieldCheck, Trophy } from 'lucide-react';
+import { Store, Code2, Package, User, Settings, LogOut, Sun, Moon, Star, ArrowLeft, ShieldCheck, Trophy, Layers } from 'lucide-react';
 import { auth, logOut } from '../firebase';
 import { clsx } from 'clsx';
 import Gradient from './Gradient';
@@ -58,6 +58,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
   const navItems = [
     { id: 'store', label: 'App Store', icon: Store, permission: 'accessRecent' },
+    { id: 'installed-apps', label: translations[language].installedApps || 'Installed Apps', icon: Layers },
     { id: 'leaderboards', label: 'Leaderboards', icon: Trophy },
     { id: 'editor', label: translations[language].editor, icon: Code2, permission: 'publishApps' },
     { id: 'my-apps', label: translations[language].myApps, icon: Package },
@@ -227,8 +228,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       {selectedAppId && <AppDetailView />}
 
       {/* Mobile Bottom Nav */}
-      <div className={clsx("md:hidden flex items-center p-2 border-t pb-4 overflow-x-auto no-scrollbar relative z-10", isFrutigerAero ? 'frutiger-aero-glass border-white/50' : theme !== 'light' ? 'border-zinc-800 bg-zinc-900/50' : 'border-zinc-200 bg-white')}>
-        <div className="flex items-center justify-around w-full min-w-max px-2 gap-1">
+      <div className={clsx("md:hidden flex items-center p-2 border-t pb-4 overflow-x-auto no-scrollbar relative z-10 touch-pan-x", isFrutigerAero ? 'frutiger-aero-glass border-white/50' : theme !== 'light' ? 'border-zinc-800 bg-zinc-900/50' : 'border-zinc-200 bg-white')}>
+        <div className="flex items-center justify-start min-w-max px-2 gap-2 w-full">
           {filteredNavItems.map((item) => (
             <button
               key={item.id}

@@ -1,9 +1,15 @@
 import express from "express";
+import http from "http";
+import { WebSocketServer } from "ws";
 import { createServer as createViteServer } from "vite";
 import path from "path";
+import fs from "fs";
 import * as dotenv from "dotenv";
 import Stripe from 'stripe';
+import { createBuildJob, getBuildJob, BuildPlatform } from './server/builder';
+import { setupCollabWebSocketServer, createSession, getSession } from './server/collab-server';
 
+dotenv.config();
 dotenv.config({ path: '.env.example' });
 
 let stripeClient: Stripe | null = null;
@@ -83,6 +89,118 @@ async function startServer() {
     }
   });
 
+  // Project Build & Export System
+  app.post("/api/build", async (req, res) => {
+    try {
+      const { projectId, platform, version, appData } = req.body;
+      if (!projectId || !platform) {
+        return res.status(400).json({ error: 'Missing projectId or platform parameter' });
+      }
+
+      const validPlatforms = ['windows', 'macos', 'linux', 'android', 'ios', 'ios-ipa'];
+      if (!validPlatforms.includes(platform)) {
+        return res.status(400).json({ error: `Invalid platform: ${platform}. Allowed: ${validPlatforms.join(', ')}` });
+      }
+
+      const job = await createBuildJob(
+        projectId, 
+        platform as BuildPlatform, 
+        version || '1.0.0', 
+        appData || { title: 'EPL App', code: '' }
+      );
+
+      res.json({ buildId: job.id, status: job.status, progress: job.progress });
+    } catch (err: any) {
+      console.error('Build creation error:', err);
+      res.status(500).json({ error: err.message || 'Failed to initialize build' });
+    }
+  });
+
+  app.get("/api/build/:buildId/status", (req, res) => {
+    const job = getBuildJob(req.params.buildId);
+    if (!job) {
+      return res.status(404).json({ error: 'Build job not found' });
+    }
+    res.json({
+      buildId: job.id,
+      projectId: job.projectId,
+      platform: job.platform,
+      version: job.version,
+      status: job.status,
+      progress: job.progress,
+      statusMessage: job.statusMessage,
+      logs: job.logs || [],
+      downloadUrl: job.downloadUrl,
+      fileName: job.fileName,
+      fileSize: job.fileSize,
+      error: job.error
+    });
+  });
+
+  app.get("/api/build/:buildId/download", (req, res) => {
+    const job = getBuildJob(req.params.buildId);
+    if (!job || job.status !== 'completed' || !job.filePath) {
+      return res.status(404).json({ error: 'Build file not ready or job not found' });
+    }
+    if (!fs.existsSync(job.filePath)) {
+      return res.status(404).json({ error: 'Build file expired or missing' });
+    }
+
+    const safeName = job.fileName ? job.fileName.replace(/[^\w\.\-\(\) _]/gi, '_') : 'app-build.zip';
+
+    res.download(job.filePath, safeName, (err) => {
+      if (err && !res.headersSent) {
+        console.error('Download error:', err);
+        res.status(500).json({ error: 'Error transmitting build file' });
+      }
+    });
+  });
+
+  // Together Create API routes
+  app.post("/api/collab/create", (req, res) => {
+    try {
+      const { ownerId, ownerName, projectName, files, projectId } = req.body;
+      if (!ownerId) {
+        return res.status(400).json({ error: 'Missing ownerId' });
+      }
+
+      const session = createSession(
+        ownerId,
+        ownerName || 'User',
+        projectName || 'Together Create Project',
+        files || [],
+        projectId
+      );
+
+      res.json({ session });
+    } catch (err: any) {
+      console.error('Create collab error:', err);
+      res.status(500).json({ error: err.message || 'Failed to create session' });
+    }
+  });
+
+  app.get("/api/collab/:sessionId", (req, res) => {
+    const session = getSession(req.params.sessionId);
+    if (!session) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    res.json({
+      id: session.data.id,
+      projectName: session.data.projectName,
+      ownerId: session.data.ownerId,
+      ownerName: session.data.ownerName,
+      createdAt: session.data.createdAt,
+      participantCount: session.clients.size,
+      fileCount: session.data.files.length
+    });
+  });
+
+  // Create HTTP server & WebSocket server for Together Create
+  const httpServer = http.createServer(app);
+  const wss = new WebSocketServer({ server: httpServer, path: '/ws/collab' });
+  setupCollabWebSocketServer(wss);
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
@@ -98,7 +216,7 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  httpServer.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }

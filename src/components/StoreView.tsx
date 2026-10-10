@@ -4,13 +4,14 @@ import { collection, getDocs, query, orderBy, limit, where, doc, updateDoc, incr
 import { db, sendProjectToVerify } from '../firebase';
 import { useStore } from '../store/useStore';
 import { translations } from '../lib/translations';
-import { Search, Star, Download, Play, Monitor, Smartphone, Apple, Terminal, Lock, ThumbsUp, ThumbsDown, RefreshCw, Flame, Clock, Coins, Users } from 'lucide-react';
+import { Search, Star, Download, Play, Monitor, Smartphone, Apple, Terminal, Lock, ThumbsUp, ThumbsDown, RefreshCw, Flame, Clock, Coins, Users, CheckCircle2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { AppData, AppCategory, UserVote } from '../types';
 import FriendsView from './FriendsView';
 import Gradient from './Gradient';
+import BuildDownloadModal from './BuildDownloadModal';
 
-const CATEGORIES: AppCategory[] = ['games', 'apps', 'work', 'AI', 'Programming Language', 'Store', 'Other'];
+const CATEGORIES: AppCategory[] = ['games', 'apps', 'work', 'AI', 'Programming Language', 'Store', 'Custom Editor', 'Other'];
 
 export default function StoreView() {
   const [apps, setApps] = useState<AppData[]>([]);
@@ -33,7 +34,11 @@ export default function StoreView() {
   const isPremium = useStore(state => state.isPremium);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const language = useStore(state => state.language);
+  const isAppInstalled = useStore(state => state.isAppInstalled);
   const [isPending, startTransition] = useTransition();
+
+  const [buildTargetApp, setBuildTargetApp] = useState<AppData | null>(null);
+  const [buildTargetPlatform, setBuildTargetPlatform] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     setLoading(true);
@@ -244,10 +249,12 @@ export default function StoreView() {
 
   const getPlatformIcon = (platform: string) => {
     switch(platform) {
-      case 'windows': return <Monitor className="w-3 h-3" />;
-      case 'macos': return <Apple className="w-3 h-3" />;
-      case 'linux': return <Terminal className="w-3 h-3" />;
-      case 'apk': return <Smartphone className="w-3 h-3" />;
+      case 'windows': return <Monitor className="w-3.5 h-3.5" />;
+      case 'macos': return <Apple className="w-3.5 h-3.5" />;
+      case 'linux': return <Terminal className="w-3.5 h-3.5" />;
+      case 'android':
+      case 'apk': return <Smartphone className="w-3.5 h-3.5" />;
+      case 'ios': return <Smartphone className="w-3.5 h-3.5 text-blue-400" />;
       default: return null;
     }
   };
@@ -495,27 +502,50 @@ export default function StoreView() {
                           </div>
                           
                           <div className="flex flex-wrap gap-3">
-                            <motion.button 
-                              whileTap={{ scale: 0.95 }}
-                              onClick={() => handlePlay(app)}
-                              className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-[1.5rem] text-base sm:text-lg font-bold transition-all shadow-xl shadow-emerald-500/30"
-                            >
-                              <Play className="w-5 h-5 sm:w-6 sm:h-6 fill-current" />
-                              {userData?.installedApps?.[app.id] && userData.installedApps[app.id] !== app.version
-                                ? (translations[language].update || 'Update') 
-                                : (translations[language].play || 'Play')}
-                            </motion.button>
+                            {isAppInstalled(app.id) ? (
+                              <motion.button 
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => {
+                                  setPlayingAppId(app.id);
+                                  setCurrentView('player');
+                                }}
+                                className={clsx(
+                                  "flex-1 flex items-center justify-center gap-2 px-6 py-4 rounded-[1.5rem] text-base sm:text-lg font-bold transition-all shadow-xl cursor-pointer",
+                                  isFrutigerAero 
+                                    ? "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-400/30" 
+                                    : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/30"
+                                )}
+                              >
+                                <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-300" />
+                                <span>INSTALLED</span>
+                              </motion.button>
+                            ) : (
+                              <motion.button 
+                                whileTap={{ scale: 0.95 }}
+                                onClick={() => setSelectedAppId(app.id)}
+                                className={clsx(
+                                  "flex-1 flex items-center justify-center gap-2 px-6 py-4 rounded-[1.5rem] text-base sm:text-lg font-bold transition-all shadow-xl cursor-pointer active:scale-[0.98]",
+                                  isFrutigerAero 
+                                    ? "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-400/40" 
+                                    : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/35"
+                                )}
+                              >
+                                <Download className="w-5 h-5 sm:w-6 sm:h-6" />
+                                <span>GET</span>
+                              </motion.button>
+                            )}
                             
-                            {['windows', 'macos', 'linux', 'apk'].map(platform => {
-                              const url = (app as any)[`${platform}Url`];
-                              if (!url && (!app.supportedPlatforms || !app.supportedPlatforms.includes(platform))) return null;
+                            {['windows', 'macos', 'linux', 'android', 'ios'].map(platform => {
                               return (
                                 <motion.button
                                   key={platform}
                                   whileTap={{ scale: 0.9 }}
-                                  onClick={() => handleDownload(app, platform)}
-                                  className="p-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-[1.5rem] transition-colors shadow-lg"
-                                  title={`Download for ${platform}`}
+                                  onClick={() => {
+                                    setBuildTargetApp(app);
+                                    setBuildTargetPlatform(platform);
+                                  }}
+                                  className="p-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-[1.5rem] transition-colors shadow-lg cursor-pointer flex items-center justify-center"
+                                  title={`Build & Download for ${platform.toUpperCase()}`}
                                 >
                                   {getPlatformIcon(platform)}
                                 </motion.button>
@@ -581,6 +611,14 @@ export default function StoreView() {
           </div>
         </div>
       )}
+
+      {/* Build & Download Modal */}
+      <BuildDownloadModal
+        isOpen={!!buildTargetApp}
+        app={buildTargetApp}
+        initialPlatform={buildTargetPlatform}
+        onClose={() => setBuildTargetApp(null)}
+      />
 
     </div>
   );

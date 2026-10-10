@@ -1,4 +1,4 @@
-export type AppCategory = 'games' | 'apps' | 'work' | 'AI' | 'Programming Language' | 'Store' | 'Other';
+export type AppCategory = 'games' | 'apps' | 'work' | 'AI' | 'Programming Language' | 'Store' | 'Custom Editor' | 'Other';
 
 export interface StoreAsset {
   id: string;

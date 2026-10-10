@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import { auth } from '../firebase';
 import { updateProfile } from 'firebase/auth';
-import { Sun, Moon, User, Save, CheckCircle2, AlertCircle, Bot, Lock, Sparkles, ShieldCheck, Upload } from 'lucide-react';
+import { Sun, Moon, User, Save, CheckCircle2, AlertCircle, Bot, Lock, Sparkles, ShieldCheck, Upload, Code2, Eye } from 'lucide-react';
 import { clsx } from 'clsx';
 import { DEFAULT_EMOJIS, getEmojiAvatar } from '../lib/avatar';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
@@ -10,6 +10,9 @@ import EmojiPicker, { Theme } from 'emoji-picker-react';
 export default function SettingsView() {
   const theme = useStore(state => state.theme);
   const setTheme = useStore(state => state.setTheme);
+  const language = useStore(state => state.language);
+  const livePreviewEnabled = useStore(state => state.livePreviewEnabled);
+  const setLivePreviewEnabled = useStore(state => state.setLivePreviewEnabled);
   const user = useStore(state => state.user);
   const setUser = useStore(state => state.setUser);
   const aiAnswerMode = useStore(state => state.aiAnswerMode);
@@ -231,6 +234,67 @@ export default function SettingsView() {
                 </div>
               </div>
             )}
+          </section>
+
+          {/* Editor Section */}
+          <section className={clsx(
+            "p-6 rounded-3xl border",
+            isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm" :
+            theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
+          )}>
+            <div className="flex items-center gap-3 mb-6">
+              <div className={clsx("p-2 rounded-lg", isFrutigerAero ? "bg-blue-500/20 text-blue-600 shadow-inner" : "bg-blue-500/10 text-blue-500")}>
+                <Code2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className={clsx("text-xl font-bold", isFrutigerAero ? "text-blue-900" : "")}>
+                  {language === 'ru' ? 'Редактор' : 'Editor'}
+                </h2>
+                <p className={clsx("text-xs", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>
+                  {language === 'ru' ? 'Параметры рабочей области и отображения кода' : 'Workspace and code preview settings'}
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="max-w-md">
+                  <p className={clsx("font-medium flex items-center gap-2", isFrutigerAero ? "text-blue-900" : "")}>
+                    <Eye className="w-4 h-4 text-blue-500" />
+                    <span>{language === 'ru' ? 'Живой просмотр (Live Preview)' : 'Live Preview'}</span>
+                  </p>
+                  <p className={clsx("text-sm mt-0.5", isFrutigerAero ? "text-blue-800/70" : "text-zinc-400")}>
+                    {language === 'ru'
+                      ? 'Включает интерактивный показ проекта прямо в редакторе без нажатия на кнопку Run. Проект автоматически обновляется в реальном времени при каждом изменении кода.'
+                      : 'Shows interactive project preview directly in the editor without clicking Run. Automatically updates in real-time as you type code.'}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setLivePreviewEnabled(true)}
+                    className={clsx(
+                      "px-4 py-2 rounded-xl border transition-all font-medium cursor-pointer",
+                      livePreviewEnabled
+                        ? (isFrutigerAero ? 'bg-blue-500 text-white border-blue-600 shadow-md' : 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-500/25')
+                        : (isFrutigerAero ? 'bg-white/50 border-white/40 text-blue-800 hover:bg-white/70' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700')
+                    )}
+                  >
+                    {language === 'ru' ? 'Вкл' : 'On'}
+                  </button>
+                  <button
+                    onClick={() => setLivePreviewEnabled(false)}
+                    className={clsx(
+                      "px-4 py-2 rounded-xl border transition-all font-medium cursor-pointer",
+                      !livePreviewEnabled
+                        ? (isFrutigerAero ? 'bg-blue-500 text-white border-blue-600 shadow-md' : 'bg-zinc-800 border-zinc-600 text-white shadow-md')
+                        : (isFrutigerAero ? 'bg-white/50 border-white/40 text-blue-800 hover:bg-white/70' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700')
+                    )}
+                  >
+                    {language === 'ru' ? 'Выкл' : 'Off'}
+                  </button>
+                </div>
+              </div>
+            </div>
           </section>
 
           {/* AI Section */}
