@@ -20,6 +20,11 @@ interface EPLContext {
   currentObject: EPLEntity | null;
   controlType: 'wasd' | null;
   lastEventValue: string | null;
+<<<<<<< HEAD
+  lastClickedTarget?: string | null;
+  lastClickedTime?: number | null;
+=======
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   uiMode?: { type: string; target: string };
   pendingRandomChance: number | null;
 }
@@ -54,6 +59,11 @@ export class EPLInterpreter {
       currentObject: null,
       controlType: null,
       lastEventValue: null,
+<<<<<<< HEAD
+      lastClickedTarget: null,
+      lastClickedTime: null,
+=======
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       pendingRandomChance: null
     };
     this.onOutput = onOutput;
@@ -173,6 +183,72 @@ export class EPLInterpreter {
     }
   }
 
+<<<<<<< HEAD
+  evaluateConditionToken(keyword: string, settingsStr: string): boolean {
+    const settings = this.parseSettings(settingsStr);
+    if (keyword === 'check') {
+      return this.evaluateCondition(settings.expression || 'false');
+    }
+    if (keyword === 'compare') {
+      return this.evaluateCompare(settings.a, settings.op, settings.b);
+    }
+    if (keyword === 'clicked?' || keyword === 'button' || keyword === 'button_pressed') {
+      const targetName = settings.target || settings.name || (keyword !== 'button' && keyword !== 'button_pressed' && keyword !== 'clicked?' ? keyword : undefined);
+      const isRecentClick = Date.now() - (this.context.lastClickedTime || 0) < 650;
+      if (!targetName || targetName === 'button') {
+        return isRecentClick;
+      }
+      return isRecentClick && this.context.lastClickedTarget === targetName;
+    }
+    if (keyword === 'key_pressed?' || keyword === 'key') {
+      const key = String(settings.key || settings.target || '').toLowerCase();
+      if (!key) return this.keysPressed.size > 0;
+      return this.keysPressed.has(key);
+    }
+    if (keyword === 'collided?') {
+      const targetA = settings.targetA;
+      const targetB = settings.targetB;
+      const entityA = Object.values(this.context.entities).find(e => e.name === targetA);
+      const entityB = Object.values(this.context.entities).find(e => e.name === targetB);
+      if (entityA && entityB) {
+        return Math.hypot((entityA.x || 0) - (entityB.x || 0), (entityA.y || 0) - (entityB.y || 0)) < 40;
+      }
+      return false;
+    }
+
+    const val = this.evaluateExpression(keyword);
+    return Boolean(val && val !== 'false' && val !== 0);
+  }
+
+  evaluateTokensCondition(tokens: Array<{ keyword: string; settingsStr: string }>): boolean {
+    if (tokens.length === 0) return false;
+    // Split into OR branches (groups of AND conditions)
+    const orBranches: Array<Array<{ keyword: string; settingsStr: string }>> = [[]];
+    for (const t of tokens) {
+      if (t.keyword === 'or') {
+        orBranches.push([]);
+      } else if (t.keyword === 'and') {
+        continue;
+      } else if (t.keyword === 'then' || t.keyword === 'if') {
+        continue;
+      } else {
+        orBranches[orBranches.length - 1].push(t);
+      }
+    }
+
+    // Condition is true if ANY OR branch is true
+    for (const branch of orBranches) {
+      if (branch.length === 0) continue;
+      // All items in this branch must be true (AND)
+      const branchTrue = branch.every(item => this.evaluateConditionToken(item.keyword, item.settingsStr));
+      if (branchTrue) return true;
+    }
+
+    return false;
+  }
+
+=======
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   async runLines(lines: string[]): Promise<boolean> {
     let i = 0;
     while (i < lines.length && this.context.isRunning) {
@@ -524,6 +600,30 @@ export class EPLInterpreter {
           executed = true;
         }
         else if (keyword === 'if') {
+<<<<<<< HEAD
+          // Collect condition tokens after 'if' on current line
+          const conditionTokens: Array<{ keyword: string; settingsStr: string }> = [];
+          for (let k = j + 4; k < parts.length; k += 4) {
+            const kw = parts[k];
+            if (kw) {
+              conditionTokens.push({ keyword: kw, settingsStr: parts[k+1] || '' });
+            }
+          }
+
+          let isTrue = false;
+          if (conditionTokens.length > 0) {
+            isTrue = this.evaluateTokensCondition(conditionTokens);
+          } else if (i + 1 < lines.length) {
+            const nextLine = lines[i+1].trim();
+            const nextParts = nextLine.split(TOKEN_REGEX);
+            const nextTokens: Array<{ keyword: string; settingsStr: string }> = [];
+            for (let k = 1; k < nextParts.length; k += 4) {
+              const kw = nextParts[k];
+              if (kw) nextTokens.push({ keyword: kw, settingsStr: nextParts[k+1] || '' });
+            }
+            if (nextTokens.length > 0) {
+              isTrue = this.evaluateTokensCondition(nextTokens);
+=======
           // Find check or compare on current line or next line
           let checkIdx = parts.indexOf('check', j);
           let compareIdx = parts.indexOf('compare', j);
@@ -548,6 +648,7 @@ export class EPLInterpreter {
             } else if (nextCompareIdx !== -1) {
               const compSettings = this.parseSettings(nextParts[nextCompareIdx+1] || '');
               isTrue = this.evaluateCompare(compSettings.a, compSettings.op, compSettings.b);
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
               i++;
             }
           }
@@ -736,6 +837,14 @@ export class EPLInterpreter {
       return;
     }
 
+<<<<<<< HEAD
+    if (eventName === 'clicked?') {
+      this.context.lastClickedTarget = target || null;
+      this.context.lastClickedTime = Date.now();
+    }
+
+=======
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     // Normalize target for keyboard events
     let normalizedTarget = target;
     if (eventName === 'key_pressed?' && target) {

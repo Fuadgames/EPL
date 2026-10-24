@@ -1,8 +1,60 @@
+
+# Dependencies
 node_modules/
+
+# Build output
 build/
 dist/
 coverage/
-.DS_Store
-*.log
-.env*
+out/
+release/
+bin/
+
+# Environment variables and secrets
+.env
+.env.*
 !.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Operating system files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE and editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.old
+
+# Test and cache files
+.nyc_output/
+.cache/
+.parcel-cache/
+.eslintcache
+*.tsbuildinfo
+
+# Local databases
+*.sqlite
+*.sqlite3
+*.db
+
+# Private credentials and certificates
+credentials.json
+service-account*.json
+client_secret*.json
+*.pem
+*.key

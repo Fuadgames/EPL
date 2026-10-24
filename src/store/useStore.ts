@@ -113,8 +113,11 @@ interface AppState {
   setPreviewType: (type: '2D' | '3D' | null) => void;
   addSceneNode: (node: any) => void;
   setAddSceneNode: (fn: (node: any) => void) => void;
+<<<<<<< HEAD
+=======
   isBackdoor: boolean;
   setIsBackdoor: (isBackdoor: boolean) => void;
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   isFrutigerAero: boolean;
   setIsFrutigerAero: (enabled: boolean) => void;
   isAuthModalOpen: boolean;
@@ -208,8 +211,11 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   setPreviewType: (type) => set({ previewType: type }),
   addSceneNode: () => {},
   setAddSceneNode: (fn) => set({ addSceneNode: fn }),
+<<<<<<< HEAD
+=======
   isBackdoor: false,
   setIsBackdoor: (isBackdoor) => set({ isBackdoor }),
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   isFrutigerAero: false,
   setIsFrutigerAero: (enabled) => set({ isFrutigerAero: enabled }),
   isAuthModalOpen: false,
@@ -376,7 +382,10 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     computerStyle: state.computerStyle,
     selectedExtraCategory: state.selectedExtraCategory,
     userData: state.userData,
+<<<<<<< HEAD
+=======
     isBackdoor: state.isBackdoor,
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     isFrutigerAero: state.isFrutigerAero,
     simulatedRole: state.simulatedRole,
     premiumCode: state.premiumCode,

@@ -7,9 +7,12 @@ export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
     plugins: [react(), tailwindcss()],
+<<<<<<< HEAD
+=======
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || ''),
     },
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

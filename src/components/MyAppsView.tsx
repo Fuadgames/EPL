@@ -14,6 +14,12 @@ interface AppData {
   isAiGenerated?: boolean;
   isPrivate?: boolean;
   isLocked?: boolean;
+<<<<<<< HEAD
+  status?: string;
+  moderationStatus?: 'approved' | 'rejected' | 'pending';
+  moderationReason?: string;
+=======
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 }
 
 export default function MyAppsView() {
@@ -149,6 +155,38 @@ export default function MyAppsView() {
                   )}
                 </div>
               </div>
+<<<<<<< HEAD
+
+              {/* Moderation Status Banner */}
+              {app.moderationStatus && (
+                <div className="mb-2">
+                  {app.moderationStatus === 'approved' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      ✓ Одобрено ИИ (Nemotron 3.5)
+                    </span>
+                  )}
+                  {app.moderationStatus === 'rejected' && (
+                    <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs mb-1">
+                      <div className="font-bold flex items-center gap-1 mb-0.5">
+                        ✕ Отклонено ИИ
+                      </div>
+                      {app.moderationReason && (
+                        <div className="text-[11px] opacity-80 line-clamp-2" title={app.moderationReason}>
+                          {app.moderationReason}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  {app.moderationStatus === 'pending' && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                      ⏳ На проверке
+                    </span>
+                  )}
+                </div>
+              )}
+
+=======
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
               <p className={clsx("text-sm mb-4 line-clamp-2 h-10", isFrutigerAero ? "text-blue-800/70" : theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>
                 {app.description}
               </p>

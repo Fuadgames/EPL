@@ -8,6 +8,11 @@ import { translations } from '../lib/translations';
 import AuthModal from './AuthModal';
 import AppDetailView from './AppDetailView';
 import { getDefaultAvatar } from '../lib/avatar';
+<<<<<<< HEAD
+import UserRoleBadge from './UserRoleBadge';
+import VerifiedBadge from './VerifiedBadge';
+=======
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const currentView = useStore(state => state.currentView);
@@ -18,8 +23,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const isPremium = useStore(state => state.isPremium);
   const selectedAppId = useStore(state => state.selectedAppId);
   const userData = useStore(state => state.userData);
+<<<<<<< HEAD
+=======
   const isBackdoor = useStore(state => state.isBackdoor);
   const setIsBackdoor = useStore(state => state.setIsBackdoor);
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   const isAuthModalOpen = useStore(state => state.isAuthModalOpen);
   const setIsAuthModalOpen = useStore(state => state.setIsAuthModalOpen);
   const t = translations[language];
@@ -33,7 +41,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     } catch (e) {
       console.error(e);
     }
+<<<<<<< HEAD
+=======
     setIsBackdoor(false);
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     setUser(null);
     setUserData(null);
   };
@@ -117,6 +128,51 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           theme === 'dark' ? "bg-zinc-950" : 
           "bg-white"
         )}>
+<<<<<<< HEAD
+          <div className="mb-6 relative">
+            <div className="flex items-center gap-1.5 mb-1">
+              <span className={clsx(
+                "px-2 py-0.5 text-[8.5px] font-black uppercase tracking-widest rounded-full border shadow-xs select-none inline-flex items-center gap-1",
+                isFrutigerAero 
+                  ? "bg-blue-500/20 text-blue-900 border-blue-400/50" 
+                  : theme === 'light'
+                  ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/30"
+                  : "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+              )}>
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                BETA • WORK IN PROGRESS
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <h1 className={clsx("text-xl font-bold tracking-tight", isFrutigerAero ? "frutiger-aero-text" : "bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent")}>
+                {isPremium ? 'EPL Premium' : 'EPL Studio'}
+              </h1>
+              <span className={clsx(
+                "px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest rounded-md border select-none",
+                isFrutigerAero 
+                  ? "bg-blue-500/20 text-blue-900 border-blue-400/40" 
+                  : theme === 'light'
+                  ? "bg-emerald-500/15 text-emerald-700 border-emerald-500/30"
+                  : "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+              )}>
+                BETA
+              </span>
+            </div>
+            <p className={clsx("text-[10px] mt-0.5 font-bold uppercase tracking-widest", isFrutigerAero ? "text-blue-800/80" : theme === 'light' ? "text-zinc-500" : "text-zinc-400 opacity-60")}>Easy Programming Language</p>
+          </div>
+
+          {/* Profile/Sign-in at the Top for All Views */}
+          <div className={clsx("mb-4 pb-4 border-b", isFrutigerAero ? "border-white/40 text-blue-950" : theme === 'light' ? "border-zinc-200 text-zinc-900" : "border-zinc-800/50 text-zinc-50")}>
+            {user ? (
+              <div className="flex items-center gap-3 px-2 py-2">
+                <img src={user.photoURL || getDefaultAvatar(user.uid)} alt="Avatar" className={clsx("w-8 h-8 rounded-full", isFrutigerAero ? "border border-white/60 shadow-sm" : theme === 'light' ? "border border-zinc-200 bg-zinc-100" : "bg-zinc-800")} referrerPolicy="no-referrer" />
+                <div className="flex-1 min-w-0">
+                  <p className={clsx("text-sm font-semibold truncate flex items-center gap-1.5", isFrutigerAero ? "text-blue-950" : theme === 'light' ? "text-zinc-900" : "text-zinc-100")}>
+                    {userData?.isVerifiedAuthor && <VerifiedBadge size="xs" />}
+                    <span className="truncate">{userData?.name || user.displayName || 'User'}</span>
+                    <UserRoleBadge role={effectiveRole} isVerifiedAuthor={userData?.isVerifiedAuthor} size="xs" showLabel />
+                    {isPremium && <Star className="w-3 h-3 text-yellow-400 fill-yellow-400 shrink-0" />}
+=======
           <div className="mb-6">
             <h1 className={clsx("text-xl font-bold tracking-tight", isFrutigerAero ? "frutiger-aero-text" : "bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent")}>
               {isPremium ? 'EPL Premium' : 'EPL Studio'}
@@ -133,17 +189,26 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                   <p className="text-sm font-medium truncate flex items-center gap-1">
                     {user.displayName}
                     {isPremium && <Star className="w-3 h-3 text-yellow-400 fill-yellow-400" />}
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                   </p>
                   <div className="flex items-center gap-1 mt-0.5">
                     <div className={clsx("w-3 h-3 rounded-full flex items-center justify-center", isFrutigerAero ? "bg-blue-500/20" : "bg-emerald-500/20")}>
                       <div className={clsx("w-1.5 h-1.5 rounded-full", isFrutigerAero ? "bg-blue-500" : "bg-emerald-500")} />
                     </div>
+<<<<<<< HEAD
+                    <span className={clsx("text-[10px] font-bold uppercase tracking-wider", isFrutigerAero ? "text-blue-700" : "text-emerald-500")}>
+=======
                     <span className={clsx("text-[10px] font-bold uppercase tracking-wider", isFrutigerAero ? "text-blue-600" : "text-emerald-500")}>
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                       {userData?.eplCoins || 0} Coins
                     </span>
                   </div>
                 </div>
+<<<<<<< HEAD
+                <button onClick={handleLogOut} className={clsx("p-2 rounded-lg transition-colors", isFrutigerAero ? "text-blue-600 hover:bg-white/40 hover:text-red-500" : theme === 'light' ? "text-zinc-400 hover:bg-zinc-100 hover:text-red-500" : "hover:bg-zinc-800 text-zinc-400 hover:text-red-400")}>
+=======
                 <button onClick={handleLogOut} className={clsx("p-2 rounded-lg transition-colors", isFrutigerAero ? "text-blue-600 hover:bg-white/40 hover:text-red-500" : "hover:bg-zinc-800 text-zinc-400 hover:text-red-400")}>
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                   <LogOut className="w-4 h-4" />
                 </button>
               </div>
@@ -192,6 +257,29 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <ArrowLeft className="w-5 h-5" />
             </button>
           )}
+<<<<<<< HEAD
+          <div className="flex flex-col">
+            <span className={clsx(
+              "text-[7.5px] font-black uppercase tracking-wider select-none inline-flex items-center gap-1",
+              isFrutigerAero ? "text-blue-900" : theme === 'light' ? "text-emerald-700" : "text-emerald-400"
+            )}>
+              <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
+              BETA
+            </span>
+            <div className="flex items-center gap-1.5">
+              <h1 className={clsx("text-lg font-bold tracking-tight", isFrutigerAero ? "frutiger-aero-text" : "bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent")}>
+                {isPremium ? 'EPL Premium' : 'EPL Studio'}
+              </h1>
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          {user ? (
+            <div className="flex items-center gap-1.5">
+              <UserRoleBadge role={effectiveRole} isVerifiedAuthor={userData?.isVerifiedAuthor} size="xs" />
+              <img src={user.photoURL || getDefaultAvatar(user.uid)} alt="Avatar" className={clsx("w-8 h-8 rounded-full", isFrutigerAero ? "border border-white/60 shadow-sm" : theme === 'light' ? "border border-zinc-200 bg-zinc-100" : "bg-zinc-800")} referrerPolicy="no-referrer" />
+            </div>
+=======
           <h1 className={clsx("text-xl font-bold tracking-tight", isFrutigerAero ? "frutiger-aero-text" : "bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text text-transparent")}>
             {isPremium ? 'EPL Premium' : 'EPL Studio'}
           </h1>
@@ -204,6 +292,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-2">
           {user ? (
             <img src={user.photoURL || getDefaultAvatar(user.uid)} alt="Avatar" className={clsx("w-8 h-8 rounded-full", isFrutigerAero ? "border border-white/60 shadow-sm" : "bg-zinc-800")} referrerPolicy="no-referrer" />
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
           ) : (
             <button onClick={() => setIsAuthModalOpen(true)} className={clsx("text-sm font-medium", isFrutigerAero ? "frutiger-aero-button px-3 py-1.5 rounded-lg" : "text-emerald-500")}>
               {t.auth.signIn}

@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Sparkles, Send, Loader2, Clock } from 'lucide-react';
+<<<<<<< HEAD
+import { generateWithAI } from '../lib/gemini';
+=======
 import { GoogleGenAI, ThinkingLevel } from "@google/genai";
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 import { useStore } from '../store/useStore';
 import clsx from 'clsx';
 
@@ -94,6 +98,15 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
 
   const refinePrompt = async (originalPrompt: string) => {
     try {
+<<<<<<< HEAD
+      const refined = await generateWithAI(
+        `Refine this programming prompt for an AI agent to be more detailed and clear: "${originalPrompt}"`,
+        {
+          systemInstruction: "You are an AI expert in Easy Programming Language (EPL). When refining prompts, ensure they are detailed and clear, following the EPL rules: every entity must have its properties configured inline using curly braces {}, including name, x, y, width, height, and color."
+        }
+      );
+      return refined?.trim() || originalPrompt;
+=======
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
       const model = aiMode === 'fast' ? "gemini-3-flash-preview" : "gemini-3.1-pro-preview";
       const response = await ai.models.generateContent({
@@ -104,6 +117,7 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
         }
       });
       return response.text?.trim() || originalPrompt;
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     } catch (error) {
       console.error("Prompt refinement error:", error);
       return originalPrompt;
@@ -137,9 +151,12 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
 
     const callAI = async (retryCount = 0): Promise<void> => {
       try {
+<<<<<<< HEAD
+=======
         const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
         const model = aiMode === 'fast' ? "gemini-3-flash-preview" : "gemini-3.1-pro-preview";
         
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
         const systemInstruction = `
           You are an elite AI expert in Easy Programming Language (EPL).
           
@@ -185,6 +202,11 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
           ${chatMessages.map(m => `${m.role === 'user' ? 'User' : 'AI'}: ${m.text}`).join('\n')}
         `;
 
+<<<<<<< HEAD
+        const fullCode = await generateWithAI(promptToUse, {
+          systemInstruction,
+          model: aiMode === 'fast' ? "gemini-2.5-flash" : "gemini-2.5-flash"
+=======
         const config: any = {
           systemInstruction,
         };
@@ -198,12 +220,28 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
           model,
           contents: promptToUse,
           config,
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
         });
 
         if (statusInterval) clearInterval(statusInterval);
         setLoadingStatus('');
         setIsTyping(true);
 
+<<<<<<< HEAD
+        let currentCleanCode = fullCode;
+        const codeBlockMatch = fullCode.match(/```(?:epl)?\n([\s\S]*?)```?/i);
+        if (codeBlockMatch && codeBlockMatch[1]) {
+          currentCleanCode = codeBlockMatch[1].trim();
+        } else {
+          if (fullCode.includes('create ') || fullCode.includes('{')) {
+            currentCleanCode = fullCode.replace(/```[a-z]*\n?/gi, '').replace(/```/gi, '').trim();
+          }
+        }
+
+        if (currentCleanCode) {
+          const stripped = currentCleanCode.replace('[SAVE]', '').trim();
+          onCodeGenerated(stripped);
+=======
         let fullCode = '';
         
         for await (const chunk of responseStream) {
@@ -228,6 +266,7 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
                 onCodeGenerated(stripped);
              }
           }
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
         }
         
         setIsTyping(false);

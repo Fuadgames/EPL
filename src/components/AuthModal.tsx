@@ -24,17 +24,25 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
   const setUser = useStore(state => state.setUser);
   const setUserData = useStore(state => state.setUserData);
+<<<<<<< HEAD
+=======
   const setIsBackdoor = useStore(state => state.setIsBackdoor);
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+<<<<<<< HEAD
+=======
     console.log("handleSubmit called", { isLogin, isReset, email });
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     setLoading(true);
     setError(null);
     setMessage(null);
 
+<<<<<<< HEAD
+=======
     // Developer Backdoor
     if (isLogin && !isReset && email.toLowerCase() === 'fufazada@gmail.com' && password === '12345678901') {
       try {
@@ -76,6 +84,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       }
     }
 
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     try {
       if (isReset) {
         const { error } = await resetPassword(email);
@@ -138,6 +147,25 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     setError(null);
     try {
       const { error } = await signInWithGoogle();
+<<<<<<< HEAD
+      if (error) {
+        if (error.code === 'auth/popup-closed-by-user') {
+          return;
+        }
+        throw error;
+      }
+      onClose();
+    } catch (err: any) {
+      console.error("Google Auth error:", err);
+      let errorMessage = err.message || 'Ошибка входа через Google';
+      if (err.code === 'auth/popup-blocked') {
+        errorMessage = language === 'ru' ? 'Всплывающее окно заблокировано браузером. Пожалуйста, разрешите всплывающие окна в адресной строке.' : 'Popup was blocked by browser. Please allow popups in the URL bar.';
+      } else if (err.code === 'auth/unauthorized-domain') {
+        errorMessage = language === 'ru' 
+          ? `Домен ${window.location.hostname} не добавлен в Authorized Domains в Firebase. На https://epl-eta.vercel.app авторизация работает штатно.`
+          : `Domain ${window.location.hostname} is not authorized in Firebase.`;
+      } else if (err.message && err.message.includes('Missing or insufficient permissions')) {
+=======
       if (error) throw error;
       onClose();
     } catch (err: any) {
@@ -146,6 +174,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       if (err.code === 'auth/popup-blocked') {
         errorMessage = language === 'ru' ? 'Всплывающее окно заблокировано браузером. Пожалуйста, разрешите всплывающие окна.' : 'Popup was blocked by the browser. Please allow popups.';
       } else if (err.message.includes('Missing or insufficient permissions')) {
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
         errorMessage = language === 'ru' ? 'Ошибка доступа к базе данных. Пожалуйста, попробуйте еще раз.' : 'Database access error. Please try again.';
       }
       setError(errorMessage);
@@ -188,6 +217,9 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           </button>
         </div>
 
+<<<<<<< HEAD
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+=======
         {/* Backdoor Warning */}
       {isLogin && !isReset && email.toLowerCase() === 'fufazada@gmail.com' && password === '12345678901' && (
         <div className="mx-6 mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
@@ -201,6 +233,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
       )}
 
       <form onSubmit={handleSubmit} className="p-6 space-y-4">
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
           {error && (
             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3 text-red-500 text-sm">
               <AlertCircle className="w-5 h-5 shrink-0" />

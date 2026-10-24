@@ -13,6 +13,11 @@ import {
 } from "firebase/auth";
 import { getFirestore, doc, updateDoc, increment, onSnapshot, getDoc, setDoc, connectFirestoreEmulator } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+<<<<<<< HEAD
+import firebaseConfig from '../firebase-applet-config.json';
+
+import { performGoogleSignIn } from "./lib/googleAuth";
+=======
 
 import firebaseConfig from '../firebase-applet-config.json';
 
@@ -26,6 +31,7 @@ if (typeof window !== 'undefined') {
     isOriginal = false;
   }
 }
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -33,6 +39,12 @@ export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app);
 
+<<<<<<< HEAD
+export const logOut = () => signOut(auth);
+
+export const signInWithGoogle = async () => {
+  return performGoogleSignIn();
+=======
 if (!isOriginal) {
   // Point remixes to a non-existent local emulator so they don't affect production DB
   try {
@@ -72,6 +84,7 @@ export const signInWithGoogle = async () => {
   } catch (error: any) {
     return { user: null, error };
   }
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 };
 
 export const signInWithApple = async () => {

@@ -41,8 +41,18 @@ export interface AppData {
   allowCopy?: boolean;
   originalAppId?: string;
   originalAppName?: string;
+<<<<<<< HEAD
+  status?: 'pending' | 'verified' | 'rejected';
+  isVerified: boolean;
+  moderationStatus?: 'approved' | 'rejected' | 'pending';
+  moderationReason?: string;
+  moderationFlags?: string[];
+  moderatedAt?: string;
+  moderatedBy?: string;
+=======
   status?: 'pending' | 'verified';
   isVerified: boolean;
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   price?: number;
   downloads: number;
   likes: number;
@@ -54,6 +64,26 @@ export interface AppData {
   updatedAt: string;
 }
 
+<<<<<<< HEAD
+export interface AiModerationLog {
+  id: string;
+  appId: string;
+  appTitle: string;
+  authorId: string;
+  authorName: string;
+  approved: boolean;
+  reason: string;
+  flags: string[];
+  riskScore: number;
+  model: string;
+  createdAt: string;
+  codeSnippet?: string;
+  manualOverride?: boolean;
+  manualReviewer?: string;
+}
+
+=======
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 export interface UserVote {
   userId: string;
   appId: string;

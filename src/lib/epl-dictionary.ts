@@ -12,6 +12,11 @@ export interface TokenDef {
 export const EPL_DICTIONARY: Record<string, TokenDef> = {
   // Control Flow
   'if': { word: 'if', type: 'control', color: 'text-purple-500', description: 'Starts a conditional block. Executes code if the check is true.' },
+<<<<<<< HEAD
+  'or': { word: 'or', type: 'control', color: 'text-purple-500', description: 'Logical OR operator ("или"). Combines conditions (e.g. if clicked?{target=btn} or key_pressed?{key=space}).' },
+  'and': { word: 'and', type: 'control', color: 'text-purple-500', description: 'Logical AND operator ("и"). Combines conditions (e.g. if clicked?{target=btn} and key_pressed?{key=space}).' },
+=======
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   'else': { word: 'else', type: 'control', color: 'text-purple-500', description: 'Executes code if the preceding "if" check was false.' },
   'then': { word: 'then', type: 'control', color: 'text-purple-500', description: 'Optional keyword used after "if" or "check".' },
   'end': { word: 'end', type: 'control', color: 'text-purple-500', description: 'Ends a block of code (if, object, event, etc.).' },

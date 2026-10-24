@@ -6,7 +6,11 @@ import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'fir
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { EPLInterpreter } from '../lib/epl-interpreter';
 import { EPL_DICTIONARY } from '@/src/lib/epl-dictionary';
+<<<<<<< HEAD
+import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2, Monitor, Smartphone, Eye, ShieldCheck, ShieldAlert, AlertTriangle } from 'lucide-react';
+=======
 import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2, Monitor, Smartphone, Eye } from 'lucide-react';
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 import { clsx } from 'clsx';
 import { GoogleGenAI } from "@google/genai";
 import VisualEditor from './VisualEditor';
@@ -80,6 +84,12 @@ export default function EditorView() {
   const [originalAppName, setOriginalAppName] = useState<string | null>(null);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [customEditors, setCustomEditors] = useState<any[]>([]);
+<<<<<<< HEAD
+  const [publishingStepText, setPublishingStepText] = useState('');
+  const [moderationResult, setModerationResult] = useState<{ approved: boolean; reason: string; flags: string[]; riskScore?: number } | null>(null);
+  const [showModerationModal, setShowModerationModal] = useState(false);
+=======
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -893,6 +903,15 @@ export default function EditorView() {
   };
 
   const handlePublish = async () => {
+<<<<<<< HEAD
+    if (!user) return alert(language === 'ru' ? "Необходимо войти в аккаунт для публикации" : "You must be signed in to publish apps.");
+    setIsPublishing(true);
+    setPublishingStepText(language === 'ru' ? 'ИИ (NVIDIA Nemotron 3.5) проверяет проект на 18+, маты и взломы...' : 'AI (NVIDIA Nemotron 3.5) is inspecting project for 18+, profanity & exploits...');
+    try {
+      const finalPrice = isPremium ? appPrice : 0;
+      const appPayload: any = {
+        id: editingAppId || undefined,
+=======
     if (!user) return alert("You must be signed in to publish apps.");
     setIsPublishing(true);
     try {
@@ -900,6 +919,7 @@ export default function EditorView() {
       const finalPrice = isPremium ? appPrice : 0;
       const appData: any = {
         id: appId,
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
         title: appTitle,
         description: appDesc,
         code,
@@ -923,6 +943,32 @@ export default function EditorView() {
         allowCopy: isPremium ? allowCopy : true,
         originalAppId,
         originalAppName,
+<<<<<<< HEAD
+        events
+      };
+
+      const res = await fetch('/api/apps/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(appPayload)
+      });
+
+      const data = await res.json();
+      if (!res.ok && !data.reason) {
+        throw new Error(data.error || 'Server error during publishing');
+      }
+
+      setModerationResult(data);
+      if (data.appId) setEditingAppId(data.appId);
+      setShowPublishModal(false);
+      setShowModerationModal(true);
+    } catch (error: any) {
+      console.error("Error publishing app:", error);
+      alert(error.message || "Failed to publish app");
+    } finally {
+      setIsPublishing(false);
+      setPublishingStepText('');
+=======
         events,
         updatedAt: new Date().toISOString()
       };
@@ -946,6 +992,7 @@ export default function EditorView() {
       console.error("Error publishing app", error);
     } finally {
       setIsPublishing(false);
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     }
   };
 
@@ -2246,12 +2293,127 @@ export default function EditorView() {
                 disabled={isPublishing}
                 className="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
               >
+<<<<<<< HEAD
+                {isPublishing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>{publishingStepText || t.publishing}</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 text-emerald-200" />
+                    <span>{t.publishButton}</span>
+                  </>
+                )}
+=======
                 {isPublishing ? t.publishing : t.publishButton}
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
               </button>
             </div>
           </div>
         </div>
       )}
+<<<<<<< HEAD
+
+      {/* AI Moderation Result Modal */}
+      {showModerationModal && moderationResult && (
+        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className={clsx(
+            "w-full max-w-lg rounded-3xl p-6 sm:p-8 shadow-2xl relative border",
+            isFrutigerAero ? "bg-white/90 border-white/60 text-blue-950 backdrop-blur-md" :
+            theme !== 'light' ? "bg-zinc-900 border-zinc-800 text-zinc-100" : "bg-white border-zinc-200 text-zinc-900"
+          )}>
+            <div className="flex items-center gap-3 mb-5">
+              <div className={clsx(
+                "p-3 rounded-2xl border",
+                moderationResult.approved 
+                  ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" 
+                  : "bg-red-500/10 text-red-500 border-red-500/20"
+              )}>
+                {moderationResult.approved ? (
+                  <ShieldCheck className="w-8 h-8" />
+                ) : (
+                  <ShieldAlert className="w-8 h-8" />
+                )}
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-xl font-bold">
+                    {moderationResult.approved 
+                      ? (language === 'ru' ? 'Проект проверен и одобрен ИИ' : 'Project Verified & Approved by AI')
+                      : (language === 'ru' ? 'Проект отклонен модерацией ИИ' : 'Project Rejected by AI Moderation')
+                    }
+                  </h3>
+                </div>
+                <div className="text-xs opacity-60 flex items-center gap-1.5 mt-0.5">
+                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                  <span>Модель: nvidia/nemotron-3.5-super-vl:free</span>
+                </div>
+              </div>
+            </div>
+
+            <div className={clsx(
+              "p-4 rounded-2xl border mb-5 text-sm leading-relaxed",
+              moderationResult.approved 
+                ? (theme !== 'light' ? "bg-emerald-950/20 border-emerald-800/40 text-emerald-200" : "bg-emerald-50 border-emerald-200 text-emerald-900")
+                : (theme !== 'light' ? "bg-red-950/20 border-red-800/40 text-red-200" : "bg-red-50 border-red-200 text-red-900")
+            )}>
+              <div className="font-semibold text-xs uppercase tracking-wider mb-1.5 opacity-70">
+                {language === 'ru' ? 'Заключение модерации:' : 'Moderation Report:'}
+              </div>
+              <p>{moderationResult.reason}</p>
+            </div>
+
+            {moderationResult.flags && moderationResult.flags.length > 0 && (
+              <div className="mb-5">
+                <span className="text-xs font-bold uppercase tracking-wider opacity-60 block mb-2">
+                  {language === 'ru' ? 'Зафиксированные маркеры:' : 'Detected Flags:'}
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {moderationResult.flags.map((flag, i) => (
+                    <span 
+                      key={i} 
+                      className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-red-500/10 text-red-400 border border-red-500/20"
+                    >
+                      {flag}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={() => setShowModerationModal(false)}
+                className={clsx(
+                  "flex-1 py-3 px-4 rounded-xl font-bold text-sm transition-colors",
+                  moderationResult.approved
+                    ? (isFrutigerAero ? "frutiger-aero-button" : "bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20")
+                    : (isFrutigerAero ? "bg-white/60 text-blue-900 border border-blue-200" : "bg-zinc-800 hover:bg-zinc-700 text-white")
+                )}
+              >
+                {moderationResult.approved 
+                  ? (language === 'ru' ? 'Отлично' : 'Awesome') 
+                  : (language === 'ru' ? 'Редактировать проект' : 'Fix & Edit Project')
+                }
+              </button>
+              {moderationResult.approved && (
+                <button
+                  onClick={() => {
+                    setShowModerationModal(false);
+                    setCurrentView('store');
+                  }}
+                  className="px-5 py-3 rounded-xl font-bold text-sm bg-zinc-800 hover:bg-zinc-700 text-white transition-colors"
+                >
+                  {language === 'ru' ? 'В Магазин' : 'Go to Store'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+=======
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       {showFileControlModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(

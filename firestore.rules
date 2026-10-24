@@ -5,6 +5,75 @@ service cloud.firestore {
       return request.auth != null;
     }
     
+<<<<<<< HEAD
+    function isDeveloper() {
+      return request.auth != null && (
+        request.auth.token.email == 'fufazada@gmail.com' ||
+        (request.auth.token.email != null && request.auth.token.email.matches('(?i)fufazada@gmail\\.com'))
+      );
+    }
+
+    function isStaff() {
+      return isDeveloper() || (
+        request.auth != null && (
+          (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'moderator', 'developer']) ||
+          (exists(/databases/$(database)/documents/users_public/$(request.auth.uid)) && 
+           get(/databases/$(database)/documents/users_public/$(request.auth.uid)).data.role in ['admin', 'moderator', 'developer'])
+        )
+      );
+    }
+
+    match /users/{userId} {
+      allow read, write: if true;
+    }
+    
+    match /users_public/{userId} {
+      allow read, write: if true;
+    }
+    
+    match /apps/{appId} {
+      allow read, write: if true;
+    }
+    
+    match /assets/{assetId} {
+      allow read, write: if true;
+    }
+    
+    match /comments/{commentId} {
+      allow read, write: if true;
+    }
+    
+    match /votes/{voteId} {
+      allow read, write: if true;
+    }
+    
+    match /friendRequests/{requestId} {
+      allow read, write: if true;
+    }
+    
+    match /premium_codes/{codeId} {
+      allow read, write: if true;
+    }
+
+    match /adminRequests/{requestId} {
+      allow read, write: if true;
+    }
+
+    match /aiModerationLogs/{logId} {
+      allow read, write: if true;
+    }
+
+    match /collabSessions/{sessionId} {
+      allow read, write: if true;
+    }
+
+    match /installed_apps/{installId} {
+      allow read, write: if true;
+    }
+  }
+}
+=======
     function isOwner(userId) {
       return request.auth.uid == userId;
     }
@@ -86,3 +155,4 @@ service cloud.firestore {
   }
 }
 
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d

@@ -198,13 +198,22 @@ async function writeZipFile(
 }
 
 /**
+<<<<<<< HEAD
+ * Generates the authentic full-fidelity standalone EPL Engine runtime.
+ * Exact 1:1 match with EPL Studio's epl-interpreter.ts and AppPreview.tsx.
+=======
  * Builds the standalone HTML application runtime.
  * Pure application viewport matching the original design and behaviors without extraneous browser panels.
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
  */
 export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
   const title = app.title || 'EPL Application';
   const code = app.code || '';
   const escapedCode = JSON.stringify(code);
+<<<<<<< HEAD
+  const iconUrl = app.iconUrl || '';
+=======
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -214,7 +223,11 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
   <title>${title}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
+<<<<<<< HEAD
+    html, body {
+=======
     body, html {
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       width: 100vw;
       height: 100vh;
       overflow: hidden;
@@ -224,11 +237,23 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
       user-select: none;
       -webkit-user-select: none;
     }
+<<<<<<< HEAD
+    #stage-viewport {
+=======
     #stage-container {
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       width: 100vw;
       height: 100vh;
       position: relative;
       overflow: hidden;
+<<<<<<< HEAD
+      background-color: #0d1117;
+      background-size: cover;
+      background-position: center;
+    }
+    .epl-entity {
+      position: absolute;
+=======
       background: #000000;
       display: flex;
       align-items: center;
@@ -246,14 +271,40 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
     .epl-entity {
       position: absolute;
       transition: transform 0.05s linear;
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       box-sizing: border-box;
       display: flex;
       align-items: center;
       justify-content: center;
+<<<<<<< HEAD
+      user-select: none;
+=======
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     }
     .entity-player {
       box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
     }
+<<<<<<< HEAD
+    .entity-button {
+      cursor: pointer;
+      font-weight: 600;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+      transition: transform 0.1s ease, filter 0.1s ease;
+    }
+    .entity-button:hover {
+      filter: brightness(1.1);
+      transform: scale(1.03);
+    }
+    .entity-button:active {
+      transform: scale(0.97);
+    }
+    .entity-coin {
+      animation: epl-pulse 1s infinite alternate;
+    }
+    @keyframes epl-pulse {
+      from { transform: scale(1); }
+      to { transform: scale(1.12); }
+=======
     .entity-coin {
       animation: pulse 1s infinite alternate;
     }
@@ -294,10 +345,34 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
     }
     .touch-btn:active {
       background: rgba(16, 185, 129, 0.6);
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     }
   </style>
 </head>
 <body>
+<<<<<<< HEAD
+  <div id="stage-viewport"></div>
+
+  <script>
+    const APP_CODE = ${escapedCode};
+    const stage = document.getElementById('stage-viewport');
+
+    // Default Avatar generator for characters with no custom image
+    function getDefaultAvatar(name) {
+      const colors = ['#10b981', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#06b6d4'];
+      const initial = (name || 'E').charAt(0).toUpperCase();
+      let hash = 0;
+      for (let i = 0; i < (name || '').length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+      const bg = colors[Math.abs(hash) % colors.length];
+      const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">' +
+        '<rect width="64" height="64" rx="16" fill="' + bg + '"/>' +
+        '<text x="50%" y="54%" font-family="sans-serif" font-weight="bold" font-size="28" fill="#ffffff" dominant-baseline="middle" text-anchor="middle">' + initial + '</text>' +
+        '</svg>';
+      return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+    }
+
+    // Audio SFX Synthesis (Web Audio API offline synthesizer)
+=======
   <main id="stage-container">
     <div id="stage"></div>
     <div id="touch-controls">
@@ -320,6 +395,7 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
     const stage = document.getElementById('stage');
 
     // Web Audio synthesizer (offline sound synthesis)
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     let audioCtx = null;
 
@@ -332,7 +408,10 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
         const gain = audioCtx.createGain();
         osc.connect(gain);
         gain.connect(audioCtx.destination);
+<<<<<<< HEAD
+=======
 
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
         const now = audioCtx.currentTime;
 
         if (type === 'jump') {
@@ -370,6 +449,327 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
       } catch (e) {}
     }
 
+<<<<<<< HEAD
+    // Authentic EPL Dictionary & Tokenizer
+    const KEYWORDS = [
+      'variable_activated?', 'activate_variable', 'unlock_premium',
+      'wasd_controls', 'timer_tick?', 'text_label', 'stop_sound',
+      'play_sound', 'key_pressed?', 'file_added?', 'collided?',
+      'background', 'stop_move', 'draggable', 'terminal', 'started?',
+      'created?', 'clicked?', '3DCamera', '3DEditor', 'position',
+      'particle', 'textbox', 'control', 'destroy', 'forever',
+      '3Dblock', 'writed?', 'sprite', 'repeat', 'corner', 'object',
+      'circle', 'player', 'return', 'rotate', 'design', 'entity',
+      'button', 'random', 'check', 'block', 'sound', 'timer',
+      'enemy', 'clear', 'world', 'scale', 'input', 'math', 'then',
+      'else', 'wait', 'stop', 'type', 'hide', 'show', 'line',
+      'file', 'move', 'end', 'set up', 'png', 'if', 'ai'
+    ].sort((a, b) => b.length - a.length);
+
+    const ESCAPED = KEYWORDS.map(k => k.replace(/[\.\*\+\?\^\$\{\}\(\)\|\[\]\\]/g, '\\\\$&'));
+    const TOKEN_REGEX = new RegExp('(' + ESCAPED.join('|') + ')(?:\\\\s*\\\\{([^}]*)\\\\})?|(#.*)', 'g');
+
+    // Complete EPL Interpreter
+    class EPLInterpreter {
+      constructor() {
+        this.context = {
+          variables: {},
+          entities: {},
+          events: {},
+          inputMappings: {},
+          isRunning: true,
+          timers: {},
+          controlType: null,
+          currentObject: null,
+          pendingRandomChance: null
+        };
+        this.domNodes = {};
+        this.keysPressed = new Set();
+        this.animFrameId = null;
+      }
+
+      parseSettings(settingsStr) {
+        const obj = {};
+        if (!settingsStr) return obj;
+        const pairs = settingsStr.split(',');
+        for (let pair of pairs) {
+          const parts = pair.split('=');
+          if (parts.length === 2) {
+            const key = parts[0].trim();
+            let val = parts[1].trim();
+            if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+              val = val.slice(1, -1);
+            }
+            const isRel = val.startsWith('+') || val.startsWith('-');
+            if (!isNaN(Number(val)) && !isRel && val !== '') {
+              val = Number(val);
+            } else if (val === 'true') {
+              val = true;
+            } else if (val === 'false') {
+              val = false;
+            }
+            obj[key] = val;
+          }
+        }
+        return obj;
+      }
+
+      evaluateExpression(expr) {
+        if (expr === undefined || expr === null) return null;
+        expr = String(expr).trim();
+        if ((expr.startsWith('"') && expr.endsWith('"')) || (expr.startsWith("'") && expr.endsWith("'"))) {
+          return expr.slice(1, -1);
+        }
+        if (expr.includes('.')) {
+          const [entName, prop] = expr.split('.');
+          const ent = Object.values(this.context.entities).find(e => e.name === entName);
+          if (ent && ent[prop] !== undefined) return ent[prop];
+        }
+        if (!isNaN(Number(expr)) && expr !== '') return Number(expr);
+        if (expr === 'true') return true;
+        if (expr === 'false') return false;
+        return this.context.variables[expr] !== undefined ? this.context.variables[expr] : expr;
+      }
+
+      evaluateCompare(a, op, b) {
+        const valA = this.evaluateExpression(a);
+        const valB = this.evaluateExpression(b);
+        switch (op) {
+          case '>': return Number(valA) > Number(valB);
+          case '<': return Number(valA) < Number(valB);
+          case '==': return valA == valB;
+          case '>=': return Number(valA) >= Number(valB);
+          case '<=': return Number(valA) <= Number(valB);
+          default: return false;
+        }
+      }
+
+      evaluateCondition(cond) {
+        try {
+          const parsed = cond.replace(/([a-zA-Z0-9_]+)\\.([a-zA-Z0-9_]+)/g, (m, entName, prop) => {
+            const ent = Object.values(this.context.entities).find(e => e.name === entName);
+            if (ent && ent[prop] !== undefined) {
+              const val = ent[prop];
+              return typeof val === 'string' ? '"' + val.replace(/"/g, '\\\\"') + '"' : String(val);
+            }
+            return '0';
+          });
+          return new Function('return ' + parsed)();
+        } catch (e) {
+          return false;
+        }
+      }
+
+      async runLines(lines) {
+        let i = 0;
+        while (i < lines.length && this.context.isRunning) {
+          const line = lines[i].trim();
+          if (!line || line.startsWith('//') || line.startsWith('#')) {
+            i++;
+            continue;
+          }
+
+          const parts = line.split(TOKEN_REGEX);
+          let executed = false;
+
+          for (let j = 1; j < parts.length; j += 4) {
+            const keyword = parts[j];
+            if (!keyword) continue;
+            const settingsStr = parts[j + 1] || '';
+            const settings = this.parseSettings(settingsStr);
+
+            if (keyword === 'stop') return true;
+
+            if (keyword === 'create') {
+              const nextKeyword = parts[j + 4];
+              const nextSettingsStr = parts[j + 5] || '';
+              const nextSettings = this.parseSettings(nextSettingsStr);
+
+              if (nextKeyword) {
+                const id = nextSettings.name || 'entity_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+                const entity = Object.assign({ id, type: nextKeyword, name: nextSettings.name || id }, nextSettings);
+                this.context.entities[id] = entity;
+                this.renderEntity(entity);
+
+                if (nextKeyword === 'timer') {
+                  const interval = Number(nextSettings.interval || 1000);
+                  const timerId = setInterval(() => {
+                    if (this.context.isRunning) this.triggerEvent('timer_tick?', nextSettings.name);
+                  }, interval);
+                  this.context.timers[id] = timerId;
+                }
+
+                const createdKey = 'created?_' + nextSettings.name;
+                if (this.context.events[createdKey]) {
+                  this.runLines(this.context.events[createdKey]);
+                }
+                j += 4;
+              }
+              executed = true;
+            } else if (keyword === 'world') {
+              let world = Object.values(this.context.entities).find(e => e.type === 'world');
+              if (!world) {
+                world = { id: 'world', type: 'world', name: 'world' };
+                this.context.entities['world'] = world;
+              }
+              Object.assign(world, settings);
+              this.applyWorld(world);
+              executed = true;
+            } else if (keyword === 'background') {
+              let world = Object.values(this.context.entities).find(e => e.type === 'world');
+              if (!world) {
+                world = { id: 'world', type: 'world', name: 'world' };
+                this.context.entities['world'] = world;
+              }
+              if (settings.color) world.background = settings.color;
+              if (settings.image) world.backgroundImage = settings.image;
+              this.applyWorld(world);
+              executed = true;
+            } else if (keyword === 'control') {
+              this.context.controlType = settings.type === 'wasd' ? 'wasd' : null;
+              executed = true;
+            } else if (keyword === 'move') {
+              const target = Object.values(this.context.entities).find(e => e.name === settings.target) || this.context.currentObject;
+              if (target) {
+                if (settings.x !== undefined) {
+                  const val = this.evaluateExpression(String(settings.x));
+                  target.x = (parseFloat(String(target.x)) || 0) + Number(val);
+                }
+                if (settings.y !== undefined) {
+                  const val = this.evaluateExpression(String(settings.y));
+                  target.y = (parseFloat(String(target.y)) || 0) + Number(val);
+                }
+                this.updateEntityDom(target);
+                this.checkCollisions(target);
+              }
+              executed = true;
+            } else if (keyword === 'play_sound') {
+              playSfx(settings.sound || 'beep');
+              executed = true;
+            } else if (keyword === 'variable') {
+              if (settings.name) {
+                this.context.variables[settings.name] = this.evaluateExpression(settings.value);
+              }
+              executed = true;
+            } else if (keyword === 'math') {
+              const targetName = settings.target;
+              const op = settings.op;
+              const val = this.evaluateExpression(settings.value);
+              if (targetName && op && val !== null) {
+                let current = Number(this.context.variables[targetName] || 0);
+                const num = Number(val);
+                let res = current;
+                if (op === 'add') res = current + num;
+                else if (op === 'subtract') res = current - num;
+                else if (op === 'multiply') res = current * num;
+                else if (op === 'divide') res = current / num;
+                else if (op === 'set') res = num;
+                this.context.variables[targetName] = res;
+              }
+              executed = true;
+            } else if (keyword === 'corner') {
+              const target = Object.values(this.context.entities).find(e => e.name === settings.target) || this.context.currentObject;
+              if (target) {
+                target.borderRadius = settings.radius !== undefined ? settings.radius : 10;
+                this.updateEntityDom(target);
+              }
+              executed = true;
+            } else if (keyword === 'destroy') {
+              const target = Object.values(this.context.entities).find(e => e.name === (settings.target || this.context.currentObject?.name));
+              if (target) {
+                delete this.context.entities[target.id];
+                if (this.domNodes[target.id]) {
+                  this.domNodes[target.id].remove();
+                  delete this.domNodes[target.id];
+                }
+              }
+              executed = true;
+            } else if (keyword === 'if') {
+              let checkIdx = parts.indexOf('check', j);
+              let isTrue = false;
+              if (checkIdx !== -1) {
+                const checkSettings = this.parseSettings(parts[checkIdx + 1] || '');
+                isTrue = this.evaluateCondition(checkSettings.expression || 'false');
+              }
+              let ifBlock = [];
+              let elseBlock = [];
+              let curBlock = ifBlock;
+              i++;
+              while (i < lines.length) {
+                const inner = lines[i].trim();
+                if (inner === 'end' || inner.startsWith('end')) break;
+                if (inner === 'else' || inner.startsWith('else')) {
+                  curBlock = elseBlock;
+                  i++;
+                  continue;
+                }
+                curBlock.push(lines[i]);
+                i++;
+              }
+              if (isTrue) await this.runLines(ifBlock);
+              else if (elseBlock.length > 0) await this.runLines(elseBlock);
+              executed = true;
+              break;
+            }
+          }
+          if (!executed) i++;
+        }
+      }
+
+      applyWorld(world) {
+        if (world.background) stage.style.backgroundColor = world.background;
+        if (world.backgroundImage) stage.style.backgroundImage = 'url(' + world.backgroundImage + ')';
+      }
+
+      renderEntity(entity) {
+        if (entity.type === 'world') {
+          this.applyWorld(entity);
+          return;
+        }
+
+        let el = this.domNodes[entity.id];
+        if (!el) {
+          if (entity.type === 'sprite' || entity.type === 'player' || entity.type === 'enemy' || entity.type === 'png') {
+            el = document.createElement('img');
+            el.src = entity.image || getDefaultAvatar(entity.name);
+          } else if (entity.type === 'button') {
+            el = document.createElement('button');
+            el.textContent = entity.label || entity.name;
+            el.onclick = () => {
+              playSfx('click');
+              this.triggerEvent('clicked?', entity.name);
+            };
+          } else if (entity.type === 'textbox') {
+            el = document.createElement('input');
+            el.placeholder = entity.placeholder || 'Type here...';
+            el.value = entity.text || '';
+            el.oninput = (e) => {
+              entity.text = e.target.value;
+              this.triggerEvent('writed?', entity.name, e.target.value);
+            };
+          } else if (entity.type === 'text_label') {
+            el = document.createElement('div');
+            el.textContent = entity.text || entity.name;
+          } else {
+            el = document.createElement('div');
+          }
+          el.className = 'epl-entity entity-' + entity.type;
+          el.id = 'epl-' + entity.id;
+          stage.appendChild(el);
+          this.domNodes[entity.id] = el;
+        }
+        this.updateEntityDom(entity);
+      }
+
+      updateEntityDom(entity) {
+        const el = this.domNodes[entity.id];
+        if (!el) return;
+
+        const x = entity.x !== undefined ? entity.x : Math.floor(window.innerWidth / 2 - 32);
+        const y = entity.y !== undefined ? entity.y : Math.floor(window.innerHeight / 2 - 32);
+        const w = entity.width || entity.size || (entity.radius ? entity.radius * 2 : 64);
+        const h = entity.height || entity.size || (entity.radius ? entity.radius * 2 : 64);
+=======
     class StandaloneEPL {
       constructor(source) {
         this.source = source;
@@ -492,11 +892,132 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
         const w = props.width || props.w || 64;
         const h = props.height || props.h || 64;
         const color = props.color || props.bg || '#3b82f6';
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
         el.style.left = x + 'px';
         el.style.top = y + 'px';
         el.style.width = w + 'px';
         el.style.height = h + 'px';
+<<<<<<< HEAD
+
+        if (entity.color) el.style.backgroundColor = entity.color;
+        if (entity.borderRadius !== undefined || entity.corner !== undefined) {
+          el.style.borderRadius = (entity.borderRadius || entity.corner) + 'px';
+        } else if (entity.type === 'circle') {
+          el.style.borderRadius = '50%';
+        }
+
+        if (entity.type === 'text_label') {
+          el.style.color = entity.color || '#ffffff';
+          el.style.fontSize = (entity.size || 18) + 'px';
+          el.style.fontWeight = 'bold';
+          el.style.backgroundColor = 'transparent';
+          el.textContent = entity.text || entity.name;
+        }
+
+        if (entity.scale) el.style.transform = 'scale(' + entity.scale + ')';
+        if (entity.opacity !== undefined) el.style.opacity = entity.opacity;
+      }
+
+      checkCollisions(mover) {
+        const mx = mover.x || 0;
+        const my = mover.y || 0;
+        const mw = mover.width || mover.size || 64;
+        const mh = mover.height || mover.size || 64;
+
+        Object.values(this.context.entities).forEach(other => {
+          if (other.id === mover.id || other.type === 'world') return;
+          const ox = other.x || 0;
+          const oy = other.y || 0;
+          const ow = other.width || other.size || 64;
+          const oh = other.height || other.size || 64;
+
+          if (mx < ox + ow && mx + mw > ox && my < oy + oh && my + mh > oy) {
+            this.triggerEvent('collided?', mover.name);
+            this.triggerEvent('collided?', other.name);
+          }
+        });
+      }
+
+      triggerEvent(eventName, target, value) {
+        let key = eventName;
+        if (target) key = eventName + '_' + target;
+        if (this.context.events[key]) {
+          this.runLines(this.context.events[key]);
+        }
+      }
+
+      startGameLoop() {
+        const loop = () => {
+          if (this.context.isRunning) {
+            if (this.context.controlType === 'wasd') {
+              const player = Object.values(this.context.entities).find(e => e.type === 'player' || e.name === 'Player');
+              if (player) {
+                const speed = Number(player.speed || 6);
+                let moved = false;
+                if (this.keysPressed.has('w') || this.keysPressed.has('arrowup')) { player.y = (player.y || 0) - speed; moved = true; }
+                if (this.keysPressed.has('s') || this.keysPressed.has('arrowdown')) { player.y = (player.y || 0) + speed; moved = true; }
+                if (this.keysPressed.has('a') || this.keysPressed.has('arrowleft')) { player.x = (player.x || 0) - speed; moved = true; }
+                if (this.keysPressed.has('d') || this.keysPressed.has('arrowright')) { player.x = (player.x || 0) + speed; moved = true; }
+                if (moved) {
+                  this.updateEntityDom(player);
+                  this.checkCollisions(player);
+                }
+              }
+            }
+            this.animFrameId = requestAnimationFrame(loop);
+          }
+        };
+        this.animFrameId = requestAnimationFrame(loop);
+      }
+
+      async run(code) {
+        this.context.isRunning = true;
+        this.startGameLoop();
+
+        const lines = code.split('\\n');
+        let currentEvent = 'started?';
+        let eventBlock = [];
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line || line.startsWith('#')) continue;
+          const parts = line.split(TOKEN_REGEX);
+
+          let found = false;
+          for (let j = 1; j < parts.length; j += 4) {
+            const keyword = parts[j];
+            if (['started?', 'created?', 'clicked?', 'collided?', 'key_pressed?', 'timer_tick?', 'writed?', 'variable_activated?'].includes(keyword)) {
+              if (currentEvent && eventBlock.length > 0) {
+                this.context.events[currentEvent] = (this.context.events[currentEvent] || []).concat(eventBlock);
+              }
+              const settings = this.parseSettings(parts[j + 1] || '');
+              const suffix = settings.target || settings.key || settings.name || settings.var || settings.variable;
+              currentEvent = (keyword === 'started?' || !suffix) ? keyword : keyword + '_' + suffix;
+              eventBlock = [];
+              found = true;
+              break;
+            } else if (keyword === 'end' && currentEvent) {
+              this.context.events[currentEvent] = (this.context.events[currentEvent] || []).concat(eventBlock);
+              currentEvent = 'started?';
+              eventBlock = [];
+              found = true;
+              break;
+            }
+          }
+          if (!found && currentEvent) {
+            eventBlock.push(line);
+          }
+        }
+
+        if (currentEvent && eventBlock.length > 0) {
+          this.context.events[currentEvent] = (this.context.events[currentEvent] || []).concat(eventBlock);
+        }
+
+        if (this.context.events['started?']) {
+          await this.runLines(this.context.events['started?']);
+        }
+=======
         el.style.backgroundColor = color;
         el.style.borderRadius = (props.radius ? props.radius + 'px' : (type === 'coin' || type === 'circle' ? '50%' : '8px'));
 
@@ -564,22 +1085,67 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
         bindTouch('btn-down', 0, 1);
         bindTouch('btn-left', -1, 0);
         bindTouch('btn-right', 1, 0);
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       }
     }
 
     window.addEventListener('DOMContentLoaded', () => {
+<<<<<<< HEAD
+      const engine = new EPLInterpreter();
+
+      window.addEventListener('keydown', (e) => {
+        engine.keysPressed.add(e.key.toLowerCase());
+        engine.triggerEvent('key_pressed?', e.key);
+      });
+
+      window.addEventListener('keyup', (e) => {
+        engine.keysPressed.delete(e.key.toLowerCase());
+      });
+
+      engine.run(APP_CODE);
+=======
       const runner = new StandaloneEPL(APP_CODE);
       runner.execute();
       if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
         document.getElementById('touch-controls').style.display = 'flex';
       }
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     });
   </script>
 </body>
 </html>`;
 }
 
+<<<<<<< HEAD
+async function resolveMakensisCommand(): Promise<string> {
+  try {
+    await execFileAsync('makensis', ['-VERSION']);
+    return 'makensis';
+  } catch {}
+
+  const localBin = path.join(process.cwd(), 'bin', 'makensis');
+  if (fs.existsSync(localBin)) {
+    return localBin;
+  }
+
+  const usrBin = '/usr/bin/makensis';
+  if (fs.existsSync(usrBin)) {
+    return usrBin;
+  }
+
+  try {
+    await execFileAsync('apt-get', ['update']);
+    await execFileAsync('apt-get', ['install', '-y', 'nsis']);
+    return 'makensis';
+  } catch {}
+
+  throw new Error('Nullsoft Compiler (makensis) binary not found');
+}
+
+// 1. Windows Executable Application (.exe) using NSIS Native Compiler
+=======
 // 1. Windows Executable Application (.exe) using NSIS Standalone Native Compiler
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 async function buildWindowsExecutable(outDir: string, app: BuildAppMetadata, logCallback: (msg: string) => void): Promise<{ filePath: string; fileName: string; fileSize: number }> {
   const slug = sanitizeName(app.title);
   const fileName = `${slug}.exe`;
@@ -594,7 +1160,11 @@ async function buildWindowsExecutable(outDir: string, app: BuildAppMetadata, log
   await fsp.writeFile(path.join(tempBuildDir, 'app.html'), appHtml, 'utf-8');
   await fsp.writeFile(path.join(tempBuildDir, 'app.epl'), app.code, 'utf-8');
 
+<<<<<<< HEAD
+  // Generate NSIS executable script with resilient dedicated application window launcher
+=======
   // Generate NSIS executable script
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   const nsiScript = `!define APPNAME "${app.title.replace(/"/g, '')}"
 !define APPSLUG "${slug}"
 !define VERSION "${app.version || '1.0.0.0'}"
@@ -609,7 +1179,11 @@ ShowInstDetails nevershow
 VIProductVersion "1.0.0.0"
 VIAddVersionKey "ProductName" "\${APPNAME}"
 VIAddVersionKey "CompanyName" "${(app.authorName || 'EPL Community').replace(/"/g, '')}"
+<<<<<<< HEAD
+VIAddVersionKey "FileDescription" "\${APPNAME} - Standalone Windows Application"
+=======
 VIAddVersionKey "FileDescription" "\${APPNAME} Application"
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 VIAddVersionKey "FileVersion" "1.0.0.0"
 
 Section
@@ -618,18 +1192,38 @@ Section
   File "app.html"
   File "app.epl"
 
+<<<<<<< HEAD
+  ; Launch in dedicated standalone window mode without browser address bar
+  Exec '"$WINDIR\\System32\\cmd.exe" /c start "" msedge.exe --app="file://$PLUGINSDIR\\app.html" --window-size=1280,800 --user-data-dir="$LOCALAPPDATA\\EPL_Studio\\Data\\\${APPSLUG}"'
+  IfErrors 0 done
+
+  Exec '"$WINDIR\\System32\\cmd.exe" /c start "" chrome.exe --app="file://$PLUGINSDIR\\app.html" --window-size=1280,800 --user-data-dir="$LOCALAPPDATA\\EPL_Studio\\Data\\\${APPSLUG}"'
+  IfErrors 0 done
+
+  ExecShell "open" "$PLUGINSDIR\\app.html"
+done:
+=======
   ; Execute standalone dedicated desktop window mode (frameless, no browser UI)
   ExecWait '"$WINDIR\\System32\\cmd.exe" /c start "" msedge.exe --app="file://$PLUGINSDIR\\app.html" --window-size=1280,800 --user-data-dir="$LOCALAPPDATA\\EPL_Studio\\Data\\\${APPSLUG}"'
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 SectionEnd
 `;
 
   const nsiPath = path.join(tempBuildDir, 'build.nsi');
   await fsp.writeFile(nsiPath, nsiScript, 'utf-8');
 
+<<<<<<< HEAD
+  logCallback('Compiling PE32 GUI binary using Nullsoft Compiler (makensis)...');
+
+  try {
+    const makensisCmd = await resolveMakensisCommand();
+    const { stdout, stderr } = await execFileAsync(makensisCmd, [nsiPath], { cwd: tempBuildDir });
+=======
   logCallback('Executing Nullsoft Compiler (makensis) to build PE32 GUI binary...');
 
   try {
     const { stdout, stderr } = await execFileAsync('makensis', [nsiPath], { cwd: tempBuildDir });
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     if (stderr && !stderr.includes('Processed')) {
       logCallback(`Compiler note: ${stderr.trim()}`);
     }
@@ -638,7 +1232,11 @@ SectionEnd
   }
 
   const stats = await fsp.stat(filePath);
+<<<<<<< HEAD
+  logCallback(`Windows Executable ready: ${fileName} (${(stats.size / 1024).toFixed(1)} KB).`);
+=======
   logCallback(`Windows Executable generated: ${fileName} (${(stats.size / 1024).toFixed(1)} KB).`);
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
   return { filePath, fileName, fileSize: stats.size };
 }

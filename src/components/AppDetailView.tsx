@@ -543,7 +543,11 @@ export default function AppDetailView() {
                       </div>
                       <div className="text-center">
                         <div className="text-2xl font-bold flex items-center justify-center gap-1">
+<<<<<<< HEAD
+                          {(typeof app.rating === 'number' ? app.rating : 5.0).toFixed(1)} <Star className="w-4 h-4 text-amber-400 fill-current" />
+=======
                           {app.rating.toFixed(1)} <Star className="w-4 h-4 text-amber-400 fill-current" />
+>>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                         </div>
                         <div className="text-[10px] text-zinc-500 uppercase">Rating</div>
                       </div>
