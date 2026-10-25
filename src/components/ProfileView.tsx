@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useStore } from '../store/useStore';
 import { auth, logOut } from '../firebase';
-import { User, Mail, LogOut, Package, ExternalLink, Settings as SettingsIcon, Shield, Search } from 'lucide-react';
+import { User, Mail, LogOut, Package, ExternalLink, Settings as SettingsIcon, Shield, Search, ShieldCheck } from 'lucide-react';
 import { clsx } from 'clsx';
 import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -387,7 +387,15 @@ export default function ProfileView() {
                 theme !== 'light' ? 'bg-zinc-900 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
               )}>
                 <span className={clsx("text-xs font-bold uppercase", isFrutigerAero ? "text-blue-800/60" : "text-zinc-500")}>Role</span>
-                <span className={clsx("font-bold capitalize", isFrutigerAero ? "text-blue-900" : "")}>{userData?.role || 'User'}</span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className={clsx("font-bold capitalize", isFrutigerAero ? "text-blue-900" : "")}>{userData?.role || 'User'}</span>
+                  {userData?.roleVerification === 'Role is allowed by dev' && (
+                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 font-semibold flex items-center gap-1 shadow-sm">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                      Role is allowed by dev
+                    </span>
+                  )}
+                </div>
               </div>
               <div className={clsx(
                 "px-4 py-2 rounded-xl border flex items-center justify-between",

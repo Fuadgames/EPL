@@ -5,7 +5,7 @@ import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firesto
 import { db } from '../firebase';
 import { getDefaultAvatar } from '../lib/avatar';
 import { AppData } from '../types';
-import { ExternalLink, Star, Download, ChevronDown, ChevronUp, User as UserIcon, Ban, CheckCircle } from 'lucide-react';
+import { ExternalLink, Star, Download, ChevronDown, ChevronUp, User as UserIcon, Ban, CheckCircle, ShieldCheck } from 'lucide-react';
 import UserRoleBadge from './UserRoleBadge';
 import VerifiedBadge from './VerifiedBadge';
 import { setDoc } from 'firebase/firestore';
@@ -137,10 +137,16 @@ export default function PublicProfileView() {
           <div className="flex-1 mt-2">
             <div className="flex flex-col sm:flex-row items-center sm:items-start justify-between gap-3">
               <div>
-                <h1 className={clsx("text-3xl font-bold mb-1 tracking-tight flex items-center justify-center sm:justify-start gap-2", isFrutigerAero ? "text-blue-900" : "")}>
+                <h1 className={clsx("text-3xl font-bold mb-1 tracking-tight flex flex-wrap items-center justify-center sm:justify-start gap-2", isFrutigerAero ? "text-blue-900" : "")}>
                   {profileData.isVerifiedAuthor && <VerifiedBadge size="md" />}
                   <span>{profileData.name || 'Unknown User'}</span>
                   <UserRoleBadge role={profileData.role} isVerifiedAuthor={profileData.isVerifiedAuthor} size="sm" showLabel />
+                  {profileData.roleVerification === 'Role is allowed by dev' && (
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-xs font-semibold flex items-center gap-1 shadow-sm">
+                      <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                      Role is allowed by dev
+                    </span>
+                  )}
                   {profileData.isBanned && (
                     <span className="px-2 py-0.5 bg-red-500 rounded text-white text-[11px] uppercase font-bold tracking-wider">
                       BANNED

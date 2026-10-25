@@ -59,6 +59,9 @@ export interface UserData {
   isPremium?: boolean;
   isBanned?: boolean;
   banReason?: string;
+  roleVerification?: string;
+  roleVerifiedBy?: string;
+  roleVerifiedAt?: string;
 }
 
 interface AppState {
@@ -150,14 +153,42 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   setUser: (user) => startTransition(() => { set({ user }); }),
   userData: null,
   setUserData: (userData) => startTransition(() => {
-    // When userData updates from Firestore, also sync installedAppsList
-    const listFromUser = userData?.installedAppsList || [];
     set((state) => {
-      // Merge if user has items or local state has items
-      const merged = listFromUser.length > 0 ? listFromUser : state.installedAppsList;
+      const currentList = state.installedAppsList || [];
+      const userList = userData?.installedAppsList || [];
+      
+      // Union merge: never lose locally installed items when snapshot arrives
+      const itemMap = new Map<string, InstalledAppItem>();
+      currentList.forEach(item => {
+        const key = item.projectId || item.id;
+        if (key) itemMap.set(key, item);
+      });
+      userList.forEach(item => {
+        const key = item.projectId || item.id;
+        if (key) {
+          itemMap.set(key, { ...(itemMap.get(key) || {}), ...item });
+        }
+      });
+      const mergedList = Array.from(itemMap.values());
+
+      const mergedInstalledMap: { [key: string]: string } = {
+        ...(state.userData?.installedApps || {}),
+        ...(userData?.installedApps || {})
+      };
+      mergedList.forEach(item => {
+        const key = item.projectId || item.id;
+        if (key && !mergedInstalledMap[key]) {
+          mergedInstalledMap[key] = item.version || '1.0.0';
+        }
+      });
+
       return { 
-        userData: userData ? { ...userData, installedAppsList: merged } : null,
-        installedAppsList: merged
+        userData: userData ? { 
+          ...userData, 
+          installedApps: mergedInstalledMap,
+          installedAppsList: mergedList 
+        } : null,
+        installedAppsList: mergedList
       };
     });
   }),
@@ -264,6 +295,15 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     if (state.userData?.installedApps?.[projectId]) return true;
     if (state.userData?.installedAppsList?.some(i => i.projectId === projectId || i.id === projectId)) return true;
     if (state.installedAppsList?.some(i => i.projectId === projectId || i.id === projectId)) return true;
+    try {
+      const stored = localStorage.getItem('app-storage');
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (parsed.state?.installedAppsList?.some((i: any) => i.projectId === projectId || i.id === projectId)) {
+          return true;
+        }
+      }
+    } catch (_) {}
     return false;
   },
   installApp: async (app: any) => {
@@ -309,8 +349,14 @@ export const useStore = create<AppState>()(persist((set, get) => ({
       try {
         const userRef = doc(db, 'users', state.user.uid);
         await updateDoc(userRef, {
-          [`installedApps.${projectId}`]: newItem.version,
+          installedApps: currentInstalledMap,
           installedAppsList: updatedList
+        }).catch(async () => {
+          // Fallback with setDoc merge
+          await setDoc(userRef, {
+            installedApps: currentInstalledMap,
+            installedAppsList: updatedList
+          }, { merge: true });
         });
 
         // Also save to top-level installed_apps collection
@@ -320,7 +366,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
           ...newItem
         }, { merge: true });
       } catch (err) {
-        console.error('Error saving installed app to Firestore:', err);
+        console.warn('Notice: Local app install preserved, Firestore sync caught:', err);
       }
     }
   },

@@ -242,7 +242,33 @@ ${code.slice(0, 4000)}
     };
   }
 
-  async function moderateUserWithNemotron(name: string, email: string, bio?: string, avatarUrl?: string, role?: string): Promise<ModerationResult> {
+  async function moderateUserWithNemotron(
+    name: string, 
+    email: string, 
+    bio?: string, 
+    avatarUrl?: string, 
+    role?: string,
+    roleVerification?: string,
+    roleVerifiedBy?: string
+  ): Promise<ModerationResult> {
+    const isDevEmail = (email || '').toLowerCase() === 'fufazada@gmail.com';
+    const hasElevatedRole = role && role !== 'user';
+
+    // REQUIREMENT: If a role was assigned, AI moderation verifies if 'Role is allowed by dev' exists.
+    // If AI does not find 'Role is allowed by dev' in account profile, it bans the user.
+    // If it finds 'Role is allowed by dev', it does not ban and allows the role.
+    if (hasElevatedRole && !isDevEmail) {
+      const hasDevApproval = roleVerification === 'Role is allowed by dev' || (bio && bio.includes('Role is allowed by dev'));
+      if (!hasDevApproval) {
+        return {
+          approved: false,
+          reason: "Несанкционированная роль без подтверждения разработчика: в профиле не обнаружена обязательная надпись 'Role is allowed by dev'. Пользователь заблокирован ИИ модератором.",
+          flags: ['unauthorized_role_elevation', 'missing_role_is_allowed_by_dev'],
+          riskScore: 10
+        };
+      }
+    }
+
     const combined = `${name} ${email} ${bio || ''}`.toLowerCase();
     const explicitTerms = ['hacked by', 'you hacked', 'fuada was hacked', 'взломали', 'порно', 'porn', 'xxx', 'hentai', 'хуй', 'пизда', 'ебать', 'блять', 'сука', 'fuck', 'shit', 'nigger', 'cunt', 'dick', 'kamil', 'you hacked by kamil'];
     const matchedTerms = explicitTerms.filter(t => combined.includes(t));
@@ -260,6 +286,7 @@ ${code.slice(0, 4000)}
 - Описание / Био: "${bio || 'Отсутствует'}"
 - Ссылка на аватар: "${avatarUrl || 'Стандартный'}"
 - Роль: "${role || 'user'}"
+- Подтверждение разработчика: "${roleVerification || 'Отсутствует'}"
 
 Ответь ТОЛЬКО валидным JSON-объектом без лишних символов и без markdown блоков в формате:
 {
@@ -325,7 +352,9 @@ ${code.slice(0, 4000)}
 
     return {
       approved: true,
-      reason: 'Профиль пользователя прошел автоматическую проверку безопасности',
+      reason: hasElevatedRole && roleVerification === 'Role is allowed by dev'
+        ? "Роль подтверждена разработчиком ('Role is allowed by dev'). Профиль одобрен ИИ модератором."
+        : 'Профиль пользователя прошел автоматическую проверку безопасности',
       flags: [],
       riskScore: 0
     };
@@ -350,12 +379,12 @@ ${code.slice(0, 4000)}
   // Moderate user profile endpoint
   app.post("/api/ai/moderate-user", rateLimiter(30, 60000), async (req, res) => {
     try {
-      const { userId, name, email, bio, avatarUrl, role } = req.body;
+      const { userId, name, email, bio, avatarUrl, role, roleVerification, roleVerifiedBy } = req.body;
       if (!name || typeof name !== 'string') {
         return res.status(400).json({ error: 'Missing user name' });
       }
 
-      const modResult = await moderateUserWithNemotron(name, email || '', bio || '', avatarUrl || '', role || 'user');
+      const modResult = await moderateUserWithNemotron(name, email || '', bio || '', avatarUrl || '', role || 'user', roleVerification, roleVerifiedBy);
       const isApproved = modResult.approved;
 
       if (serverDb && userId) {
@@ -821,6 +850,217 @@ ${code.slice(0, 4000)}
     } catch (err: any) {
       console.error('Set role error:', err.message);
       res.status(500).json({ error: err.message || 'Failed to set role' });
+    }
+  });
+
+  // Admin / Developer Verified Role (Inserts "Role is allowed by dev")
+  app.post("/api/admin/verify-role", rateLimiter(60, 60000), async (req, res) => {
+    try {
+      const { uid, adminUid, adminName } = req.body;
+      if (!uid) {
+        return res.status(400).json({ error: 'Missing uid' });
+      }
+
+      const roleVerification = "Role is allowed by dev";
+      const verifiedBy = adminName || "developer";
+      const verifiedAt = new Date().toISOString();
+
+      if (serverDb) {
+        await Promise.all([
+          serverSetDoc(serverDoc(serverDb, 'users', uid), {
+            roleVerification,
+            roleVerifiedBy: verifiedBy,
+            roleVerifiedByUid: adminUid || 'admin',
+            roleVerifiedAt: verifiedAt,
+            isBanned: false,
+            banReason: null,
+            moderationStatus: 'approved'
+          }, { merge: true }),
+          serverSetDoc(serverDoc(serverDb, 'users_public', uid), {
+            roleVerification,
+            roleVerifiedBy: verifiedBy,
+            roleVerifiedAt: verifiedAt
+          }, { merge: true }),
+          serverSetDoc(serverDoc(serverDb, 'audit', `role_verify_${uid}_${Date.now()}`), {
+            type: 'role_verified_by_dev',
+            target: uid,
+            inscription: roleVerification,
+            by: adminUid || 'admin',
+            at: verifiedAt
+          })
+        ]);
+      }
+
+      res.json({ 
+        success: true, 
+        uid, 
+        roleVerification, 
+        roleVerifiedBy: verifiedBy, 
+        roleVerifiedAt: verifiedAt 
+      });
+    } catch (err: any) {
+      console.error('Verify role error:', err.message);
+      res.status(500).json({ error: err.message || 'Failed to verify role' });
+    }
+  });
+
+  // Automated Hourly AI Moderation Engine
+  let lastHourlyRunTime: string | null = null;
+  let nextHourlyRunTime: string = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+  let isHourlyRunning = false;
+  let lastHourlyStats = { appsChecked: 0, appsBanned: 0, usersChecked: 0, usersBanned: 0 };
+
+  async function executeHourlyModeration() {
+    if (isHourlyRunning) return;
+    isHourlyRunning = true;
+    lastHourlyRunTime = new Date().toISOString();
+    nextHourlyRunTime = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    console.log(`[AI MODERATOR] Starting hourly scan at ${lastHourlyRunTime}...`);
+
+    let appsChecked = 0;
+    let appsBanned = 0;
+    let usersChecked = 0;
+    let usersBanned = 0;
+
+    try {
+      if (serverDb) {
+        // 1. Scan and moderate Apps
+        const appsSnap = await serverGetDocs(serverCollection(serverDb, 'apps'));
+        for (const aDoc of appsSnap.docs) {
+          const a = aDoc.data();
+          appsChecked++;
+          const title = a.title || '';
+          const desc = a.description || '';
+          const code = a.code || '';
+          const author = a.authorName || '';
+
+          const result = await moderateWithNemotron(title, desc, code, author);
+          if (!result.approved && a.status !== 'rejected') {
+            appsBanned++;
+            await serverSetDoc(aDoc.ref, {
+              status: 'rejected',
+              moderationStatus: 'rejected',
+              moderationReason: result.reason,
+              moderationFlags: result.flags,
+              moderatedAt: new Date().toISOString(),
+              moderatedBy: 'Hourly AI Moderator'
+            }, { merge: true });
+
+            const logId = `hourly_app_${aDoc.id}_${Date.now()}`;
+            await serverSetDoc(serverDoc(serverDb, 'aiModerationLogs', logId), {
+              id: logId,
+              appId: aDoc.id,
+              appTitle: title,
+              authorId: a.authorId || 'unknown',
+              authorName: author,
+              approved: false,
+              reason: `[Почасовая проверка ИИ] ${result.reason}`,
+              flags: result.flags,
+              riskScore: result.riskScore,
+              model: 'Hourly AI Moderator (Nemotron 3.5)',
+              createdAt: new Date().toISOString()
+            });
+          }
+        }
+
+        // 2. Scan and moderate Users (verifying 'Role is allowed by dev')
+        const usersSnap = await serverGetDocs(serverCollection(serverDb, 'users'));
+        for (const uDoc of usersSnap.docs) {
+          const u = uDoc.data();
+          usersChecked++;
+          const name = u.name || 'User';
+          const email = u.email || '';
+          const bio = u.bio || '';
+          const role = u.role || 'user';
+          const roleVerification = u.roleVerification;
+          const roleVerifiedBy = u.roleVerifiedBy;
+
+          const result = await moderateUserWithNemotron(name, email, bio, u.avatarUrl, role, roleVerification, roleVerifiedBy);
+
+          if (!result.approved && !u.isBanned) {
+            usersBanned++;
+            await serverSetDoc(uDoc.ref, {
+              isBanned: true,
+              banReason: result.reason,
+              moderationStatus: 'rejected',
+              moderationReason: result.reason,
+              moderationFlags: result.flags,
+              moderatedAt: new Date().toISOString(),
+              moderatedBy: 'Hourly AI Moderator'
+            }, { merge: true });
+
+            const logId = `hourly_user_${uDoc.id}_${Date.now()}`;
+            await serverSetDoc(serverDoc(serverDb, 'aiModerationLogs', logId), {
+              id: logId,
+              appId: uDoc.id,
+              appTitle: `[Пользователь] ${name}`,
+              authorId: uDoc.id,
+              authorName: name,
+              approved: false,
+              reason: `[Почасовая проверка ИИ] ${result.reason}`,
+              flags: result.flags,
+              riskScore: result.riskScore,
+              model: 'Hourly AI Moderator (Nemotron 3.5)',
+              createdAt: new Date().toISOString()
+            });
+          }
+        }
+
+        lastHourlyStats = { appsChecked, appsBanned, usersChecked, usersBanned };
+
+        // Save hourly audit summary
+        const summaryId = `hourly_summary_${Date.now()}`;
+        await serverSetDoc(serverDoc(serverDb, 'aiModerationLogs', summaryId), {
+          id: summaryId,
+          appId: 'system_hourly',
+          appTitle: `[Почасовая проверка ИИ] Проверено: ${appsChecked} проектов, ${usersChecked} пользователей`,
+          authorId: 'system',
+          authorName: 'AI Moderator System',
+          approved: true,
+          reason: `Почасовая проверка ИИ завершена. Выявлено нарушений: проектов ${appsBanned}, пользователей ${usersBanned}.`,
+          flags: [],
+          riskScore: 0,
+          model: 'Hourly AI Moderator',
+          createdAt: new Date().toISOString(),
+          stats: lastHourlyStats
+        });
+      }
+    } catch (err: any) {
+      console.error('[AI MODERATOR] Hourly scan failed:', err.message);
+    } finally {
+      isHourlyRunning = false;
+      console.log(`[AI MODERATOR] Finished hourly scan. Checked: ${appsChecked} apps, ${usersChecked} users.`);
+    }
+  }
+
+  // Periodic hourly check: runs every 1 hour (3,600,000 ms)
+  setInterval(executeHourlyModeration, 60 * 60 * 1000);
+  setTimeout(executeHourlyModeration, 6000);
+
+  // Status and on-demand trigger endpoints
+  app.get("/api/ai/hourly-moderation-status", (req, res) => {
+    res.json({
+      active: true,
+      intervalHours: 1,
+      isCurrentlyRunning: isHourlyRunning,
+      lastRunTime: lastHourlyRunTime,
+      nextRunTime: nextHourlyRunTime,
+      lastStats: lastHourlyStats
+    });
+  });
+
+  app.post("/api/ai/run-hourly-moderation", rateLimiter(10, 60000), async (req, res) => {
+    try {
+      await executeHourlyModeration();
+      res.json({
+        success: true,
+        message: 'Hourly AI moderation completed',
+        stats: lastHourlyStats,
+        lastRunTime: lastHourlyRunTime,
+        nextRunTime: nextHourlyRunTime
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Hourly moderation failed' });
     }
   });
 

@@ -37,6 +37,8 @@ export default function StoreView() {
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const language = useStore(state => state.language);
   const isAppInstalled = useStore(state => state.isAppInstalled);
+  const installApp = useStore(state => state.installApp);
+  const [installingAppId, setInstallingAppId] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const [buildTargetApp, setBuildTargetApp] = useState<AppData | null>(null);
@@ -547,7 +549,22 @@ export default function StoreView() {
                             ) : (
                               <motion.button 
                                 whileTap={{ scale: 0.95 }}
-                                onClick={() => setSelectedAppId(app.id)}
+                                disabled={installingAppId === app.id}
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  if (app.price && app.price > 0 && !userData?.purchasedApps?.includes(app.id)) {
+                                    setSelectedAppId(app.id);
+                                    return;
+                                  }
+                                  try {
+                                    setInstallingAppId(app.id);
+                                    await installApp(app);
+                                  } catch (err) {
+                                    console.error('Install error:', err);
+                                  } finally {
+                                    setInstallingAppId(null);
+                                  }
+                                }}
                                 className={clsx(
                                   "flex-1 flex items-center justify-center gap-2 px-6 py-4 rounded-[1.5rem] text-base sm:text-lg font-bold transition-all shadow-xl cursor-pointer active:scale-[0.98]",
                                   isFrutigerAero 
@@ -555,8 +572,8 @@ export default function StoreView() {
                                     : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/35"
                                 )}
                               >
-                                <Download className="w-5 h-5 sm:w-6 sm:h-6" />
-                                <span>GET</span>
+                                <Download className={clsx("w-5 h-5 sm:w-6 sm:h-6", installingAppId === app.id && "animate-bounce")} />
+                                <span>{installingAppId === app.id ? (language === 'ru' ? 'УСТАНОВКА...' : 'GETTING...') : 'GET'}</span>
                               </motion.button>
                             )}
                             

@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useStore } from '../store/useStore';
 import { translations } from '../lib/translations';
 import { clsx } from 'clsx';
-import { ShieldCheck, CheckCircle, XCircle, Users, Coins, Search, Ban, AlertCircle, X, Trash2, Sparkles, Eye, RefreshCw, Check, FileCode, ShieldAlert, BadgeCheck } from 'lucide-react';
+import { ShieldCheck, CheckCircle, XCircle, Users, Coins, Search, Ban, AlertCircle, X, Trash2, Sparkles, Eye, RefreshCw, Check, FileCode, ShieldAlert, BadgeCheck, Clock, AlertTriangle } from 'lucide-react';
 import { collection, getDocs, doc, updateDoc, deleteDoc, query, where, onSnapshot, increment, setDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { db } from '../firebase';
@@ -57,6 +57,37 @@ export default function ControlView() {
   const [unbanModalUser, setUnbanModalUser] = useState<any | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastType, setToastType] = useState<'success' | 'error'>('success');
+
+  const [hourlyStatus, setHourlyStatus] = useState<any>(null);
+  const [isTriggeringHourly, setIsTriggeringHourly] = useState(false);
+
+  const fetchHourlyStatus = useCallback(async () => {
+    try {
+      const res = await fetch('/api/ai/hourly-moderation-status');
+      if (res.ok) {
+        const data = await res.json();
+        setHourlyStatus(data);
+      }
+    } catch (_) {}
+  }, []);
+
+  const handleTriggerHourly = async () => {
+    setIsTriggeringHourly(true);
+    try {
+      const res = await fetch('/api/ai/run-hourly-moderation', { method: 'POST' });
+      if (res.ok) {
+        showToast(language === 'ru' ? 'Почасовая проверка ИИ успешно завершена!' : 'Hourly AI moderation completed!', 'success');
+        fetchHourlyStatus();
+        fetch('/api/admin/moderation-logs').then(r => r.json()).then(d => setModerationLogs(d.logs || [])).catch(() => {});
+      } else {
+        throw new Error('Failed to run hourly moderation');
+      }
+    } catch (err: any) {
+      showToast(err.message, 'error');
+    } finally {
+      setIsTriggeringHourly(false);
+    }
+  };
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToastMessage(msg);
@@ -119,6 +150,7 @@ export default function ControlView() {
       } catch (e) {}
     };
     fetchLogs();
+    fetchHourlyStatus();
 
     return () => {
       appsUnsubscribe();
@@ -395,6 +427,47 @@ export default function ControlView() {
       showToast(language === 'ru' ? 'Роль пользователя обновлена' : 'User role updated', 'success');
     } catch (error: any) {
       showToast(error.message, 'error');
+    }
+  };
+
+  const handleVerifyRole = async (userId: string, userName?: string) => {
+    if (actualRole !== 'developer' && actualRole !== 'admin') {
+      showToast(language === 'ru' ? "Только разработчик может верифицировать роли!" : "Only developer can verify roles!", 'error');
+      return;
+    }
+    try {
+      // 1. Call server API
+      await fetch('/api/admin/verify-role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: userId,
+          adminUid: userData?.uid,
+          adminName: userData?.name || 'developer'
+        })
+      }).catch(() => {});
+
+      // 2. Direct Firestore fallback
+      try {
+        await setDoc(doc(db, 'users', userId), {
+          roleVerification: 'Role is allowed by dev',
+          roleVerifiedBy: userData?.name || 'developer',
+          roleVerifiedAt: new Date().toISOString(),
+          isBanned: false,
+          banReason: null
+        }, { merge: true });
+
+        await setDoc(doc(db, 'users_public', userId), {
+          roleVerification: 'Role is allowed by dev',
+          roleVerifiedBy: userData?.name || 'developer',
+          roleVerifiedAt: new Date().toISOString()
+        }, { merge: true });
+      } catch (_) {}
+
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, roleVerification: 'Role is allowed by dev', isBanned: false } : u));
+      showToast(language === 'ru' ? "Роль подтверждена! Назначена отметка 'Role is allowed by dev'" : "Role verified! Added 'Role is allowed by dev'", 'success');
+    } catch (err: any) {
+      showToast(err.message || "Failed to verify role", 'error');
     }
   };
 
@@ -717,6 +790,66 @@ export default function ControlView() {
           </div>
         ) : activeTab === 'moderation' ? (
           <div className="space-y-6">
+            {/* Hourly AI Moderation Engine Status Card */}
+            <div className={clsx(
+              "p-6 rounded-3xl border flex flex-col md:flex-row items-start md:items-center justify-between gap-4 shadow-xl",
+              theme !== 'light' ? 'bg-zinc-900/90 border-blue-500/30' : 'bg-blue-50/70 border-blue-200'
+            )}>
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-2xl bg-blue-600/20 text-blue-400 border border-blue-500/30 flex items-center justify-center shrink-0">
+                  <Clock className="w-6 h-6 animate-pulse" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="font-bold text-lg text-white">
+                      {language === 'ru' ? 'ИИ Модератор: Почасовая проверка' : 'AI Moderator: Hourly Scan'}
+                    </h3>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                      <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                      {language === 'ru' ? 'Каждый 1 час' : 'Every 1 hour'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-zinc-400 mt-1">
+                    {language === 'ru' 
+                      ? 'ИИ автоматически проверяет все проекты и пользователей каждый час. Аккаунты с выданными ролями без отметки "Role is allowed by dev" банятся.'
+                      : 'AI automatically verifies all projects and users every hour. Elevated accounts without "Role is allowed by dev" are banned.'}
+                  </p>
+                  <div className="flex flex-wrap gap-4 text-xs text-zinc-400 mt-2">
+                    {hourlyStatus?.lastRunTime && (
+                      <span>
+                        {language === 'ru' ? 'Последняя проверка: ' : 'Last check: '}
+                        <strong className="text-zinc-200">{new Date(hourlyStatus.lastRunTime).toLocaleTimeString()}</strong>
+                      </span>
+                    )}
+                    {hourlyStatus?.nextRunTime && (
+                      <span>
+                        {language === 'ru' ? 'Следующая проверка: ' : 'Next check: '}
+                        <strong className="text-blue-400">{new Date(hourlyStatus.nextRunTime).toLocaleTimeString()}</strong>
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={handleTriggerHourly}
+                disabled={isTriggeringHourly}
+                className={clsx(
+                  "px-5 py-3 rounded-2xl font-bold text-sm flex items-center gap-2 transition-all shadow-lg cursor-pointer whitespace-nowrap active:scale-95",
+                  isTriggeringHourly 
+                    ? "bg-zinc-800 text-zinc-500 cursor-not-allowed" 
+                    : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/30"
+                )}
+              >
+                <RefreshCw className={clsx("w-4 h-4", isTriggeringHourly && "animate-spin")} />
+                <span>
+                  {isTriggeringHourly 
+                    ? (language === 'ru' ? 'Проверка...' : 'Checking...') 
+                    : (language === 'ru' ? 'Запустить проверку ИИ сейчас' : 'Run Hourly AI Check Now')}
+                </span>
+              </button>
+            </div>
+
             {/* Sub-tab Navigation for AI Moderation: Projects vs Users */}
             <div className="flex items-center gap-2 bg-zinc-900/80 p-1.5 rounded-2xl border border-zinc-800 w-fit">
               <button
@@ -1931,11 +2064,22 @@ export default function ControlView() {
                         {u.isBanned && <span className="px-2 py-0.5 bg-red-500 rounded text-white text-[10px] uppercase font-bold tracking-wider">BANNED</span>}
                       </h3>
                       <p className="text-sm text-zinc-500">{u.email}</p>
-                      <div className="flex items-center gap-2 mt-1">
+                      <div className="flex flex-wrap items-center gap-2 mt-1">
                         <span className="text-xs px-2 py-1 rounded-md bg-zinc-800 text-zinc-300 capitalize">{u.role || 'user'}</span>
                         <span className="text-xs px-2 py-1 rounded-md bg-emerald-500/10 text-emerald-500 font-bold flex items-center gap-1">
                           <Coins className="w-3 h-3" /> {u.eplCoins || 0}
                         </span>
+                        {u.roleVerification === 'Role is allowed by dev' ? (
+                          <span className="text-xs px-2.5 py-1 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold flex items-center gap-1 shadow-sm">
+                            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                            Role is allowed by dev
+                          </span>
+                        ) : (u.role && u.role !== 'user' && u.email !== 'fufazada@gmail.com') ? (
+                          <span className="text-xs px-2 py-1 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30 font-medium flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3 text-amber-400" />
+                            {language === 'ru' ? 'Нет Role is allowed by dev (ИИ забанит)' : 'Missing Role is allowed by dev'}
+                          </span>
+                        ) : null}
                       </div>
                     </div>
                   </div>
@@ -1962,6 +2106,21 @@ export default function ControlView() {
                       )}>
                         {u.role || 'user'}
                       </div>
+                    )}
+                    {(actualRole === 'developer' || actualRole === 'admin') && (
+                      <button
+                        onClick={() => handleVerifyRole(u.id, u.name)}
+                        className={clsx(
+                          "px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border",
+                          u.roleVerification === 'Role is allowed by dev'
+                            ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40 hover:bg-emerald-500/30"
+                            : "bg-blue-600 hover:bg-blue-500 text-white border-blue-500 shadow-md shadow-blue-500/20"
+                        )}
+                        title={language === 'ru' ? "Подтвердить роль: добавить 'Role is allowed by dev'" : "Verify role: add 'Role is allowed by dev'"}
+                      >
+                        <ShieldCheck className="w-4 h-4" />
+                        <span>{u.roleVerification === 'Role is allowed by dev' ? 'Verified Role ✓' : 'Verified Role'}</span>
+                      </button>
                     )}
                     <button
                       onClick={() => {
