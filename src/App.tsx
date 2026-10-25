@@ -62,11 +62,7 @@ export default function App() {
   const setUserData = useStore(state => state.setUserData);
   const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
-<<<<<<< HEAD
   const theme = useStore(state => state.theme);
-=======
-  const isBackdoor = useStore(state => state.isBackdoor);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const language = useStore(state => state.language);
 
@@ -91,34 +87,9 @@ export default function App() {
   }, [isPremium, premiumExpiry, setIsPremium, setPremiumExpiry]);
 
   useEffect(() => {
-<<<<<<< HEAD
     let unsubscribeUser: (() => void) | undefined;
     
     const unsubscribeAuth = onAuthStateChanged(auth, (fbUser) => {
-=======
-    // Restore mock user if backdoor is active
-    if (isBackdoor && !user && userData) {
-      const mockUser = {
-        uid: userData.uid,
-        email: userData.email,
-        displayName: userData.name,
-        photoURL: null,
-        emailVerified: true,
-      } as any;
-      setUser(mockUser);
-    }
-  }, [isBackdoor, user, userData, setUser]);
-
-  useEffect(() => {
-    let unsubscribeUser: (() => void) | undefined;
-    
-    const unsubscribeAuth = onAuthStateChanged(auth, (fbUser) => {
-      // If we are in backdoor mode, don't let Firebase Auth reset the user to null
-      if (isBackdoor && !fbUser) {
-        return;
-      }
-      
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       setUser(fbUser);
       if (unsubscribeUser) {
         unsubscribeUser();
@@ -130,11 +101,7 @@ export default function App() {
             // Document might not exist yet, create it
             console.log("User document missing, creating...");
             try {
-<<<<<<< HEAD
               const isDevEmail = fbUser.email === 'fufazada@gmail.com';
-=======
-              const isDevEmail = fbUser.email === 'fufazada@gmail.com' || fbUser.uid === 'dev-backdoor-uid';
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
               await setDoc(doc(db, 'users', fbUser.uid), {
                 uid: fbUser.uid,
                 name: fbUser.displayName || 'User',
@@ -164,11 +131,7 @@ export default function App() {
             }
           } else {
             // Force developer role for fufazada@gmail.com if not already set
-<<<<<<< HEAD
             const isDevEmail = fbUser.email === 'fufazada@gmail.com';
-=======
-            const isDevEmail = fbUser.email === 'fufazada@gmail.com' || fbUser.uid === 'dev-backdoor-uid';
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
             if (isDevEmail && data.role !== 'developer') {
               try {
                 await updateDoc(doc(db, 'users', fbUser.uid), { role: 'developer' });
@@ -231,11 +194,7 @@ export default function App() {
       unsubscribeAuth();
       if (unsubscribeUser) unsubscribeUser();
     };
-<<<<<<< HEAD
   }, [setUser]);
-=======
-  }, [setUser, isBackdoor]);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
   if (userData?.isBanned) {
     return (
@@ -257,7 +216,6 @@ export default function App() {
     );
   }
 
-<<<<<<< HEAD
   useEffect(() => {
     const root = document.documentElement;
     const currentTheme = isFrutigerAero ? 'frutiger-aero' : theme;
@@ -270,21 +228,15 @@ export default function App() {
     }
   }, [theme, isFrutigerAero]);
 
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   return (
     <BrowserRouter>
       <style dangerouslySetInnerHTML={{ __html: `
         html, body, #root { 
-<<<<<<< HEAD
           ${isFrutigerAero 
             ? `background: linear-gradient(135deg, #a0e8f5 0%, #d4f0ff 40%, #87d4f5 60%, #4cb8f5 100%) !important; color: #062038 !important;` 
             : theme === 'light'
             ? `background-color: #f8fafc !important; color: #0f172a !important;`
             : `background-color: #09090b !important; color: #fafafa !important;`}
-=======
-          ${isFrutigerAero ? `background: url('https://images.unsplash.com/photo-1541450805268-4822a3a774ce?q=80&w=2670&auto=format&fit=crop') center/cover fixed !important;` : ''}
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
           margin: 0; 
           padding: 0; 
           height: 100%; 

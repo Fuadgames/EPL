@@ -14,12 +14,9 @@ interface AppData {
   isAiGenerated?: boolean;
   isPrivate?: boolean;
   isLocked?: boolean;
-<<<<<<< HEAD
   status?: string;
   moderationStatus?: 'approved' | 'rejected' | 'pending';
   moderationReason?: string;
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 }
 
 export default function MyAppsView() {
@@ -155,7 +152,6 @@ export default function MyAppsView() {
                   )}
                 </div>
               </div>
-<<<<<<< HEAD
 
               {/* Moderation Status Banner */}
               {app.moderationStatus && (
@@ -185,8 +181,6 @@ export default function MyAppsView() {
                 </div>
               )}
 
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
               <p className={clsx("text-sm mb-4 line-clamp-2 h-10", isFrutigerAero ? "text-blue-800/70" : theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>
                 {app.description}
               </p>

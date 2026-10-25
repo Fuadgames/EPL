@@ -2,28 +2,18 @@ import React, { useEffect, useState } from 'react';
 import { useStore } from '../store/useStore';
 import { translations } from '../lib/translations';
 import { clsx } from 'clsx';
-<<<<<<< HEAD
 import { ShieldCheck, CheckCircle, XCircle, Users, Coins, Search, Ban, AlertCircle, X, Trash2, Sparkles, Eye, RefreshCw, Check, FileCode, ShieldAlert, BadgeCheck } from 'lucide-react';
-=======
-import { ShieldCheck, CheckCircle, XCircle, Users, Coins, Search } from 'lucide-react';
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 import { collection, getDocs, doc, updateDoc, deleteDoc, query, where, onSnapshot, increment, setDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { db } from '../firebase';
 import { AppData } from '../types';
 import { getDefaultAvatar } from '../lib/avatar';
-<<<<<<< HEAD
 import UserRoleBadge from './UserRoleBadge';
 import VerifiedBadge from './VerifiedBadge';
 
 export default function ControlView() {
   const theme = useStore(state => state.theme);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
-=======
-
-export default function ControlView() {
-  const theme = useStore(state => state.theme);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   const userData = useStore(state => state.userData);
   const language = useStore(state => state.language);
   const simulatedRole = useStore(state => state.simulatedRole);
@@ -36,7 +26,6 @@ export default function ControlView() {
   const [premiumCodes, setPremiumCodes] = useState<any[]>([]);
   const [adminRequests, setAdminRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-<<<<<<< HEAD
   const user = useStore(state => state.user);
   const actualRole = (user?.email === 'fufazada@gmail.com') ? 'developer' : userData?.role;
   const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
@@ -54,6 +43,13 @@ export default function ControlView() {
   const [manualRejectApp, setManualRejectApp] = useState<AppData | null>(null);
   const [manualRejectReasonInput, setManualRejectReasonInput] = useState('');
   const [isRescanning, setIsRescanning] = useState<string | null>(null);
+
+  // User Moderation Sub-tab state
+  const [moderationSubTab, setModerationSubTab] = useState<'projects' | 'users'>('projects');
+  const [userModerationFilter, setUserModerationFilter] = useState<'all' | 'banned' | 'clean' | 'flagged'>('all');
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [isScanningAllUsers, setIsScanningAllUsers] = useState(false);
+  const [scanningUserId, setScanningUserId] = useState<string | null>(null);
 
   // Ban management modal states
   const [banModalUser, setBanModalUser] = useState<any | null>(null);
@@ -74,17 +70,6 @@ export default function ControlView() {
       setActiveTab('apps');
     }
   }, [activeTab, isDeveloper]);
-=======
-  const [activeTab, setActiveTab] = useState<'apps' | 'users' | 'assets' | 'roles' | 'premium' | 'requests'>('apps');
-  const [search, setSearch] = useState('');
-  const [localPermissions, setLocalPermissions] = useState<{ [userId: string]: any }>({});
-  const [saving, setSaving] = useState<string | null>(null);
-  const t = translations[language];
-
-  const user = useStore(state => state.user);
-  const actualRole = (user?.email === 'fufazada@gmail.com') ? 'developer' : userData?.role;
-  const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
   useEffect(() => {
     setLoading(true);
@@ -131,7 +116,6 @@ export default function ControlView() {
       console.error("Error fetching admin requests:", error);
     });
 
-<<<<<<< HEAD
     // Fetch initial moderation logs
     const fetchLogs = async () => {
       try {
@@ -144,8 +128,6 @@ export default function ControlView() {
     };
     fetchLogs();
 
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     return () => {
       appsUnsubscribe();
       usersUnsubscribe();
@@ -155,7 +137,6 @@ export default function ControlView() {
     };
   }, []);
 
-<<<<<<< HEAD
   const handleManualApprove = async (appId: string, appTitle: string) => {
     try {
       const res = await fetch('/api/admin/manual-review', {
@@ -261,8 +242,106 @@ export default function ControlView() {
     }
   };
 
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
+  const handleScanUserWithAi = async (u: any) => {
+    setScanningUserId(u.id);
+    showToast(language === 'ru' ? `ИИ проверяет профиль "${u.name || u.email}"...` : `AI checking profile "${u.name || u.email}"...`, 'success');
+    try {
+      const res = await fetch('/api/ai/moderate-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: u.id,
+          name: u.name || 'User',
+          email: u.email || '',
+          bio: u.bio || u.description || '',
+          avatarUrl: u.photoUrl || u.avatarUrl || '',
+          role: u.role || 'user'
+        })
+      });
+
+      const modResult = await res.json();
+      if (!res.ok) throw new Error(modResult.error || 'User moderation failed');
+
+      setUsers(prev => prev.map(item => item.id === u.id ? {
+        ...item,
+        isBanned: !modResult.approved,
+        banReason: !modResult.approved ? modResult.reason : null,
+        moderationStatus: modResult.approved ? 'approved' : 'rejected',
+        moderationReason: modResult.reason,
+        moderationFlags: modResult.flags,
+        moderatedAt: new Date().toISOString()
+      } : item));
+
+      showToast(
+        modResult.approved 
+          ? (language === 'ru' ? `Профиль "${u.name || u.email}" соответствует правилам` : `User profile "${u.name || u.email}" approved`)
+          : (language === 'ru' ? `Пользователь забанен ИИ: ${modResult.reason}` : `User banned by AI: ${modResult.reason}`),
+        modResult.approved ? 'success' : 'error'
+      );
+
+      fetch('/api/admin/moderation-logs').then(r => r.json()).then(d => setModerationLogs(d.logs || [])).catch(() => {});
+    } catch (err: any) {
+      showToast(err.message || 'Error scanning user profile', 'error');
+    } finally {
+      setScanningUserId(null);
+    }
+  };
+
+  const handleScanAllUsersWithAi = async () => {
+    if (users.length === 0) return;
+    setIsScanningAllUsers(true);
+    showToast(language === 'ru' ? `Запуск полной проверки ИИ для ${users.length} пользователей...` : `Started scanning ${users.length} users with AI...`, 'success');
+    let bannedCount = 0;
+    let cleanCount = 0;
+
+    for (const u of users) {
+      try {
+        setScanningUserId(u.id);
+        const res = await fetch('/api/ai/moderate-user', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            userId: u.id,
+            name: u.name || 'User',
+            email: u.email || '',
+            bio: u.bio || u.description || '',
+            avatarUrl: u.photoUrl || u.avatarUrl || '',
+            role: u.role || 'user'
+          })
+        });
+
+        const modResult = await res.json();
+        if (res.ok) {
+          if (!modResult.approved) bannedCount++;
+          else cleanCount++;
+
+          setUsers(prev => prev.map(item => item.id === u.id ? {
+            ...item,
+            isBanned: !modResult.approved,
+            banReason: !modResult.approved ? modResult.reason : null,
+            moderationStatus: modResult.approved ? 'approved' : 'rejected',
+            moderationReason: modResult.reason,
+            moderationFlags: modResult.flags,
+            moderatedAt: new Date().toISOString()
+          } : item));
+        }
+      } catch (e) {
+        console.error('Error scanning user', u.id, e);
+      }
+    }
+
+    setIsScanningAllUsers(false);
+    setScanningUserId(null);
+    fetch('/api/admin/moderation-logs').then(r => r.json()).then(d => setModerationLogs(d.logs || [])).catch(() => {});
+
+    showToast(
+      language === 'ru' 
+        ? `Проверка завершена! Заблокировано: ${bannedCount}, Одобрено: ${cleanCount}`
+        : `Scan finished! Banned: ${bannedCount}, Approved: ${cleanCount}`,
+      'success'
+    );
+  };
+
   const createAdminRequest = async (type: string, targetId: string, targetName: string, reason: string = '') => {
     if (!userData) return;
     try {
@@ -308,29 +387,18 @@ export default function ControlView() {
 
   const handleUpdateUserRole = async (userId: string, role: string) => {
     if (actualRole !== 'developer' && actualRole !== 'admin') {
-<<<<<<< HEAD
       showToast(language === 'ru' ? "Недостаточно прав!" : "Insufficient permissions!", 'error');
-=======
-      alert(language === 'ru' ? "Недостаточно прав!" : "Insufficient permissions!");
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       return;
     }
     try {
       await updateDoc(doc(db, 'users', userId), { role });
-<<<<<<< HEAD
       showToast(language === 'ru' ? 'Роль пользователя обновлена' : 'User role updated', 'success');
     } catch (error: any) {
       showToast(error.message, 'error');
-=======
-      alert(language === 'ru' ? 'Роль пользователя обновлена' : 'User role updated');
-    } catch (error: any) {
-      alert(error.message);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
     }
   };
 
-<<<<<<< HEAD
   const handleDeleteApp = async (appId: string, appTitle: string) => {
     if (!confirm(language === 'ru' ? `Удалить проект "${appTitle}" навсегда?` : `Permanently delete app "${appTitle}"?`)) return;
     try {
@@ -443,11 +511,6 @@ export default function ControlView() {
   const handleUpdateUserPermissions = async (userId: string) => {
     if (actualRole !== 'developer' && actualRole !== 'admin') {
       showToast(language === 'ru' ? "Недостаточно прав!" : "Insufficient permissions!", 'error');
-=======
-  const handleUpdateUserPermissions = async (userId: string) => {
-    if (actualRole !== 'developer' && actualRole !== 'admin') {
-      alert(language === 'ru' ? "Недостаточно прав!" : "Insufficient permissions!");
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       return;
     }
     const permissions = localPermissions[userId];
@@ -456,15 +519,9 @@ export default function ControlView() {
     setSaving(userId);
     try {
       await updateDoc(doc(db, 'users', userId), { permissions });
-<<<<<<< HEAD
       showToast(language === 'ru' ? "Изменения сохранены!" : "Changes saved!", 'success');
     } catch (error: any) {
       showToast(error.message, 'error');
-=======
-      alert(language === 'ru' ? "Изменения сохранены!" : "Changes saved!");
-    } catch (error: any) {
-      alert(error.message);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
     } finally {
       setSaving(null);
@@ -574,7 +631,6 @@ export default function ControlView() {
         </h1>
         
         <div className="flex gap-4 mb-6 overflow-x-auto no-scrollbar pb-2">
-<<<<<<< HEAD
           {isDeveloper && (
             <button
               onClick={() => setActiveTab('moderation')}
@@ -594,8 +650,6 @@ export default function ControlView() {
               )}
             </button>
           )}
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
           <button
             onClick={() => setActiveTab('apps')}
             className={clsx(
@@ -662,276 +716,602 @@ export default function ControlView() {
           <div className="flex justify-center p-12">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
           </div>
-<<<<<<< HEAD
         ) : activeTab === 'moderation' ? (
           <div className="space-y-6">
-            {/* Header Banner */}
-            <div className={clsx(
-              "p-6 rounded-3xl border relative overflow-hidden",
-              theme !== 'light' ? 'bg-purple-950/20 border-purple-800/40 text-purple-100' : 'bg-purple-50 border-purple-200 text-purple-900'
-            )}>
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                <div>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="p-2 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
-                      <Sparkles className="w-5 h-5" />
-                    </span>
-                    <h2 className="text-xl font-bold">
-                      {language === 'ru' ? 'ИИ Модерация проектов (NVIDIA Nemotron 3.5 Super VL)' : 'AI Project Moderation (NVIDIA Nemotron 3.5 Super VL)'}
-                    </h2>
-                    <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                      OpenRouter API Active
-                    </span>
-                  </div>
-                  <p className="text-sm opacity-80 max-w-2xl">
-                    {language === 'ru' 
-                      ? 'Каждая опубликованная игра или приложение автоматически анализируется нейросетью на 18+ контент, ненормативную лексику, вредоносный код и попытки взлома (hack/hacked/exploits). Администраторы могут просматривать исходный код, вручную одобрять или отклонять проекты.'
-                      : 'Every published project is automatically scanned for adult content, profanity, exploit attempts, and malicious loops. Staff can inspect code and manually approve or reject.'}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      fetch('/api/admin/moderation-logs')
-                        .then(r => r.json())
-                        .then(d => {
-                          setModerationLogs(d.logs || []);
-                          showToast(language === 'ru' ? 'Логи обновлены' : 'Logs refreshed');
-                        })
-                        .catch(() => {});
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 text-xs font-semibold transition-all cursor-pointer"
-                  >
-                    <RefreshCw className="w-3.5 h-3.5" />
-                    {language === 'ru' ? 'Обновить данные' : 'Refresh Data'}
-                  </button>
-                </div>
-              </div>
+            {/* Sub-tab Navigation for AI Moderation: Projects vs Users */}
+            <div className="flex items-center gap-2 bg-zinc-900/80 p-1.5 rounded-2xl border border-zinc-800 w-fit">
+              <button
+                type="button"
+                onClick={() => setModerationSubTab('projects')}
+                className={clsx(
+                  "px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer",
+                  moderationSubTab === 'projects'
+                    ? "bg-purple-600 text-white shadow-md shadow-purple-600/30 scale-105"
+                    : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+                )}
+              >
+                <span>🎮</span>
+                {language === 'ru' ? 'Модерация Проектов' : 'Projects Moderation'}
+                <span className={clsx("px-1.5 py-0.5 rounded-full text-[10px]", moderationSubTab === 'projects' ? "bg-purple-800 text-white" : "bg-zinc-800 text-zinc-400")}>
+                  {apps.length}
+                </span>
+              </button>
 
-              {/* Stat Cards */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
-                <div className={clsx("p-4 rounded-2xl border", theme !== 'light' ? 'bg-zinc-900/60 border-zinc-800' : 'bg-white border-zinc-200')}>
-                  <div className="text-xs text-zinc-400 font-medium">{language === 'ru' ? 'Всего проектов' : 'Total Projects'}</div>
-                  <div className="text-2xl font-bold mt-1 text-zinc-100">{apps.length}</div>
-                </div>
-                <div className={clsx("p-4 rounded-2xl border", theme !== 'light' ? 'bg-emerald-950/20 border-emerald-800/40' : 'bg-emerald-50 border-emerald-200')}>
-                  <div className="text-xs text-emerald-400 font-medium">{language === 'ru' ? 'Одобрено ИИ' : 'Approved by AI'}</div>
-                  <div className="text-2xl font-bold mt-1 text-emerald-400">
-                    {apps.filter(a => a.moderationStatus === 'approved' || a.status === 'verified').length}
-                  </div>
-                </div>
-                <div className={clsx("p-4 rounded-2xl border", theme !== 'light' ? 'bg-red-950/20 border-red-800/40' : 'bg-red-50 border-red-200')}>
-                  <div className="text-xs text-red-400 font-medium">{language === 'ru' ? 'Заблокировано ИИ' : 'Blocked by AI'}</div>
-                  <div className="text-2xl font-bold mt-1 text-red-400">
-                    {apps.filter(a => a.moderationStatus === 'rejected' || a.status === 'rejected').length}
-                  </div>
-                </div>
-                <div className={clsx("p-4 rounded-2xl border", theme !== 'light' ? 'bg-amber-950/20 border-amber-800/40' : 'bg-amber-50 border-amber-200')}>
-                  <div className="text-xs text-amber-400 font-medium">{language === 'ru' ? 'На проверке' : 'Pending Review'}</div>
-                  <div className="text-2xl font-bold mt-1 text-amber-400">
-                    {apps.filter(a => a.moderationStatus === 'pending' || a.status === 'pending').length}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Filter Tabs */}
-            <div className="flex gap-2 border-b border-zinc-800/60 pb-3">
-              {[
-                { key: 'all', label: language === 'ru' ? 'Все проекты' : 'All Projects', count: apps.length },
-                { key: 'rejected', label: language === 'ru' ? 'Заблокированные / Отклоненные' : 'Blocked / Rejected', count: apps.filter(a => a.moderationStatus === 'rejected' || a.status === 'rejected').length },
-                { key: 'approved', label: language === 'ru' ? 'Одобренные' : 'Approved', count: apps.filter(a => a.moderationStatus === 'approved' || a.status === 'verified').length },
-                { key: 'pending', label: language === 'ru' ? 'Ожидают' : 'Pending', count: apps.filter(a => a.moderationStatus === 'pending' || a.status === 'pending').length }
-              ].map(f => (
-                <button
-                  key={f.key}
-                  onClick={() => setModerationFilter(f.key as any)}
-                  className={clsx(
-                    "px-4 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-2 cursor-pointer",
-                    moderationFilter === f.key
-                      ? "bg-purple-600 text-white shadow-md shadow-purple-600/20"
-                      : "bg-zinc-800/40 text-zinc-400 hover:text-zinc-200 border border-zinc-700/40"
-                  )}
-                >
-                  {f.label}
-                  <span className={clsx(
-                    "px-1.5 py-0.5 rounded-full text-[10px]",
-                    moderationFilter === f.key ? "bg-purple-800 text-white" : "bg-zinc-800 text-zinc-400"
-                  )}>
-                    {f.count}
+              <button
+                type="button"
+                onClick={() => setModerationSubTab('users')}
+                className={clsx(
+                  "px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer",
+                  moderationSubTab === 'users'
+                    ? "bg-purple-600 text-white shadow-md shadow-purple-600/30 scale-105"
+                    : "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
+                )}
+              >
+                <span>👥</span>
+                {language === 'ru' ? 'Модерация Пользователей' : 'Users Moderation'}
+                {users.filter(u => u.isBanned).length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-red-500 text-white font-bold animate-pulse">
+                    {users.filter(u => u.isBanned).length}
                   </span>
-                </button>
-              ))}
+                )}
+              </button>
             </div>
 
-            {/* List of Applications with Moderation State */}
-            <div className="space-y-4">
-              {apps
-                .filter(app => {
-                  if (moderationFilter === 'rejected') return app.moderationStatus === 'rejected' || app.status === 'rejected';
-                  if (moderationFilter === 'approved') return app.moderationStatus === 'approved' || app.status === 'verified';
-                  if (moderationFilter === 'pending') return app.moderationStatus === 'pending' || app.status === 'pending';
-                  return true;
-                })
-                .map(app => {
-                  const isRejected = app.moderationStatus === 'rejected' || app.status === 'rejected';
-                  const isApproved = app.moderationStatus === 'approved' || app.status === 'verified';
-                  return (
-                    <div
-                      key={app.id}
-                      className={clsx(
-                        "p-6 rounded-3xl border transition-all relative overflow-hidden",
-                        isRejected 
-                          ? 'bg-red-950/15 border-red-900/40 text-zinc-100'
-                          : isApproved
-                          ? theme !== 'light' ? 'bg-zinc-900/40 border-zinc-800' : 'bg-white border-zinc-200'
-                          : 'bg-amber-950/15 border-amber-900/40 text-zinc-100'
-                      )}
-                    >
-                      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
-                        <div className="space-y-2 flex-1">
-                          <div className="flex items-center gap-3 flex-wrap">
-                            <h3 className="font-bold text-lg text-zinc-100 flex items-center gap-2">
-                              {app.title}
-                            </h3>
-                            {/* Verdict badge */}
-                            {isRejected ? (
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/30">
-                                <ShieldAlert className="w-3.5 h-3.5" />
-                                {language === 'ru' ? 'Заблокировано ИИ' : 'Blocked by AI'}
-                              </span>
-                            ) : isApproved ? (
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                                <CheckCircle className="w-3.5 h-3.5" />
-                                {language === 'ru' ? 'Одобрено ИИ' : 'Approved by AI'}
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                                <AlertCircle className="w-3.5 h-3.5" />
-                                {language === 'ru' ? 'Ожидает проверки' : 'Pending Review'}
-                              </span>
-                            )}
+            {moderationSubTab === 'projects' ? (
+              <div className="space-y-6">
+                {/* Header Banner */}
+                <div className={clsx(
+                  "p-6 rounded-3xl border relative overflow-hidden",
+                  theme !== 'light' ? 'bg-purple-950/20 border-purple-800/40 text-purple-100' : 'bg-purple-50 border-purple-200 text-purple-900'
+                )}>
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="p-2 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                          <Sparkles className="w-5 h-5" />
+                        </span>
+                        <h2 className="text-xl font-bold">
+                          {language === 'ru' ? 'ИИ Модерация проектов (NVIDIA Nemotron 3.5 Super VL)' : 'AI Project Moderation (NVIDIA Nemotron 3.5 Super VL)'}
+                        </h2>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                          OpenRouter API Active
+                        </span>
+                      </div>
+                      <p className="text-sm opacity-80 max-w-2xl">
+                        {language === 'ru' 
+                          ? 'Каждая опубликованная игра или приложение автоматически анализируется нейросетью на 18+ контент, ненормативную лексику, вредоносный код и попытки взлома (hack/hacked/exploits). Администраторы могут просматривать исходный код, вручную одобрять или отклонять проекты.'
+                          : 'Every published project is automatically scanned for adult content, profanity, exploit attempts, and malicious loops. Staff can inspect code and manually approve or reject.'}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          fetch('/api/admin/moderation-logs')
+                            .then(r => r.json())
+                            .then(d => {
+                              setModerationLogs(d.logs || []);
+                              showToast(language === 'ru' ? 'Логи обновлены' : 'Logs refreshed');
+                            })
+                            .catch(() => {});
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl bg-purple-600/30 hover:bg-purple-600/50 border border-purple-500/40 text-purple-200 text-xs font-semibold transition-all cursor-pointer"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        {language === 'ru' ? 'Обновить данные' : 'Refresh Data'}
+                      </button>
+                    </div>
+                  </div>
 
-                            <span className="text-xs px-2.5 py-1 rounded-lg bg-zinc-800/80 text-zinc-400 border border-zinc-700/40">
-                              {app.category || 'Game'}
-                            </span>
-                          </div>
-
-                          <p className="text-xs text-zinc-400">
-                            {language === 'ru' ? 'Автор:' : 'Author:'} <span className="font-semibold text-zinc-300">{app.authorName}</span>
-                            {app.createdAt ? ` • ${new Date(app.createdAt).toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US')}` : ''}
-                          </p>
-
-                          {/* Moderation Explanation Box */}
-                          <div className={clsx(
-                            "p-3 rounded-2xl border text-xs space-y-1.5 mt-2",
-                            isRejected 
-                              ? "bg-red-950/30 border-red-800/40 text-red-200" 
-                              : "bg-zinc-800/40 border-zinc-700/40 text-zinc-300"
-                          )}>
-                            <div className="flex items-center gap-2 font-semibold">
-                              <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                              <span>{language === 'ru' ? 'Вердикт NVIDIA Nemotron 3.5:' : 'NVIDIA Nemotron 3.5 Verdict:'}</span>
-                            </div>
-                            <p className="leading-relaxed text-xs">
-                              {app.moderationReason || (isRejected ? 'Заблокировано автоматической системой безопасности' : 'Проект прошел автоматическую проверку ИИ, нарушений не найдено')}
-                            </p>
-
-                            {/* Flags */}
-                            {app.moderationFlags && app.moderationFlags.length > 0 && (
-                              <div className="flex flex-wrap gap-1.5 pt-1">
-                                {app.moderationFlags.map((flag: string) => {
-                                  let label = flag;
-                                  if (flag === 'hack_attempt') label = language === 'ru' ? '🛑 Попытка взлома' : '🛑 Hack attempt';
-                                  if (flag === 'nsfw_18+') label = language === 'ru' ? '🔞 18+ Контент' : '🔞 Adult content';
-                                  if (flag === 'profanity') label = language === 'ru' ? '🤬 Ненормативная лексика' : '🤬 Profanity';
-                                  if (flag === 'exploit') label = language === 'ru' ? '⚠️ Эксплойт' : '⚠️ Exploit';
-                                  if (flag === 'destructive_code') label = language === 'ru' ? '💣 Вредоносный код' : '💣 Destructive code';
-                                  return (
-                                    <span key={flag} className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/30">
-                                      {label}
-                                    </span>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Actions */}
-                        <div className="flex flex-wrap lg:flex-col gap-2 shrink-0">
-                          {/* Code Viewer */}
-                          <button
-                            type="button"
-                            onClick={() => setViewingCodeApp({ title: app.title, code: app.code, authorName: app.authorName })}
-                            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700/50 flex items-center gap-1.5 transition-colors cursor-pointer"
-                          >
-                            <FileCode className="w-3.5 h-3.5 text-blue-400" />
-                            {language === 'ru' ? 'Просмотр кода' : 'View Code'}
-                          </button>
-
-                          {/* Rescan AI */}
-                          <button
-                            type="button"
-                            disabled={isRescanning === app.id}
-                            onClick={() => handleRescanWithAi(app)}
-                            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
-                          >
-                            <RefreshCw className={clsx("w-3.5 h-3.5", isRescanning === app.id && "animate-spin")} />
-                            {isRescanning === app.id 
-                              ? (language === 'ru' ? 'ИИ сканирует...' : 'Scanning...') 
-                              : (language === 'ru' ? 'Перепроверить ИИ' : 'Re-check AI')}
-                          </button>
-
-                          {/* Manual Approve */}
-                          {!isApproved && (
-                            <button
-                              type="button"
-                              onClick={() => handleManualApprove(app.id, app.title)}
-                              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-colors cursor-pointer shadow-md shadow-emerald-600/20"
-                            >
-                              <Check className="w-3.5 h-3.5" />
-                              {language === 'ru' ? 'Одобрить вручную' : 'Approve'}
-                            </button>
-                          )}
-
-                          {/* Manual Reject */}
-                          {!isRejected && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setManualRejectApp(app);
-                                setManualRejectReasonInput(app.moderationReason || '');
-                              }}
-                              className="px-3.5 py-2 rounded-xl text-xs font-bold bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/40 flex items-center gap-1.5 transition-colors cursor-pointer"
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                              {language === 'ru' ? 'Отклонить вручную' : 'Reject'}
-                            </button>
-                          )}
-
-                          {/* Delete */}
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteApp(app.id, app.title)}
-                            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-zinc-800/40 hover:bg-red-600/20 text-zinc-400 hover:text-red-400 border border-zinc-700/30 flex items-center gap-1.5 transition-colors cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                            {language === 'ru' ? 'Удалить' : 'Delete'}
-                          </button>
-                        </div>
+                  {/* Stat Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
+                    <div className={clsx("p-4 rounded-2xl border", theme !== 'light' ? 'bg-zinc-900/60 border-zinc-800' : 'bg-white border-zinc-200')}>
+                      <div className="text-xs text-zinc-400 font-medium">{language === 'ru' ? 'Всего проектов' : 'Total Projects'}</div>
+                      <div className="text-2xl font-bold mt-1 text-zinc-100">{apps.length}</div>
+                    </div>
+                    <div className={clsx("p-4 rounded-2xl border", theme !== 'light' ? 'bg-emerald-950/20 border-emerald-800/40' : 'bg-emerald-50 border-emerald-200')}>
+                      <div className="text-xs text-emerald-400 font-medium">{language === 'ru' ? 'Одобрено ИИ' : 'Approved by AI'}</div>
+                      <div className="text-2xl font-bold mt-1 text-emerald-400">
+                        {apps.filter(a => a.moderationStatus === 'approved' || a.status === 'verified').length}
                       </div>
                     </div>
-                  );
-                })}
-
-              {apps.length === 0 && (
-                <div className="text-center p-12 text-zinc-500">
-                  {language === 'ru' ? 'Нет доступных проектов для модерации' : 'No projects available for moderation'}
+                    <div className={clsx("p-4 rounded-2xl border", theme !== 'light' ? 'bg-red-950/20 border-red-800/40' : 'bg-red-50 border-red-200')}>
+                      <div className="text-xs text-red-400 font-medium">{language === 'ru' ? 'Заблокировано ИИ' : 'Blocked by AI'}</div>
+                      <div className="text-2xl font-bold mt-1 text-red-400">
+                        {apps.filter(a => a.moderationStatus === 'rejected' || a.status === 'rejected').length}
+                      </div>
+                    </div>
+                    <div className={clsx("p-4 rounded-2xl border", theme !== 'light' ? 'bg-amber-950/20 border-amber-800/40' : 'bg-amber-50 border-amber-200')}>
+                      <div className="text-xs text-amber-400 font-medium">{language === 'ru' ? 'На проверке' : 'Pending Review'}</div>
+                      <div className="text-2xl font-bold mt-1 text-amber-400">
+                        {apps.filter(a => a.moderationStatus === 'pending' || a.status === 'pending').length}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              )}
-            </div>
 
+                {/* Filter Tabs */}
+                <div className="flex gap-2 border-b border-zinc-800/60 pb-3 overflow-x-auto no-scrollbar">
+                  {[
+                    { key: 'all', label: language === 'ru' ? 'Все проекты' : 'All Projects', count: apps.length },
+                    { key: 'rejected', label: language === 'ru' ? 'Заблокированные / Отклоненные' : 'Blocked / Rejected', count: apps.filter(a => a.moderationStatus === 'rejected' || a.status === 'rejected').length },
+                    { key: 'approved', label: language === 'ru' ? 'Одобренные' : 'Approved', count: apps.filter(a => a.moderationStatus === 'approved' || a.status === 'verified').length },
+                    { key: 'pending', label: language === 'ru' ? 'Ожидают' : 'Pending', count: apps.filter(a => a.moderationStatus === 'pending' || a.status === 'pending').length }
+                  ].map(f => (
+                    <button
+                      key={f.key}
+                      onClick={() => setModerationFilter(f.key as any)}
+                      className={clsx(
+                        "px-4 py-2 rounded-xl text-xs font-bold transition-colors flex items-center gap-2 cursor-pointer whitespace-nowrap",
+                        moderationFilter === f.key
+                          ? "bg-purple-600 text-white shadow-md shadow-purple-600/20"
+                          : "bg-zinc-800/40 text-zinc-400 hover:text-zinc-200 border border-zinc-700/40"
+                      )}
+                    >
+                      {f.label}
+                      <span className={clsx(
+                        "px-1.5 py-0.5 rounded-full text-[10px]",
+                        moderationFilter === f.key ? "bg-purple-800 text-white" : "bg-zinc-800 text-zinc-400"
+                      )}>
+                        {f.count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+
+                {/* List of Applications with Moderation State */}
+                <div className="space-y-4">
+                  {apps
+                    .filter(app => {
+                      if (moderationFilter === 'rejected') return app.moderationStatus === 'rejected' || app.status === 'rejected';
+                      if (moderationFilter === 'approved') return app.moderationStatus === 'approved' || app.status === 'verified';
+                      if (moderationFilter === 'pending') return app.moderationStatus === 'pending' || app.status === 'pending';
+                      return true;
+                    })
+                    .map(app => {
+                      const isRejected = app.moderationStatus === 'rejected' || app.status === 'rejected';
+                      const isApproved = app.moderationStatus === 'approved' || app.status === 'verified';
+                      return (
+                        <div
+                          key={app.id}
+                          className={clsx(
+                            "p-6 rounded-3xl border transition-all relative overflow-hidden",
+                            isRejected 
+                              ? 'bg-red-950/15 border-red-900/40 text-zinc-100'
+                              : isApproved
+                              ? theme !== 'light' ? 'bg-zinc-900/40 border-zinc-800' : 'bg-white border-zinc-200'
+                              : 'bg-amber-950/15 border-amber-900/40 text-zinc-100'
+                          )}
+                        >
+                          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                            <div className="space-y-2 flex-1">
+                              <div className="flex items-center gap-3 flex-wrap">
+                                <h3 className="font-bold text-lg text-zinc-100 flex items-center gap-2">
+                                  {app.title}
+                                </h3>
+                                {/* Verdict badge */}
+                                {isRejected ? (
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/30">
+                                    <ShieldAlert className="w-3.5 h-3.5" />
+                                    {language === 'ru' ? 'Заблокировано ИИ' : 'Blocked by AI'}
+                                  </span>
+                                ) : isApproved ? (
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                    <CheckCircle className="w-3.5 h-3.5" />
+                                    {language === 'ru' ? 'Одобрено ИИ' : 'Approved by AI'}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                                    <AlertCircle className="w-3.5 h-3.5" />
+                                    {language === 'ru' ? 'Ожидает проверки' : 'Pending Review'}
+                                  </span>
+                                )}
+
+                                <span className="text-xs px-2.5 py-1 rounded-lg bg-zinc-800/80 text-zinc-400 border border-zinc-700/40">
+                                  {app.category || 'Game'}
+                                </span>
+                              </div>
+
+                              <p className="text-xs text-zinc-400">
+                                {language === 'ru' ? 'Автор:' : 'Author:'} <span className="font-semibold text-zinc-300">{app.authorName}</span>
+                                {app.createdAt ? ` • ${new Date(app.createdAt).toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US')}` : ''}
+                              </p>
+
+                              {/* Moderation Explanation Box */}
+                              <div className={clsx(
+                                "p-3 rounded-2xl border text-xs space-y-1.5 mt-2",
+                                isRejected 
+                                  ? "bg-red-950/30 border-red-800/40 text-red-200" 
+                                  : "bg-zinc-800/40 border-zinc-700/40 text-zinc-300"
+                              )}>
+                                <div className="flex items-center gap-2 font-semibold">
+                                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                                  <span>{language === 'ru' ? 'Вердикт NVIDIA Nemotron 3.5:' : 'NVIDIA Nemotron 3.5 Verdict:'}</span>
+                                </div>
+                                <p className="leading-relaxed text-xs">
+                                  {app.moderationReason || (isRejected ? 'Заблокировано автоматической системой безопасности' : 'Проект прошел автоматическую проверку ИИ, нарушений не найдено')}
+                                </p>
+
+                                {/* Flags */}
+                                {app.moderationFlags && app.moderationFlags.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5 pt-1">
+                                    {app.moderationFlags.map((flag: string) => {
+                                      let label = flag;
+                                      if (flag === 'hack_attempt') label = language === 'ru' ? '🛑 Попытка взлома' : '🛑 Hack attempt';
+                                      if (flag === 'nsfw_18+') label = language === 'ru' ? '🔞 18+ Контент' : '🔞 Adult content';
+                                      if (flag === 'profanity') label = language === 'ru' ? '🤬 Ненормативная лексика' : '🤬 Profanity';
+                                      if (flag === 'exploit') label = language === 'ru' ? '⚠️ Эксплойт' : '⚠️ Exploit';
+                                      if (flag === 'destructive_code') label = language === 'ru' ? '💣 Вредоносный код' : '💣 Destructive code';
+                                      return (
+                                        <span key={flag} className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/30">
+                                          {label}
+                                        </span>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex flex-wrap lg:flex-col gap-2 shrink-0">
+                              {/* Code Viewer */}
+                              <button
+                                type="button"
+                                onClick={() => setViewingCodeApp({ title: app.title, code: app.code, authorName: app.authorName })}
+                                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700/50 flex items-center gap-1.5 transition-colors cursor-pointer"
+                              >
+                                <FileCode className="w-3.5 h-3.5 text-blue-400" />
+                                {language === 'ru' ? 'Просмотр кода' : 'View Code'}
+                              </button>
+
+                              {/* Rescan AI */}
+                              <button
+                                type="button"
+                                disabled={isRescanning === app.id}
+                                onClick={() => handleRescanWithAi(app)}
+                                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <RefreshCw className={clsx("w-3.5 h-3.5", isRescanning === app.id && "animate-spin")} />
+                                {isRescanning === app.id 
+                                  ? (language === 'ru' ? 'ИИ сканирует...' : 'Scanning...') 
+                                  : (language === 'ru' ? 'Перепроверить ИИ' : 'Re-check AI')}
+                              </button>
+
+                              {/* Manual Approve */}
+                              {!isApproved && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleManualApprove(app.id, app.title)}
+                                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-colors cursor-pointer shadow-md shadow-emerald-600/20"
+                                >
+                                  <Check className="w-3.5 h-3.5" />
+                                  {language === 'ru' ? 'Одобрить вручную' : 'Approve'}
+                                </button>
+                              )}
+
+                              {/* Manual Reject */}
+                              {!isRejected && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setManualRejectApp(app);
+                                    setManualRejectReasonInput(app.moderationReason || '');
+                                  }}
+                                  className="px-3.5 py-2 rounded-xl text-xs font-bold bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/40 flex items-center gap-1.5 transition-colors cursor-pointer"
+                                >
+                                  <XCircle className="w-3.5 h-3.5" />
+                                  {language === 'ru' ? 'Отклонить вручную' : 'Reject'}
+                                </button>
+                              )}
+
+                              {/* Delete */}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteApp(app.id, app.title)}
+                                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-zinc-800/40 hover:bg-red-600/20 text-zinc-400 hover:text-red-400 border border-zinc-700/30 flex items-center gap-1.5 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                {language === 'ru' ? 'Удалить' : 'Delete'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                  {apps.length === 0 && (
+                    <div className="text-center p-12 text-zinc-500">
+                      {language === 'ru' ? 'Нет доступных проектов для модерации' : 'No projects available for moderation'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Header Banner for User Moderation */}
+                <div className={clsx(
+                  "p-6 rounded-3xl border relative overflow-hidden",
+                  theme !== 'light' ? 'bg-purple-950/20 border-purple-800/40 text-purple-100' : 'bg-purple-50 border-purple-200 text-purple-900'
+                )}>
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div>
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="p-2 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+                          <Users className="w-5 h-5" />
+                        </span>
+                        <h2 className="text-xl font-bold">
+                          {language === 'ru' ? 'ИИ Модерация пользователей (Nemotron 3.5 Super VL)' : 'AI User Profile Moderation'}
+                        </h2>
+                        <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                          Automatic Account Enforcement
+                        </span>
+                      </div>
+                      <p className="text-sm opacity-80 max-w-2xl">
+                        {language === 'ru'
+                          ? 'ИИ проверяет имена, био, аватары и роли пользователей на 18+ контент, оскорбления, фейковые аккаунты администраторов и попытки дефейса ("YOU HACKED BY KAMIL", "Fuada was hacked"). При обнаружении нарушений аккаунт забанится автоматически.'
+                          : 'AI scans usernames, bios, avatars, and roles for adult content, insults, impersonation, and hack claims ("YOU HACKED BY KAMIL", "Fuada was hacked"). Violations automatically ban the account.'}
+                      </p>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={isScanningAllUsers || users.length === 0}
+                        onClick={handleScanAllUsersWithAi}
+                        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold transition-all shadow-lg shadow-purple-600/30 cursor-pointer disabled:opacity-50"
+                      >
+                        <Sparkles className={clsx("w-4 h-4", isScanningAllUsers && "animate-spin")} />
+                        {isScanningAllUsers 
+                          ? (language === 'ru' ? 'ИИ сканирует всех...' : 'Scanning All...') 
+                          : (language === 'ru' ? 'Перепроверить всех пользователей ИИ' : 'Scan All Users with AI')}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Stat Cards */}
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5">
+                    <div className={clsx("p-4 rounded-2xl border", theme !== 'light' ? 'bg-zinc-900/60 border-zinc-800' : 'bg-white border-zinc-200')}>
+                      <div className="text-xs text-zinc-400 font-medium">{language === 'ru' ? 'Всего пользователей' : 'Total Users'}</div>
+                      <div className="text-2xl font-bold mt-1 text-zinc-100">{users.length}</div>
+                    </div>
+                    <div className={clsx("p-4 rounded-2xl border", theme !== 'light' ? 'bg-red-950/20 border-red-800/40' : 'bg-red-50 border-red-200')}>
+                      <div className="text-xs text-red-400 font-medium">{language === 'ru' ? 'Забанено ИИ' : 'Banned by AI'}</div>
+                      <div className="text-2xl font-bold mt-1 text-red-400">
+                        {users.filter(u => u.isBanned).length}
+                      </div>
+                    </div>
+                    <div className={clsx("p-4 rounded-2xl border", theme !== 'light' ? 'bg-emerald-950/20 border-emerald-800/40' : 'bg-emerald-50 border-emerald-200')}>
+                      <div className="text-xs text-emerald-400 font-medium">{language === 'ru' ? 'Проверено ИИ' : 'Approved Profiles'}</div>
+                      <div className="text-2xl font-bold mt-1 text-emerald-400">
+                        {users.filter(u => !u.isBanned && u.moderationStatus === 'approved').length}
+                      </div>
+                    </div>
+                    <div className={clsx("p-4 rounded-2xl border", theme !== 'light' ? 'bg-amber-950/20 border-amber-800/40' : 'bg-amber-50 border-amber-200')}>
+                      <div className="text-xs text-amber-400 font-medium">{language === 'ru' ? 'С Галочкой Verified' : 'Verified Badges'}</div>
+                      <div className="text-2xl font-bold mt-1 text-amber-400">
+                        {users.filter(u => u.isVerifiedAuthor).length}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Filter and Search Bar */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-b border-zinc-800/60 pb-3">
+                  <div className="flex gap-2 overflow-x-auto no-scrollbar">
+                    {[
+                      { key: 'all', label: language === 'ru' ? 'Все пользователи' : 'All Users', count: users.length },
+                      { key: 'banned', label: language === 'ru' ? 'Забаненные' : 'Banned Users', count: users.filter(u => u.isBanned).length },
+                      { key: 'clean', label: language === 'ru' ? 'Проверенные' : 'Approved', count: users.filter(u => !u.isBanned && u.moderationStatus === 'approved').length },
+                      { key: 'flagged', label: language === 'ru' ? 'С флажками' : 'Flagged', count: users.filter(u => u.moderationFlags && u.moderationFlags.length > 0).length }
+                    ].map(f => (
+                      <button
+                        key={f.key}
+                        onClick={() => setUserModerationFilter(f.key as any)}
+                        className={clsx(
+                          "px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer whitespace-nowrap",
+                          userModerationFilter === f.key
+                            ? "bg-purple-600 text-white shadow-md shadow-purple-600/20"
+                            : "bg-zinc-800/40 text-zinc-400 hover:text-zinc-200 border border-zinc-700/40"
+                        )}
+                      >
+                        {f.label}
+                        <span className={clsx(
+                          "px-1.5 py-0.5 rounded-full text-[10px]",
+                          userModerationFilter === f.key ? "bg-purple-800 text-white" : "bg-zinc-800 text-zinc-400"
+                        )}>
+                          {f.count}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="relative min-w-[220px]">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-400" />
+                    <input
+                      type="text"
+                      placeholder={language === 'ru' ? 'Поиск по имени или email...' : 'Search by name or email...'}
+                      value={userSearchQuery}
+                      onChange={(e) => setUserSearchQuery(e.target.value)}
+                      className={clsx(
+                        "w-full pl-9 pr-3 py-1.5 rounded-xl border text-xs focus:outline-none focus:ring-2 focus:ring-purple-500",
+                        theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+                      )}
+                    />
+                  </div>
+                </div>
+
+                {/* User Moderation List */}
+                <div className="space-y-4">
+                  {users
+                    .filter(u => {
+                      const matchesSearch = !userSearchQuery || 
+                        u.name?.toLowerCase().includes(userSearchQuery.toLowerCase()) || 
+                        u.email?.toLowerCase().includes(userSearchQuery.toLowerCase());
+                      if (!matchesSearch) return false;
+
+                      if (userModerationFilter === 'banned') return u.isBanned;
+                      if (userModerationFilter === 'clean') return !u.isBanned && u.moderationStatus === 'approved';
+                      if (userModerationFilter === 'flagged') return u.moderationFlags && u.moderationFlags.length > 0;
+                      return true;
+                    })
+                    .map(u => {
+                      const isScanning = scanningUserId === u.id;
+                      return (
+                        <div
+                          key={u.id}
+                          className={clsx(
+                            "p-5 rounded-3xl border transition-all relative overflow-hidden",
+                            u.isBanned 
+                              ? 'bg-red-950/15 border-red-900/40 text-zinc-100'
+                              : theme !== 'light' ? 'bg-zinc-900/40 border-zinc-800' : 'bg-white border-zinc-200'
+                          )}
+                        >
+                          <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4">
+                            <div className="flex items-start gap-4 flex-1">
+                              <img
+                                src={u.photoUrl || u.avatarUrl || getDefaultAvatar(u.id)}
+                                alt=""
+                                className="w-12 h-12 rounded-2xl object-cover bg-zinc-800 border border-zinc-700/60 shrink-0"
+                              />
+                              <div className="space-y-1.5 flex-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {u.isVerifiedAuthor && <VerifiedBadge size="sm" />}
+                                  <h3 className="font-bold text-base text-zinc-100">
+                                    {u.name || 'User'}
+                                  </h3>
+                                  <UserRoleBadge role={u.role} isVerifiedAuthor={u.isVerifiedAuthor} size="xs" showLabel />
+
+                                  {u.isBanned ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-red-500/20 text-red-400 border border-red-500/30">
+                                      <Ban className="w-3 h-3" />
+                                      {language === 'ru' ? 'ЗАБАНЕН' : 'BANNED'}
+                                    </span>
+                                  ) : u.moderationStatus === 'approved' ? (
+                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg text-xs font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                                      <CheckCircle className="w-3 h-3" />
+                                      {language === 'ru' ? 'Проверен ИИ' : 'AI Verified'}
+                                    </span>
+                                  ) : null}
+                                </div>
+
+                                <p className="text-xs text-zinc-400 flex items-center gap-2">
+                                  <span>{u.email}</span>
+                                  <span>•</span>
+                                  <span><Coins className="w-3 h-3 inline text-amber-400 mr-1" />{u.eplCoins || 0}</span>
+                                </p>
+
+                                {u.bio && (
+                                  <p className="text-xs text-zinc-300 italic bg-zinc-800/30 px-3 py-1.5 rounded-xl border border-zinc-800/60">
+                                    "{u.bio}"
+                                  </p>
+                                )}
+
+                                {/* Moderation Reasoning Box */}
+                                <div className={clsx(
+                                  "p-3 rounded-2xl border text-xs space-y-1.5 mt-2",
+                                  u.isBanned 
+                                    ? "bg-red-950/30 border-red-800/40 text-red-200" 
+                                    : "bg-zinc-800/40 border-zinc-700/40 text-zinc-300"
+                                )}>
+                                  <div className="flex items-center gap-2 font-semibold">
+                                    <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                                    <span>{language === 'ru' ? 'Вердикт ИИ (Nemotron 3.5):' : 'Nemotron 3.5 Verdict:'}</span>
+                                  </div>
+                                  <p className="leading-relaxed text-xs">
+                                    {u.banReason || u.moderationReason || (u.isBanned ? 'Заблокирован автоматической системой безопасности' : 'Нарушений в профиле не обнаружено')}
+                                  </p>
+
+                                  {/* Flags */}
+                                  {u.moderationFlags && u.moderationFlags.length > 0 && (
+                                    <div className="flex flex-wrap gap-1.5 pt-1">
+                                      {u.moderationFlags.map((flag: string) => (
+                                        <span key={flag} className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-red-500/20 text-red-300 border border-red-500/30">
+                                          🛑 {flag}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* User Action Controls */}
+                            <div className="flex flex-wrap lg:flex-col gap-2 shrink-0">
+                              {/* Scan AI */}
+                              <button
+                                type="button"
+                                disabled={isScanning}
+                                onClick={() => handleScanUserWithAi(u)}
+                                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-purple-600/20 hover:bg-purple-600/40 text-purple-300 border border-purple-500/30 flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                              >
+                                <RefreshCw className={clsx("w-3.5 h-3.5", isScanning && "animate-spin")} />
+                                {isScanning ? (language === 'ru' ? 'Сканирование...' : 'Scanning...') : (language === 'ru' ? 'Сканировать ИИ' : 'Scan AI')}
+                              </button>
+
+                              {/* Toggle Verified Badge */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  updateDoc(doc(db, 'users', u.id), { isVerifiedAuthor: !u.isVerifiedAuthor })
+                                    .then(() => showToast(language === 'ru' ? (u.isVerifiedAuthor ? 'Галочка снята' : 'Галочка выдана!') : 'Verified badge updated', 'success'))
+                                    .catch(e => showToast(e.message, 'error'));
+                                }}
+                                className={clsx(
+                                  "px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 border",
+                                  u.isVerifiedAuthor 
+                                    ? "bg-blue-500/20 text-blue-300 border-blue-500/40 hover:bg-blue-500/30" 
+                                    : "bg-zinc-800 text-zinc-400 border-zinc-700/60 hover:text-white hover:bg-zinc-700"
+                                )}
+                              >
+                                <BadgeCheck className="w-3.5 h-3.5 text-blue-400 fill-blue-500/20" />
+                                {language === 'ru' ? (u.isVerifiedAuthor ? '✓ Галочка выдана' : 'Выдать галочку') : (u.isVerifiedAuthor ? '✓ Verified' : 'Grant Badge')}
+                              </button>
+
+                              {/* Ban / Unban */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (u.isBanned) {
+                                    setUnbanModalUser(u);
+                                  } else {
+                                    setBanModalUser(u);
+                                    setBanReasonInput('');
+                                  }
+                                }}
+                                className={clsx(
+                                  "px-3.5 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 border",
+                                  u.isBanned 
+                                    ? "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-500/50 shadow-md shadow-emerald-600/20" 
+                                    : "bg-red-600/20 hover:bg-red-600 text-red-300 hover:text-white border border-red-500/40"
+                                )}
+                              >
+                                <Ban className="w-3.5 h-3.5" />
+                                {u.isBanned ? (language === 'ru' ? 'Разбанить' : 'Unban') : (language === 'ru' ? 'Забанить' : 'Ban User')}
+                              </button>
+
+                              {/* Delete User */}
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteUser(u.id, u.name || u.email || 'User')}
+                                className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-zinc-800/40 hover:bg-red-600/20 text-zinc-400 hover:text-red-400 border border-zinc-700/30 flex items-center gap-1.5 transition-colors cursor-pointer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                {language === 'ru' ? 'Удалить' : 'Delete'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                  {users.length === 0 && (
+                    <div className="text-center p-12 text-zinc-500">
+                      {language === 'ru' ? 'Пользователи не найдены' : 'No users found'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
             {/* AI Moderation Audit Logs Section */}
             <div className="pt-6 border-t border-zinc-800/60">
               <div className="flex items-center justify-between mb-4">
@@ -985,8 +1365,6 @@ export default function ControlView() {
               </div>
             </div>
           </div>
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
         ) : activeTab === 'apps' ? (
           <div className="space-y-4">
             {apps.map(app => (
@@ -995,7 +1373,6 @@ export default function ControlView() {
                 theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
               )}>
                 <div>
-<<<<<<< HEAD
                   <div className="flex items-center gap-2 flex-wrap mb-1">
                     <h3 className="font-bold text-lg flex items-center gap-2">
                       {app.title}
@@ -1029,16 +1406,6 @@ export default function ControlView() {
                       {language === 'ru' ? 'Код' : 'Code'}
                     </button>
                     {(effectiveRole === 'developer' || effectiveRole === 'admin' || effectiveRole === 'moderator' || actualRole === 'developer' || actualRole === 'admin') ? (
-=======
-                  <h3 className="font-bold text-lg flex items-center gap-2">
-                    {app.title}
-                    {app.status === 'verified' && <CheckCircle className="w-4 h-4 text-emerald-500" />}
-                  </h3>
-                  <p className="text-sm text-zinc-500">By {app.authorName} • {app.category}</p>
-                </div>
-                <div className="flex gap-2">
-                    {(effectiveRole === 'developer' || effectiveRole === 'admin') ? (
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                       <>
                         {app.status !== 'verified' ? (
                           <button
@@ -1056,34 +1423,10 @@ export default function ControlView() {
                           </button>
                         )}
                         <button
-<<<<<<< HEAD
                           onClick={() => handleDeleteApp(app.id, app.title)}
                           className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
                         >
                           {language === 'ru' ? 'Удалить' : 'Delete'}
-=======
-                          onClick={async () => {
-                            if (confirm('Delete this app?')) {
-                              try {
-                                // Delete the app
-                                await deleteDoc(doc(db, 'apps', app.id));
-                                // Delete any associated requests
-                                const reqsRef = collection(db, 'adminRequests');
-                                const q = query(reqsRef, where('targetId', '==', app.id));
-                                const qSnap = await getDocs(q);
-                                const deletePromises = qSnap.docs.map(d => deleteDoc(d.ref));
-                                await Promise.all(deletePromises);
-                                alert(language === 'ru' ? 'Приложение удалено' : 'App deleted');
-                              } catch (err: any) {
-                                alert(err.message);
-                                handleFirestoreError(err, OperationType.DELETE, `apps/${app.id}`);
-                              }
-                            }
-                          }}
-                          className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
-                        >
-                          Delete
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                         </button>
                         <button
                           onClick={async () => {
@@ -1435,7 +1778,6 @@ export default function ControlView() {
                                 if (req.type === 'verify_app') await updateDoc(doc(db, 'apps', req.targetId), { status: 'verified' });
                                 if (req.type === 'verify_asset') await updateDoc(doc(db, 'assets', req.targetId), { status: 'verified' });
                                 if (req.type === 'delete_app') {
-<<<<<<< HEAD
                                   try {
                                     await fetch('/api/admin/delete-app', {
                                       method: 'POST',
@@ -1447,14 +1789,10 @@ export default function ControlView() {
                                     await deleteDoc(doc(db, 'apps', req.targetId));
                                   } catch (err) {}
                                   setApps(prev => prev.filter(a => a.id !== req.targetId));
-=======
-                                  await deleteDoc(doc(db, 'apps', req.targetId));
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                                 }
                                 if (req.type === 'delete_asset') {
                                   await deleteDoc(doc(db, 'assets', req.targetId));
                                 }
-<<<<<<< HEAD
                                 if (req.type === 'ban_user') {
                                   try {
                                     await fetch('/api/admin/ban', {
@@ -1470,11 +1808,6 @@ export default function ControlView() {
                                 }
                                 
                                 // If it was a deletion request, delete all requests for this target
-=======
-                                if (req.type === 'ban_user') await updateDoc(doc(db, 'users', req.targetId), { isBanned: true, banReason: req.reason });
-                                
-                                // If it was a deletion request, we should probably delete all requests for this target
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                                 if (req.type.startsWith('delete_')) {
                                   const q = query(collection(db, 'adminRequests'), where('targetId', '==', req.targetId));
                                   const qSnap = await getDocs(q);
@@ -1482,11 +1815,7 @@ export default function ControlView() {
                                 } else {
                                   await updateDoc(doc(db, 'adminRequests', req.id), { status: 'approved' });
                                 }
-<<<<<<< HEAD
                                 showToast(language === 'ru' ? 'Выполнено' : 'Approved and applied', 'success');
-=======
-                                alert(language === 'ru' ? 'Выполнено' : 'Approved and applied');
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                               } catch(e) {
                                 handleFirestoreError(e, OperationType.UPDATE, `adminRequests/${req.id} or target`);
                               }
@@ -1586,13 +1915,9 @@ export default function ControlView() {
                     <img src={u.photoUrl || getDefaultAvatar(u.id)} alt="" className="w-12 h-12 rounded-full bg-zinc-800" />
                     <div>
                       <h3 className="font-bold flex items-center gap-2">
-<<<<<<< HEAD
                         {u.isVerifiedAuthor && <VerifiedBadge size="sm" />}
                         <span>{u.name}</span>
                         <UserRoleBadge role={u.role} isVerifiedAuthor={u.isVerifiedAuthor} size="xs" showLabel />
-=======
-                        {u.name}
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                         {u.isBanned && <span className="px-2 py-0.5 bg-red-500 rounded text-white text-[10px] uppercase font-bold tracking-wider">BANNED</span>}
                       </h3>
                       <p className="text-sm text-zinc-500">{u.email}</p>
@@ -1630,7 +1955,6 @@ export default function ControlView() {
                     )}
                     <button
                       onClick={() => {
-<<<<<<< HEAD
                         if (actualRole !== 'developer' && effectiveRole !== 'developer') {
                           return showToast(language === 'ru' ? "Только разработчик может выдавать галочки!" : "Only developer can grant verified badge!", 'error');
                         }
@@ -1685,53 +2009,6 @@ export default function ControlView() {
                           createAdminRequest('ban_user', u.id, u.name || 'User', 'Community rule violation report');
                         }}
                         className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-medium transition-colors cursor-pointer"
-=======
-                        if (actualRole !== 'developer' && actualRole !== 'admin') return alert(language === 'ru' ? "Недостаточно прав!" : "Insufficient permissions!");
-                        updateDoc(doc(db, 'users', u.id), { isVerifiedAuthor: !u.isVerifiedAuthor }).catch(console.error);
-                      }}
-                      className={clsx(
-                        "px-4 py-2 rounded-xl text-sm font-medium transition-colors",
-                        u.isVerifiedAuthor ? "bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500 hover:text-white" : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
-                      )}
-                    >
-                      {u.isVerifiedAuthor ? 'Verified Author' : 'Verify Author'}
-                    </button>
-                    {(effectiveRole === 'developer' || effectiveRole === 'admin') ? (
-                      <button
-                        onClick={async () => {
-                          try {
-                              if (u.isBanned) {
-                                if (confirm('Unban this user?')) {
-                                  await updateDoc(doc(db, 'users', u.id), { isBanned: false, banReason: null });
-                                  alert(language === 'ru' ? 'Пользователь разбанен' : 'User unbanned');
-                                }
-                              } else {
-                                const reason = prompt('Ban Reason:');
-                                if (reason !== null) {
-                                  await updateDoc(doc(db, 'users', u.id), { isBanned: true, banReason: reason });
-                                  alert(language === 'ru' ? 'Пользователь забанен' : 'User banned');
-                                }
-                              }
-                          } catch (e) {
-                            handleFirestoreError(e, OperationType.UPDATE, `users/${u.id}`);
-                          }
-                        }}
-                        className={clsx(
-                          "px-4 py-2 rounded-xl text-sm font-medium transition-colors",
-                          u.isBanned ? "bg-red-500 text-white hover:bg-red-600" : "bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white"
-                        )}
-                      >
-                        {u.isBanned ? 'Unban' : 'Ban User'}
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          if (u.isBanned) return alert('Already banned');
-                          const reason = prompt('Ban Reason?');
-                          if (reason !== null) createAdminRequest('ban_user', u.id, u.name || u.email || 'Unknown', reason);
-                        }}
-                        className="px-4 py-2 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl text-sm font-medium transition-colors"
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                       >
                         Request Ban
                       </button>
@@ -1770,7 +2047,6 @@ export default function ControlView() {
           </div>
         )}
       </div>
-<<<<<<< HEAD
 
       {/* Toast Alert */}
       {toastMessage && (
@@ -2060,8 +2336,6 @@ export default function ControlView() {
           </div>
         </div>
       )}
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     </div>
   );
 }

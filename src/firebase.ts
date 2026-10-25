@@ -13,25 +13,9 @@ import {
 } from "firebase/auth";
 import { getFirestore, doc, updateDoc, increment, onSnapshot, getDoc, setDoc, connectFirestoreEmulator } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
-<<<<<<< HEAD
 import firebaseConfig from '../firebase-applet-config.json';
 
 import { performGoogleSignIn } from "./lib/googleAuth";
-=======
-
-import firebaseConfig from '../firebase-applet-config.json';
-
-const allowedAIStudioProjectId = 'bcjac2exvccp37f2hoi3je';
-
-let isOriginal = true;
-if (typeof window !== 'undefined') {
-  const hostname = window.location.hostname;
-  if (hostname.endsWith('.run.app') && !hostname.includes(allowedAIStudioProjectId)) {
-    console.warn("Remix detected! Redirecting database to local emulator to protect the original project.");
-    isOriginal = false;
-  }
-}
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
@@ -39,52 +23,10 @@ export const auth = getAuth(app);
 export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
 export const storage = getStorage(app);
 
-<<<<<<< HEAD
 export const logOut = () => signOut(auth);
 
 export const signInWithGoogle = async () => {
   return performGoogleSignIn();
-=======
-if (!isOriginal) {
-  // Point remixes to a non-existent local emulator so they don't affect production DB
-  try {
-    connectFirestoreEmulator(db, 'localhost', 8080);
-    connectAuthEmulator(auth, 'http://localhost:9099', { disableWarnings: true });
-  } catch (e) {
-    // Ignore errors if already connected
-  }
-}
-
-export const logOut = () => signOut(auth);
-
-export const signInWithGoogle = async () => {
-  const provider = new GoogleAuthProvider();
-  try {
-    const result = await signInWithPopup(auth, provider);
-    const user = result.user;
-    
-    // Check if user document exists, if not create it
-    const userRef = doc(db, 'users', user.uid);
-    const userSnap = await getDoc(userRef);
-    
-    if (!userSnap.exists()) {
-      await setDoc(userRef, {
-        uid: user.uid,
-        name: user.displayName || 'User',
-        email: user.email,
-        photoUrl: user.photoURL,
-        role: user.email === 'fufazada@gmail.com' ? 'developer' : 'user',
-        eplCoins: 0,
-        purchasedItems: [],
-        createdAt: new Date().toISOString()
-      });
-    }
-    
-    return { user, error: null };
-  } catch (error: any) {
-    return { user: null, error };
-  }
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 };
 
 export const signInWithApple = async () => {

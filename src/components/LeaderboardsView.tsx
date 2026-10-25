@@ -5,11 +5,8 @@ import { db } from '../firebase';
 import { Trophy, Globe, MapPin, Users, Medal, Sparkles } from 'lucide-react';
 import { clsx } from 'clsx';
 import { getDefaultAvatar } from '../lib/avatar';
-<<<<<<< HEAD
 import UserRoleBadge from './UserRoleBadge';
 import VerifiedBadge from './VerifiedBadge';
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
 type LeaderboardTab = 'global' | 'region' | 'friends' | 'popular';
 
@@ -19,11 +16,8 @@ interface LeaderboardUser {
   avatarUrl: string;
   region: string;
   eplCoins: number;
-<<<<<<< HEAD
   role?: string;
   isVerifiedAuthor?: boolean;
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 }
 
 interface PopularProject {
@@ -100,7 +94,6 @@ export default function LeaderboardsView() {
 
       if (q) {
         const snapshot = await getDocs(q);
-<<<<<<< HEAD
         let fetchedUsers = snapshot.docs.map(doc => doc.data() as LeaderboardUser);
         // Security filter: drop any banned/spam names or abnormal coin values
         fetchedUsers = fetchedUsers.filter(u => {
@@ -111,9 +104,6 @@ export default function LeaderboardsView() {
                  !name.includes('pwned') &&
                  (typeof u.eplCoins !== 'number' || u.eplCoins <= 100000);
         });
-=======
-        const fetchedUsers = snapshot.docs.map(doc => doc.data() as LeaderboardUser);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
         setUsers(fetchedUsers);
       }
     } catch (error) {
@@ -302,19 +292,12 @@ export default function LeaderboardsView() {
                     />
                     <div className="flex-1">
                       <h3 className="font-bold flex items-center gap-2">
-<<<<<<< HEAD
                         {user.isVerifiedAuthor && <VerifiedBadge size="xs" />}
                         <span>{user.name}</span>
                         <UserRoleBadge role={user.role} isVerifiedAuthor={user.isVerifiedAuthor} size="xs" showLabel />
                         {user.uid === currentUser?.uid && <span className="text-[10px] uppercase tracking-wider bg-emerald-500 text-white px-2 py-0.5 rounded-full">You</span>}
                       </h3>
                       <p className={clsx("text-xs", isFrutigerAero ? "text-blue-800/70" : theme === 'light' ? "text-zinc-500" : "text-zinc-400 opacity-70")}>{user.region || 'Global'}</p>
-=======
-                        {user.name}
-                        {user.uid === currentUser?.uid && <span className="text-[10px] uppercase tracking-wider bg-emerald-500 text-white px-2 py-0.5 rounded-full">You</span>}
-                      </h3>
-                      <p className="text-xs opacity-70">{user.region}</p>
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                     </div>
                     <div className="font-mono font-bold text-emerald-500">
                       {user.eplCoins}

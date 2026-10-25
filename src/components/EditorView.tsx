@@ -6,14 +6,11 @@ import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'fir
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { EPLInterpreter } from '../lib/epl-interpreter';
 import { EPL_DICTIONARY } from '@/src/lib/epl-dictionary';
-<<<<<<< HEAD
-import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2, Monitor, Smartphone, Eye, ShieldCheck, ShieldAlert, AlertTriangle } from 'lucide-react';
-=======
-import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2, Monitor, Smartphone, Eye } from 'lucide-react';
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
+import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2, Monitor, Smartphone, Eye, ShieldCheck, ShieldAlert, AlertTriangle, Layers, ChevronDown } from 'lucide-react';
 import { clsx } from 'clsx';
 import { GoogleGenAI } from "@google/genai";
 import VisualEditor from './VisualEditor';
+import BlockEditor from './BlockEditor';
 import AppPreview from './AppPreview';
 import AIAgent from './AIAgent';
 import Tutorial from './Tutorial';
@@ -84,12 +81,9 @@ export default function EditorView() {
   const [originalAppName, setOriginalAppName] = useState<string | null>(null);
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [customEditors, setCustomEditors] = useState<any[]>([]);
-<<<<<<< HEAD
   const [publishingStepText, setPublishingStepText] = useState('');
   const [moderationResult, setModerationResult] = useState<{ approved: boolean; reason: string; flags: string[]; riskScore?: number } | null>(null);
   const [showModerationModal, setShowModerationModal] = useState(false);
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -903,7 +897,6 @@ export default function EditorView() {
   };
 
   const handlePublish = async () => {
-<<<<<<< HEAD
     if (!user) return alert(language === 'ru' ? "Необходимо войти в аккаунт для публикации" : "You must be signed in to publish apps.");
     setIsPublishing(true);
     setPublishingStepText(language === 'ru' ? 'ИИ (NVIDIA Nemotron 3.5) проверяет проект на 18+, маты и взломы...' : 'AI (NVIDIA Nemotron 3.5) is inspecting project for 18+, profanity & exploits...');
@@ -911,15 +904,6 @@ export default function EditorView() {
       const finalPrice = isPremium ? appPrice : 0;
       const appPayload: any = {
         id: editingAppId || undefined,
-=======
-    if (!user) return alert("You must be signed in to publish apps.");
-    setIsPublishing(true);
-    try {
-      const appId = editingAppId || doc(collection(db, 'apps')).id;
-      const finalPrice = isPremium ? appPrice : 0;
-      const appData: any = {
-        id: appId,
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
         title: appTitle,
         description: appDesc,
         code,
@@ -943,7 +927,6 @@ export default function EditorView() {
         allowCopy: isPremium ? allowCopy : true,
         originalAppId,
         originalAppName,
-<<<<<<< HEAD
         events
       };
 
@@ -968,31 +951,6 @@ export default function EditorView() {
     } finally {
       setIsPublishing(false);
       setPublishingStepText('');
-=======
-        events,
-        updatedAt: new Date().toISOString()
-      };
-
-      if (!editingAppId) {
-        appData.createdAt = new Date().toISOString();
-        appData.downloads = 0;
-        appData.rating = 0;
-        appData.likes = 0;
-        appData.dislikes = 0;
-        appData.comments = [];
-        appData.isVerified = false;
-      }
-
-      await setDoc(doc(db, 'apps', appId), appData, { merge: true });
-      setEditingAppId(appId);
-      setShowPublishModal(false);
-      console.log("App published successfully!");
-    } catch (error) {
-      const errInfo = handleFirestoreError(error, OperationType.WRITE, `apps/${editingAppId || 'new'}`);
-      console.error("Error publishing app", error);
-    } finally {
-      setIsPublishing(false);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     }
   };
 
@@ -1266,17 +1224,32 @@ export default function EditorView() {
             {t.edit}
           </button>
           {activeMenu === 'edit' && (
-            <div className={clsx("absolute top-full left-0 mt-1 w-48 border rounded-lg shadow-xl py-1 z-50", isFrutigerAero ? "frutiger-aero-glass" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800")}>
+            <div className={clsx("absolute top-full left-0 mt-1 w-52 border rounded-lg shadow-xl py-1 z-50", isFrutigerAero ? "frutiger-aero-glass" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800")}>
               <button onClick={() => { setCodeGlobal(''); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2 text-red-500", isFrutigerAero ? "hover:bg-white/50" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
                 <Trash2 className="w-4 h-4" /> {t.clearCode}
               </button>
+
+              <button 
+                onClick={() => { 
+                  setSelectedExtraCategory(selectedExtraCategory === 'BlockEditing' ? 'Normal' : 'BlockEditing'); 
+                  setActiveMenu(null); 
+                }} 
+                className={clsx("w-full text-left px-4 py-2 flex items-center gap-2 text-xs font-semibold", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}
+              >
+                <Layers className="w-4 h-4 text-purple-400" /> 
+                {selectedExtraCategory === 'BlockEditing' 
+                  ? (language === 'ru' ? 'В обычный код' : 'Switch to Code Editor') 
+                  : (language === 'ru' ? 'В блочный редактор (block editing)' : 'Switch to Block Editing')
+                }
+              </button>
+
               {selectedExtraCategory === 'PreviewEditing' ? (
                 <button 
                   onClick={() => { 
                     setSelectedExtraCategory('Normal'); 
                     setActiveMenu(null); 
                   }} 
-                  className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}
+                  className={clsx("w-full text-left px-4 py-2 flex items-center gap-2 text-xs font-semibold", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}
                 >
                   <Code2 className="w-4 h-4" /> {language === 'ru' ? 'В обычный редактор' : 'Switch to Code Editor'}
                 </button>
@@ -1287,11 +1260,75 @@ export default function EditorView() {
                     if (!previewType) setPreviewType('2D');
                     setActiveMenu(null); 
                   }} 
-                  className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}
+                  className={clsx("w-full text-left px-4 py-2 flex items-center gap-2 text-xs font-semibold", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}
                 >
                   <LayoutTemplate className="w-4 h-4" /> {language === 'ru' ? 'В визуальный редактор' : 'Switch to Visual Editor'}
                 </button>
               )}
+            </div>
+          )}
+        </div>
+
+        {/* Extra Category Dropdown */}
+        <div className="relative">
+          <button 
+            onClick={() => setActiveMenu(activeMenu === 'extra_category' ? null : 'extra_category')}
+            className={clsx("px-3 py-1 rounded transition-colors font-medium flex items-center gap-1.5 cursor-pointer", activeMenu === 'extra_category' ? 'bg-zinc-200 dark:bg-zinc-800' : 'hover:bg-zinc-200 dark:hover:bg-zinc-800')}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+            <span>Extra Category: {selectedExtraCategory === 'BlockEditing' ? 'block editing' : selectedExtraCategory === 'PreviewEditing' ? 'Visual Editor' : selectedExtraCategory || 'Normal'}</span>
+            <ChevronDown className="w-3 h-3 opacity-60" />
+          </button>
+          {activeMenu === 'extra_category' && (
+            <div className={clsx("absolute top-full left-0 mt-1 w-60 border rounded-xl shadow-2xl py-1.5 z-50", isFrutigerAero ? "frutiger-aero-glass text-blue-900" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-200")}>
+              <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500 border-b border-zinc-800/50 mb-1">
+                {language === 'ru' ? 'Категория / Режим:' : 'Category Mode:'}
+              </div>
+
+              <button 
+                onClick={() => { setSelectedExtraCategory('Normal'); setActiveMenu(null); }} 
+                className={clsx("w-full text-left px-3.5 py-2 flex items-center gap-2 text-xs font-medium hover:bg-zinc-800/50 cursor-pointer", (selectedExtraCategory === 'Normal' || !selectedExtraCategory) && "text-emerald-400 font-bold bg-emerald-500/10")}
+              >
+                <Code2 className="w-4 h-4 text-emerald-400" />
+                <span>Normal (Текстовый код)</span>
+              </button>
+
+              <button 
+                onClick={() => { setSelectedExtraCategory('BlockEditing'); setActiveMenu(null); }} 
+                className={clsx("w-full text-left px-3.5 py-2 flex items-center gap-2 text-xs font-medium hover:bg-zinc-800/50 cursor-pointer", selectedExtraCategory === 'BlockEditing' && "text-purple-400 font-bold bg-purple-500/10")}
+              >
+                <Layers className="w-4 h-4 text-purple-400" />
+                <span>block editing (Скретч блоки)</span>
+                <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-purple-500 text-white font-bold animate-pulse">NEW</span>
+              </button>
+
+              <button 
+                onClick={() => { 
+                  setSelectedExtraCategory('PreviewEditing'); 
+                  if (!previewType) setPreviewType('2D');
+                  setActiveMenu(null); 
+                }} 
+                className={clsx("w-full text-left px-3.5 py-2 flex items-center gap-2 text-xs font-medium hover:bg-zinc-800/50 cursor-pointer", selectedExtraCategory === 'PreviewEditing' && "text-blue-400 font-bold bg-blue-500/10")}
+              >
+                <LayoutTemplate className="w-4 h-4 text-blue-400" />
+                <span>Visual Editor (Визуальный)</span>
+              </button>
+
+              <button 
+                onClick={() => { setSelectedExtraCategory('OS'); setActiveMenu(null); }} 
+                className={clsx("w-full text-left px-3.5 py-2 flex items-center gap-2 text-xs font-medium hover:bg-zinc-800/50 cursor-pointer", selectedExtraCategory === 'OS' && "text-cyan-400 font-bold bg-cyan-500/10")}
+              >
+                <Monitor className="w-4 h-4 text-cyan-400" />
+                <span>OS Simulation (AllBIOS)</span>
+              </button>
+
+              <button 
+                onClick={() => { setSelectedExtraCategory('Asset'); setActiveMenu(null); }} 
+                className={clsx("w-full text-left px-3.5 py-2 flex items-center gap-2 text-xs font-medium hover:bg-zinc-800/50 cursor-pointer", selectedExtraCategory === 'Asset' && "text-amber-400 font-bold bg-amber-500/10")}
+              >
+                <Package className="w-4 h-4 text-amber-400" />
+                <span>Asset Store UI Mode</span>
+              </button>
             </div>
           )}
         </div>
@@ -1519,6 +1556,8 @@ export default function EditorView() {
         <React.Suspense fallback={<div className="flex-1 flex justify-center items-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div></div>}>
           <PreviewEditor type={previewType || '2D'} code={code} onChange={handleCodeChange} />
         </React.Suspense>
+      ) : selectedExtraCategory === 'BlockEditing' ? (
+        <BlockEditor code={code} onChange={handleCodeChange} />
       ) : (
       <div className="flex-1 flex flex-col sm:flex-row overflow-y-auto sm:overflow-hidden">
         {!isFullScreen && (
@@ -2293,7 +2332,6 @@ export default function EditorView() {
                 disabled={isPublishing}
                 className="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
               >
-<<<<<<< HEAD
                 {isPublishing ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -2305,15 +2343,11 @@ export default function EditorView() {
                     <span>{t.publishButton}</span>
                   </>
                 )}
-=======
-                {isPublishing ? t.publishing : t.publishButton}
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
               </button>
             </div>
           </div>
         </div>
       )}
-<<<<<<< HEAD
 
       {/* AI Moderation Result Modal */}
       {showModerationModal && moderationResult && (
@@ -2412,8 +2446,6 @@ export default function EditorView() {
           </div>
         </div>
       )}
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       {showFileControlModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(

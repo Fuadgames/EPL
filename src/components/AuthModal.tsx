@@ -24,67 +24,15 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
 
   const setUser = useStore(state => state.setUser);
   const setUserData = useStore(state => state.setUserData);
-<<<<<<< HEAD
-=======
-  const setIsBackdoor = useStore(state => state.setIsBackdoor);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-<<<<<<< HEAD
-=======
-    console.log("handleSubmit called", { isLogin, isReset, email });
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     setLoading(true);
     setError(null);
     setMessage(null);
 
-<<<<<<< HEAD
-=======
-    // Developer Backdoor
-    if (isLogin && !isReset && email.toLowerCase() === 'fufazada@gmail.com' && password === '12345678901') {
-      try {
-        const { user, error } = await signInWithEmail(email, password);
-        if (error && (error.code === 'auth/operation-not-allowed' || error.code === 'auth/user-not-found' || error.code === 'auth/invalid-credential')) {
-          // Mock login if real auth is disabled or user not found
-          console.log("Using mock login for developer");
-          const mockUser = {
-            uid: 'dev-backdoor-uid',
-            email: 'fufazada@gmail.com',
-            displayName: 'Fuadgames',
-            photoURL: null,
-            emailVerified: true,
-          } as any;
-          
-          const mockUserData = {
-            uid: mockUser.uid,
-            name: 'Fuadgames',
-            email: mockUser.email,
-            role: 'developer' as const,
-            eplCoins: 1000,
-            purchasedItems: [],
-            uploadedFiles: [],
-            createdAt: new Date().toISOString()
-          };
-          
-          setIsBackdoor(true);
-          setUser(mockUser);
-          setUserData(mockUserData);
-          onClose();
-          return;
-        } else if (error) {
-          throw error;
-        }
-        onClose();
-        return;
-      } catch (err) {
-        console.error("Backdoor attempt failed", err);
-      }
-    }
-
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     try {
       if (isReset) {
         const { error } = await resetPassword(email);
@@ -147,7 +95,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
     setError(null);
     try {
       const { error } = await signInWithGoogle();
-<<<<<<< HEAD
       if (error) {
         if (error.code === 'auth/popup-closed-by-user') {
           return;
@@ -165,16 +112,6 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           ? `Домен ${window.location.hostname} не добавлен в Authorized Domains в Firebase. На https://epl-eta.vercel.app авторизация работает штатно.`
           : `Domain ${window.location.hostname} is not authorized in Firebase.`;
       } else if (err.message && err.message.includes('Missing or insufficient permissions')) {
-=======
-      if (error) throw error;
-      onClose();
-    } catch (err: any) {
-      console.error("Google Auth error:", err);
-      let errorMessage = err.message;
-      if (err.code === 'auth/popup-blocked') {
-        errorMessage = language === 'ru' ? 'Всплывающее окно заблокировано браузером. Пожалуйста, разрешите всплывающие окна.' : 'Popup was blocked by the browser. Please allow popups.';
-      } else if (err.message.includes('Missing or insufficient permissions')) {
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
         errorMessage = language === 'ru' ? 'Ошибка доступа к базе данных. Пожалуйста, попробуйте еще раз.' : 'Database access error. Please try again.';
       }
       setError(errorMessage);
@@ -217,23 +154,7 @@ export default function AuthModal({ isOpen, onClose }: AuthModalProps) {
           </button>
         </div>
 
-<<<<<<< HEAD
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-=======
-        {/* Backdoor Warning */}
-      {isLogin && !isReset && email.toLowerCase() === 'fufazada@gmail.com' && password === '12345678901' && (
-        <div className="mx-6 mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
-          <AlertCircle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-          <p className="text-xs text-red-400">
-            {language === 'ru' 
-              ? 'ВНИМАНИЕ: Вы используете "бэкдор". Данные НЕ БУДУТ сохраняться в облаке. Используйте Google или Email для сохранения.' 
-              : 'WARNING: You are using the backdoor. Data will NOT be saved to the cloud. Use Google or Email for persistent storage.'}
-          </p>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="p-6 space-y-4">
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
           {error && (
             <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3 text-red-500 text-sm">
               <AlertCircle className="w-5 h-5 shrink-0" />

@@ -182,10 +182,6 @@ export default function ProfileView() {
   const setEditingAppId = useStore(state => state.setEditingAppId);
   const setUser = useStore(state => state.setUser);
   const setUserData = useStore(state => state.setUserData);
-<<<<<<< HEAD
-=======
-  const setIsBackdoor = useStore(state => state.setIsBackdoor);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   const [myApps, setMyApps] = useState<AppData[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -195,10 +191,6 @@ export default function ProfileView() {
     } catch (e) {
       console.error(e);
     }
-<<<<<<< HEAD
-=======
-    setIsBackdoor(false);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     setUser(null);
     setUserData(null);
   };

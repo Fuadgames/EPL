@@ -20,11 +20,8 @@ interface EPLContext {
   currentObject: EPLEntity | null;
   controlType: 'wasd' | null;
   lastEventValue: string | null;
-<<<<<<< HEAD
   lastClickedTarget?: string | null;
   lastClickedTime?: number | null;
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   uiMode?: { type: string; target: string };
   pendingRandomChance: number | null;
 }
@@ -59,11 +56,8 @@ export class EPLInterpreter {
       currentObject: null,
       controlType: null,
       lastEventValue: null,
-<<<<<<< HEAD
       lastClickedTarget: null,
       lastClickedTime: null,
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       pendingRandomChance: null
     };
     this.onOutput = onOutput;
@@ -183,7 +177,6 @@ export class EPLInterpreter {
     }
   }
 
-<<<<<<< HEAD
   evaluateConditionToken(keyword: string, settingsStr: string): boolean {
     const settings = this.parseSettings(settingsStr);
     if (keyword === 'check') {
@@ -247,8 +240,6 @@ export class EPLInterpreter {
     return false;
   }
 
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   async runLines(lines: string[]): Promise<boolean> {
     let i = 0;
     while (i < lines.length && this.context.isRunning) {
@@ -600,7 +591,6 @@ export class EPLInterpreter {
           executed = true;
         }
         else if (keyword === 'if') {
-<<<<<<< HEAD
           // Collect condition tokens after 'if' on current line
           const conditionTokens: Array<{ keyword: string; settingsStr: string }> = [];
           for (let k = j + 4; k < parts.length; k += 4) {
@@ -623,32 +613,6 @@ export class EPLInterpreter {
             }
             if (nextTokens.length > 0) {
               isTrue = this.evaluateTokensCondition(nextTokens);
-=======
-          // Find check or compare on current line or next line
-          let checkIdx = parts.indexOf('check', j);
-          let compareIdx = parts.indexOf('compare', j);
-          let isTrue = false;
-          
-          if (checkIdx !== -1) {
-            const checkSettings = this.parseSettings(parts[checkIdx+1] || '');
-            isTrue = this.evaluateCondition(checkSettings.expression || 'false');
-          } else if (compareIdx !== -1) {
-            const compSettings = this.parseSettings(parts[compareIdx+1] || '');
-            isTrue = this.evaluateCompare(compSettings.a, compSettings.op, compSettings.b);
-          } else if (i + 1 < lines.length) {
-            const nextLine = lines[i+1].trim();
-            const nextParts = nextLine.split(TOKEN_REGEX);
-            const nextCheckIdx = nextParts.indexOf('check');
-            const nextCompareIdx = nextParts.indexOf('compare');
-            
-            if (nextCheckIdx !== -1) {
-              const checkSettings = this.parseSettings(nextParts[nextCheckIdx+1] || '');
-              isTrue = this.evaluateCondition(checkSettings.expression || 'false');
-              i++; 
-            } else if (nextCompareIdx !== -1) {
-              const compSettings = this.parseSettings(nextParts[nextCompareIdx+1] || '');
-              isTrue = this.evaluateCompare(compSettings.a, compSettings.op, compSettings.b);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
               i++;
             }
           }
@@ -837,14 +801,11 @@ export class EPLInterpreter {
       return;
     }
 
-<<<<<<< HEAD
     if (eventName === 'clicked?') {
       this.context.lastClickedTarget = target || null;
       this.context.lastClickedTime = Date.now();
     }
 
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     // Normalize target for keyboard events
     let normalizedTarget = target;
     if (eventName === 'key_pressed?' && target) {

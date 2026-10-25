@@ -6,7 +6,6 @@ import path from "path";
 import fs from "fs";
 import * as dotenv from "dotenv";
 import Stripe from 'stripe';
-<<<<<<< HEAD
 import { GoogleGenAI } from "@google/genai";
 import { initializeApp as initServerApp } from "firebase/app";
 import { getAuth as getServerAuth, signInAnonymously as serverSignInAnonymously } from "firebase/auth";
@@ -24,15 +23,12 @@ import {
   limit as serverLimit,
   increment as serverIncrement
 } from "firebase/firestore";
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 import { createBuildJob, getBuildJob, BuildPlatform } from './server/builder';
 import { setupCollabWebSocketServer, createSession, getSession } from './server/collab-server';
 
 dotenv.config();
 dotenv.config({ path: '.env.example' });
 
-<<<<<<< HEAD
 let genAIClient: GoogleGenAI | null = null;
 function getAI(): GoogleGenAI {
   if (!genAIClient) {
@@ -42,8 +38,6 @@ function getAI(): GoogleGenAI {
   return genAIClient;
 }
 
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 let stripeClient: Stripe | null = null;
 function getStripe(): Stripe {
   if (!stripeClient) {
@@ -59,7 +53,6 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-<<<<<<< HEAD
   // Security Headers Middleware
   app.use((req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -99,8 +92,10 @@ async function startServer() {
     if (
       req.originalUrl?.startsWith('/api/apps/publish') || 
       req.originalUrl?.startsWith('/api/ai/moderate-app') ||
+      req.originalUrl?.startsWith('/api/ai/moderate-user') ||
       req.path === '/apps/publish' || 
-      req.path === '/ai/moderate-app'
+      req.path === '/ai/moderate-app' ||
+      req.path === '/ai/moderate-user'
     ) {
       return next();
     }
@@ -246,6 +241,95 @@ ${code.slice(0, 4000)}
     };
   }
 
+  async function moderateUserWithNemotron(name: string, email: string, bio?: string, avatarUrl?: string, role?: string): Promise<ModerationResult> {
+    const combined = `${name} ${email} ${bio || ''}`.toLowerCase();
+    const explicitTerms = ['hacked by', 'you hacked', 'fuada was hacked', 'взломали', 'порно', 'porn', 'xxx', 'hentai', 'хуй', 'пизда', 'ебать', 'блять', 'сука', 'fuck', 'shit', 'nigger', 'cunt', 'dick', 'kamil', 'you hacked by kamil'];
+    const matchedTerms = explicitTerms.filter(t => combined.includes(t));
+
+    try {
+      const prompt = `Проведи строгую модерацию профиля пользователя для платформы EPL Studio.
+Проверь профиль на категории нарушений:
+1. Контент 18+ / NSFW / сексуальные намеки / эротика в имени или описании.
+2. Ненормативная лексика / маты / оскорбления / язык вражды (на русском и английском).
+3. Признаки взлома / хакинга / фейковых аккаунтов взломщиков ("hacked", "взлом", "kamil", "fuada was hacked", "you hacked by kamil", выдача себя за администрацию).
+
+Данные профиля пользователя:
+- Имя пользователя: "${name}"
+- Email: "${email}"
+- Описание / Био: "${bio || 'Отсутствует'}"
+- Ссылка на аватар: "${avatarUrl || 'Стандартный'}"
+- Роль: "${role || 'user'}"
+
+Ответь ТОЛЬКО валидным JSON-объектом без лишних символов и без markdown блоков в формате:
+{
+  "approved": boolean,
+  "reason": string,
+  "flags": string[],
+  "riskScore": number
+}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+      const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+          "Content-Type": "application/json",
+          "HTTP-Referer": "https://epl-studio.local",
+          "X-Title": "EPL Studio User Moderation"
+        },
+        body: JSON.stringify({
+          model: OPENROUTER_MODEL,
+          messages: [
+            {
+              role: "system",
+              content: "Ты — строгий ИИ-модератор профилей пользователей. Проверяй имена и биографию на 18+, маты и упоминания взломов. Возвращай ТОЛЬКО валидный JSON: {\"approved\": boolean, \"reason\": string, \"flags\": string[], \"riskScore\": number}"
+            },
+            { role: "user", content: prompt }
+          ],
+          temperature: 0.1
+        }),
+        signal: controller.signal
+      });
+
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        const data: any = await response.json();
+        const content = data.choices?.[0]?.message?.content || '';
+        const jsonMatch = content.match(/\{[\s\S]*"approved"[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          return {
+            approved: !!parsed.approved,
+            reason: parsed.reason || (parsed.approved ? 'Профиль пользователя соответствует правилам платформы' : 'Профиль нарушает правила платформы'),
+            flags: Array.isArray(parsed.flags) ? parsed.flags : [],
+            riskScore: typeof parsed.riskScore === 'number' ? parsed.riskScore : (parsed.approved ? 0 : 8)
+          };
+        }
+      }
+    } catch (err: any) {
+      console.warn('Nemotron user moderation error, using fallback:', err.message);
+    }
+
+    if (matchedTerms.length > 0) {
+      return {
+        approved: false,
+        reason: `Обнаружены запрещенные слова или упоминания взломов/оскорблений в профиле: ${matchedTerms.slice(0, 3).join(', ')}`,
+        flags: ['hacking_impersonation', 'profanity', 'restricted_terms'],
+        riskScore: 9
+      };
+    }
+
+    return {
+      approved: true,
+      reason: 'Профиль пользователя прошел автоматическую проверку безопасности',
+      flags: [],
+      riskScore: 0
+    };
+  }
+
   // Moderate app standalone endpoint
   app.post("/api/ai/moderate-app", rateLimiter(20, 60000), async (req, res) => {
     try {
@@ -259,6 +343,64 @@ ${code.slice(0, 4000)}
     } catch (err: any) {
       console.error('Moderation error:', err.message);
       res.status(500).json({ error: err.message || 'Moderation failed' });
+    }
+  });
+
+  // Moderate user profile endpoint
+  app.post("/api/ai/moderate-user", rateLimiter(30, 60000), async (req, res) => {
+    try {
+      const { userId, name, email, bio, avatarUrl, role } = req.body;
+      if (!name || typeof name !== 'string') {
+        return res.status(400).json({ error: 'Missing user name' });
+      }
+
+      const modResult = await moderateUserWithNemotron(name, email || '', bio || '', avatarUrl || '', role || 'user');
+      const isApproved = modResult.approved;
+
+      if (serverDb && userId) {
+        const userRef = serverDoc(serverDb, 'users', userId);
+        const patchData: any = {
+          isBanned: !isApproved,
+          banReason: !isApproved ? modResult.reason : null,
+          moderationStatus: isApproved ? 'approved' : 'rejected',
+          moderationReason: modResult.reason,
+          moderationFlags: modResult.flags,
+          moderatedAt: new Date().toISOString(),
+          moderatedBy: OPENROUTER_MODEL
+        };
+        try {
+          await serverSetDoc(userRef, patchData, { merge: true });
+
+          // Record log in aiModerationLogs
+          const logId = `mod_user_${userId}_${Date.now()}`;
+          await serverSetDoc(serverDoc(serverDb, 'aiModerationLogs', logId), {
+            id: logId,
+            appId: userId,
+            appTitle: `[Пользователь] ${name}`,
+            authorId: userId,
+            authorName: name,
+            approved: isApproved,
+            reason: modResult.reason,
+            flags: modResult.flags,
+            riskScore: modResult.riskScore,
+            model: OPENROUTER_MODEL,
+            createdAt: new Date().toISOString()
+          });
+        } catch (e) {
+          console.warn('Server user moderation write skipped:', e);
+        }
+      }
+
+      res.json({
+        approved: isApproved,
+        isBanned: !isApproved,
+        reason: modResult.reason,
+        flags: modResult.flags,
+        riskScore: modResult.riskScore
+      });
+    } catch (err: any) {
+      console.error('User moderation error:', err.message);
+      res.status(500).json({ error: err.message || 'User moderation failed' });
     }
   });
 
@@ -613,12 +755,6 @@ ${code.slice(0, 4000)}
 
   // API routes
   app.post("/api/create-checkout-session", rateLimiter(20, 60000), async (req, res) => {
-=======
-  app.use(express.json());
-
-  // API routes
-  app.post("/api/create-checkout-session", async (req, res) => {
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     try {
       const { userId } = req.body;
       const stripe = getStripe();
@@ -677,7 +813,6 @@ ${code.slice(0, 4000)}
     }
   });
 
-<<<<<<< HEAD
   // Secure Server-side Gemini AI proxy routes
   app.post("/api/ai/generate", rateLimiter(30, 60000), async (req, res) => {
     try {
@@ -733,10 +868,6 @@ ${code.slice(0, 4000)}
 
   // Project Build & Export System
   app.post("/api/build", rateLimiter(15, 60000), async (req, res) => {
-=======
-  // Project Build & Export System
-  app.post("/api/build", async (req, res) => {
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     try {
       const { projectId, platform, version, appData } = req.body;
       if (!projectId || !platform) {

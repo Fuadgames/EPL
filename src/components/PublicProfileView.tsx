@@ -5,14 +5,10 @@ import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firesto
 import { db } from '../firebase';
 import { getDefaultAvatar } from '../lib/avatar';
 import { AppData } from '../types';
-<<<<<<< HEAD
 import { ExternalLink, Star, Download, ChevronDown, ChevronUp, User as UserIcon, Ban, CheckCircle } from 'lucide-react';
 import UserRoleBadge from './UserRoleBadge';
 import VerifiedBadge from './VerifiedBadge';
 import { setDoc } from 'firebase/firestore';
-=======
-import { ExternalLink, Star, Download, ChevronDown, ChevronUp, User as UserIcon } from 'lucide-react';
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
 export default function PublicProfileView() {
   const theme = useStore(state => state.theme);
@@ -20,20 +16,16 @@ export default function PublicProfileView() {
   const viewingProfileId = useStore(state => state.viewingProfileId);
   const setCurrentView = useStore(state => state.setCurrentView);
   const setSelectedAppId = useStore(state => state.setSelectedAppId);
-<<<<<<< HEAD
   const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
   const language = useStore(state => state.language);
   const simulatedRole = useStore(state => state.simulatedRole);
   const isStaff = user?.email === 'fufazada@gmail.com' || userData?.role === 'developer' || userData?.role === 'admin' || userData?.role === 'moderator' || simulatedRole === 'developer' || simulatedRole === 'admin' || simulatedRole === 'moderator';
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
   const [profileData, setProfileData] = useState<any>(null);
   const [profileApps, setProfileApps] = useState<AppData[]>([]);
   const [loading, setLoading] = useState(true);
   const [bioExpanded, setBioExpanded] = useState(false);
-<<<<<<< HEAD
   const [banning, setBanning] = useState(false);
 
   const handleToggleBan = async () => {
@@ -62,8 +54,6 @@ export default function PublicProfileView() {
       setBanning(false);
     }
   };
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
   useEffect(() => {
     if (!viewingProfileId) return;
@@ -145,7 +135,6 @@ export default function PublicProfileView() {
             className="w-32 h-32 rounded-full object-cover shadow-xl border-4 border-zinc-800"
           />
           <div className="flex-1 mt-2">
-<<<<<<< HEAD
             <div className="flex flex-col sm:flex-row items-center sm:items-start justify-between gap-3">
               <div>
                 <h1 className={clsx("text-3xl font-bold mb-1 tracking-tight flex items-center justify-center sm:justify-start gap-2", isFrutigerAero ? "text-blue-900" : "")}>
@@ -179,14 +168,6 @@ export default function PublicProfileView() {
                 </button>
               )}
             </div>
-=======
-            <h1 className={clsx("text-3xl font-bold mb-2 tracking-tight flex items-center justify-center sm:justify-start gap-2", isFrutigerAero ? "text-blue-900" : "")}>
-              {profileData.name || 'Unknown User'}
-            </h1>
-            <p className={clsx("text-sm mb-4 font-medium", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>
-              From {profileData.region || 'Unknown Region'} • User
-            </p>
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
             
             {bio && (
               <div className={clsx("mt-4 text-left p-4 rounded-xl border relative", 

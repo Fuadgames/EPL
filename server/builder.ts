@@ -198,22 +198,14 @@ async function writeZipFile(
 }
 
 /**
-<<<<<<< HEAD
  * Generates the authentic full-fidelity standalone EPL Engine runtime.
  * Exact 1:1 match with EPL Studio's epl-interpreter.ts and AppPreview.tsx.
-=======
- * Builds the standalone HTML application runtime.
- * Pure application viewport matching the original design and behaviors without extraneous browser panels.
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
  */
 export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
   const title = app.title || 'EPL Application';
   const code = app.code || '';
   const escapedCode = JSON.stringify(code);
-<<<<<<< HEAD
   const iconUrl = app.iconUrl || '';
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -223,11 +215,7 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
   <title>${title}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-<<<<<<< HEAD
     html, body {
-=======
-    body, html {
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       width: 100vw;
       height: 100vh;
       overflow: hidden;
@@ -237,54 +225,26 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
       user-select: none;
       -webkit-user-select: none;
     }
-<<<<<<< HEAD
     #stage-viewport {
-=======
-    #stage-container {
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       width: 100vw;
       height: 100vh;
       position: relative;
       overflow: hidden;
-<<<<<<< HEAD
       background-color: #0d1117;
       background-size: cover;
       background-position: center;
     }
     .epl-entity {
       position: absolute;
-=======
-      background: #000000;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-    #stage {
-      width: 100%;
-      height: 100%;
-      position: absolute;
-      top: 0;
-      left: 0;
-      overflow: hidden;
-      background-color: #0d1117;
-    }
-    .epl-entity {
-      position: absolute;
-      transition: transform 0.05s linear;
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       box-sizing: border-box;
       display: flex;
       align-items: center;
       justify-content: center;
-<<<<<<< HEAD
       user-select: none;
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     }
     .entity-player {
       box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
     }
-<<<<<<< HEAD
     .entity-button {
       cursor: pointer;
       font-weight: 600;
@@ -304,53 +264,10 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
     @keyframes epl-pulse {
       from { transform: scale(1); }
       to { transform: scale(1.12); }
-=======
-    .entity-coin {
-      animation: pulse 1s infinite alternate;
-    }
-    @keyframes pulse {
-      from { transform: scale(1); }
-      to { transform: scale(1.1); }
-    }
-    #touch-controls {
-      position: absolute;
-      bottom: 20px;
-      left: 20px;
-      right: 20px;
-      display: none;
-      justify-content: space-between;
-      pointer-events: none;
-      z-index: 30;
-    }
-    .d-pad {
-      pointer-events: auto;
-      display: grid;
-      gap: 6px;
-      grid-template-columns: repeat(3, 48px);
-      grid-template-rows: repeat(3, 48px);
-    }
-    .touch-btn {
-      width: 48px;
-      height: 48px;
-      background: rgba(255, 255, 255, 0.2);
-      border: 1px solid rgba(255, 255, 255, 0.3);
-      border-radius: 12px;
-      color: white;
-      font-weight: bold;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      user-select: none;
-      touch-action: manipulation;
-    }
-    .touch-btn:active {
-      background: rgba(16, 185, 129, 0.6);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     }
   </style>
 </head>
 <body>
-<<<<<<< HEAD
   <div id="stage-viewport"></div>
 
   <script>
@@ -372,30 +289,6 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
     }
 
     // Audio SFX Synthesis (Web Audio API offline synthesizer)
-=======
-  <main id="stage-container">
-    <div id="stage"></div>
-    <div id="touch-controls">
-      <div class="d-pad">
-        <div></div>
-        <button class="touch-btn" id="btn-up">&uarr;</button>
-        <div></div>
-        <button class="touch-btn" id="btn-left">&larr;</button>
-        <div></div>
-        <button class="touch-btn" id="btn-right">&rarr;</button>
-        <div></div>
-        <button class="touch-btn" id="btn-down">&darr;</button>
-        <div></div>
-      </div>
-    </div>
-  </main>
-
-  <script>
-    const APP_CODE = ${escapedCode};
-    const stage = document.getElementById('stage');
-
-    // Web Audio synthesizer (offline sound synthesis)
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     const AudioCtx = window.AudioContext || window.webkitAudioContext;
     let audioCtx = null;
 
@@ -408,10 +301,6 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
         const gain = audioCtx.createGain();
         osc.connect(gain);
         gain.connect(audioCtx.destination);
-<<<<<<< HEAD
-=======
-
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
         const now = audioCtx.currentTime;
 
         if (type === 'jump') {
@@ -449,7 +338,6 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
       } catch (e) {}
     }
 
-<<<<<<< HEAD
     // Authentic EPL Dictionary & Tokenizer
     const KEYWORDS = [
       'variable_activated?', 'activate_variable', 'unlock_premium',
@@ -769,136 +657,11 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
         const y = entity.y !== undefined ? entity.y : Math.floor(window.innerHeight / 2 - 32);
         const w = entity.width || entity.size || (entity.radius ? entity.radius * 2 : 64);
         const h = entity.height || entity.size || (entity.radius ? entity.radius * 2 : 64);
-=======
-    class StandaloneEPL {
-      constructor(source) {
-        this.source = source;
-        this.entities = {};
-        this.variables = {};
-        this.events = {};
-        this.timers = [];
-        this.wasdTarget = null;
-        this.score = 0;
-      }
-
-      execute() {
-        stage.innerHTML = '';
-        this.parse();
-        this.initEventListeners();
-        if (this.events['started?']) {
-          for (let cmd of this.events['started?']) {
-            this.runCommand(cmd);
-          }
-        }
-      }
-
-      parse() {
-        const lines = this.source.split('\\n');
-        let currentEvent = null;
-
-        for (let rawLine of lines) {
-          const line = rawLine.trim();
-          if (!line || line.startsWith('//') || line.startsWith('#')) continue;
-
-          if (line.endsWith('?')) {
-            currentEvent = line;
-            this.events[currentEvent] = [];
-          } else if (line.startsWith('when ') || line.includes('clicked?') || line.includes('started?') || line.includes('every?')) {
-            currentEvent = line;
-            this.events[currentEvent] = [];
-          } else if (line === 'end' || line === 'stop') {
-            currentEvent = null;
-          } else if (currentEvent) {
-            this.events[currentEvent].push(line);
-          } else {
-            this.runCommand(line);
-          }
-        }
-      }
-
-      runCommand(cmd) {
-        try {
-          const createMatch = cmd.match(/^create\\{([^}]+)\\}/i) || cmd.match(/^create\\s+([a-zA-Z0-9_]+)\\s*\\{?([^}]*)\\}?/i);
-          if (createMatch) {
-            const propsStr = createMatch[2] || createMatch[1];
-            const props = this.parseProps(propsStr);
-            const type = props.type || createMatch[1] || 'block';
-            const name = props.name || 'ent_' + Math.random().toString(36).substr(2, 6);
-
-            if (type === 'world') {
-              if (props.background || props.bg || props.color) {
-                stage.style.backgroundColor = props.background || props.bg || props.color;
-              }
-              return;
-            }
-
-            this.createEntity(name, type, props);
-            return;
-          }
-
-          const controlMatch = cmd.match(/^control\\s+(wasd|arrows|mouse)\\s+with\\s+([a-zA-Z0-9_]+)/i);
-          if (controlMatch) {
-            this.wasdTarget = controlMatch[2];
-            return;
-          }
-
-          const moveMatch = cmd.match(/^move\\s+([a-zA-Z0-9_]+)\\s*\\{?([^}]+)\\}?/i);
-          if (moveMatch) {
-            const name = moveMatch[1];
-            const props = this.parseProps(moveMatch[2]);
-            this.moveEntity(name, props.x || 0, props.y || 0);
-            return;
-          }
-
-          const soundMatch = cmd.match(/^play_sound\\s+([a-zA-Z0-9_]+)/i);
-          if (soundMatch) {
-            playSfx(soundMatch[1]);
-            return;
-          }
-
-          const setMatch = cmd.match(/^set\\s+([a-zA-Z0-9_]+)\\s*=\\s*(.+)$/i);
-          if (setMatch) {
-            this.variables[setMatch[1]] = setMatch[2];
-            return;
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      }
-
-      parseProps(str) {
-        const props = {};
-        if (!str) return props;
-        const pairs = str.split(',');
-        for (let pair of pairs) {
-          const parts = pair.split('=');
-          if (parts.length === 2) {
-            const k = parts[0].trim();
-            let v = parts[1].trim();
-            if (/^[0-9]+$/.test(v)) v = parseInt(v, 10);
-            props[k] = v;
-          }
-        }
-        return props;
-      }
-
-      createEntity(name, type, props) {
-        const el = document.createElement('div');
-        el.className = 'epl-entity entity-' + type;
-        el.id = 'entity-' + name;
-
-        const x = props.x !== undefined ? props.x : Math.floor(window.innerWidth / 2 - 32);
-        const y = props.y !== undefined ? props.y : Math.floor(window.innerHeight / 2 - 32);
-        const w = props.width || props.w || 64;
-        const h = props.height || props.h || 64;
-        const color = props.color || props.bg || '#3b82f6';
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
         el.style.left = x + 'px';
         el.style.top = y + 'px';
         el.style.width = w + 'px';
         el.style.height = h + 'px';
-<<<<<<< HEAD
 
         if (entity.color) el.style.backgroundColor = entity.color;
         if (entity.borderRadius !== undefined || entity.corner !== undefined) {
@@ -1017,80 +780,10 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
         if (this.context.events['started?']) {
           await this.runLines(this.context.events['started?']);
         }
-=======
-        el.style.backgroundColor = color;
-        el.style.borderRadius = (props.radius ? props.radius + 'px' : (type === 'coin' || type === 'circle' ? '50%' : '8px'));
-
-        if (type === 'text' || type === 'text_label') {
-          el.style.backgroundColor = 'transparent';
-          el.style.color = color || '#fafafa';
-          el.style.fontSize = (props.size || 16) + 'px';
-          el.style.fontWeight = 'bold';
-          el.textContent = props.text || name;
-        } else if (type === 'button') {
-          el.style.cursor = 'pointer';
-          el.style.display = 'flex';
-          el.style.alignItems = 'center';
-          el.style.justifyContent = 'center';
-          el.style.fontWeight = 'bold';
-          el.style.boxShadow = '0 2px 8px rgba(0,0,0,0.3)';
-          el.textContent = props.text || name;
-          el.onclick = () => {
-            playSfx('click');
-            if (this.events['clicked?{target=' + name + '}']) {
-              for (let cmd of this.events['clicked?{target=' + name + '}']) this.runCommand(cmd);
-            }
-          };
-        }
-
-        stage.appendChild(el);
-        this.entities[name] = { el, x, y, w, h, type, props };
-      }
-
-      moveEntity(name, dx, dy) {
-        const ent = this.entities[name];
-        if (ent) {
-          ent.x += dx;
-          ent.y += dy;
-          ent.el.style.left = ent.x + 'px';
-          ent.el.style.top = ent.y + 'px';
-        }
-      }
-
-      initEventListeners() {
-        window.addEventListener('keydown', (e) => {
-          const k = e.key.toLowerCase();
-          if (this.wasdTarget) {
-            const step = 15;
-            if (k === 'w' || k === 'arrowup') this.moveEntity(this.wasdTarget, 0, -step);
-            if (k === 's' || k === 'arrowdown') this.moveEntity(this.wasdTarget, 0, step);
-            if (k === 'a' || k === 'arrowleft') this.moveEntity(this.wasdTarget, -step, 0);
-            if (k === 'd' || k === 'arrowright') this.moveEntity(this.wasdTarget, step, 0);
-          }
-          if (this.events['key_pressed?']) {
-            for (let cmd of this.events['key_pressed?']) this.runCommand(cmd);
-          }
-        });
-
-        const bindTouch = (id, dx, dy) => {
-          const el = document.getElementById(id);
-          if (el) {
-            el.addEventListener('touchstart', (e) => {
-              e.preventDefault();
-              if (this.wasdTarget) this.moveEntity(this.wasdTarget, dx * 15, dy * 15);
-            });
-          }
-        };
-        bindTouch('btn-up', 0, -1);
-        bindTouch('btn-down', 0, 1);
-        bindTouch('btn-left', -1, 0);
-        bindTouch('btn-right', 1, 0);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       }
     }
 
     window.addEventListener('DOMContentLoaded', () => {
-<<<<<<< HEAD
       const engine = new EPLInterpreter();
 
       window.addEventListener('keydown', (e) => {
@@ -1103,20 +796,12 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata): string {
       });
 
       engine.run(APP_CODE);
-=======
-      const runner = new StandaloneEPL(APP_CODE);
-      runner.execute();
-      if ('ontouchstart' in window || navigator.maxTouchPoints > 0) {
-        document.getElementById('touch-controls').style.display = 'flex';
-      }
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     });
   </script>
 </body>
 </html>`;
 }
 
-<<<<<<< HEAD
 async function resolveMakensisCommand(): Promise<string> {
   try {
     await execFileAsync('makensis', ['-VERSION']);
@@ -1143,9 +828,6 @@ async function resolveMakensisCommand(): Promise<string> {
 }
 
 // 1. Windows Executable Application (.exe) using NSIS Native Compiler
-=======
-// 1. Windows Executable Application (.exe) using NSIS Standalone Native Compiler
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 async function buildWindowsExecutable(outDir: string, app: BuildAppMetadata, logCallback: (msg: string) => void): Promise<{ filePath: string; fileName: string; fileSize: number }> {
   const slug = sanitizeName(app.title);
   const fileName = `${slug}.exe`;
@@ -1160,11 +842,7 @@ async function buildWindowsExecutable(outDir: string, app: BuildAppMetadata, log
   await fsp.writeFile(path.join(tempBuildDir, 'app.html'), appHtml, 'utf-8');
   await fsp.writeFile(path.join(tempBuildDir, 'app.epl'), app.code, 'utf-8');
 
-<<<<<<< HEAD
   // Generate NSIS executable script with resilient dedicated application window launcher
-=======
-  // Generate NSIS executable script
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
   const nsiScript = `!define APPNAME "${app.title.replace(/"/g, '')}"
 !define APPSLUG "${slug}"
 !define VERSION "${app.version || '1.0.0.0'}"
@@ -1179,11 +857,7 @@ ShowInstDetails nevershow
 VIProductVersion "1.0.0.0"
 VIAddVersionKey "ProductName" "\${APPNAME}"
 VIAddVersionKey "CompanyName" "${(app.authorName || 'EPL Community').replace(/"/g, '')}"
-<<<<<<< HEAD
 VIAddVersionKey "FileDescription" "\${APPNAME} - Standalone Windows Application"
-=======
-VIAddVersionKey "FileDescription" "\${APPNAME} Application"
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 VIAddVersionKey "FileVersion" "1.0.0.0"
 
 Section
@@ -1192,7 +866,6 @@ Section
   File "app.html"
   File "app.epl"
 
-<<<<<<< HEAD
   ; Launch in dedicated standalone window mode without browser address bar
   Exec '"$WINDIR\\System32\\cmd.exe" /c start "" msedge.exe --app="file://$PLUGINSDIR\\app.html" --window-size=1280,800 --user-data-dir="$LOCALAPPDATA\\EPL_Studio\\Data\\\${APPSLUG}"'
   IfErrors 0 done
@@ -1202,28 +875,17 @@ Section
 
   ExecShell "open" "$PLUGINSDIR\\app.html"
 done:
-=======
-  ; Execute standalone dedicated desktop window mode (frameless, no browser UI)
-  ExecWait '"$WINDIR\\System32\\cmd.exe" /c start "" msedge.exe --app="file://$PLUGINSDIR\\app.html" --window-size=1280,800 --user-data-dir="$LOCALAPPDATA\\EPL_Studio\\Data\\\${APPSLUG}"'
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 SectionEnd
 `;
 
   const nsiPath = path.join(tempBuildDir, 'build.nsi');
   await fsp.writeFile(nsiPath, nsiScript, 'utf-8');
 
-<<<<<<< HEAD
   logCallback('Compiling PE32 GUI binary using Nullsoft Compiler (makensis)...');
 
   try {
     const makensisCmd = await resolveMakensisCommand();
     const { stdout, stderr } = await execFileAsync(makensisCmd, [nsiPath], { cwd: tempBuildDir });
-=======
-  logCallback('Executing Nullsoft Compiler (makensis) to build PE32 GUI binary...');
-
-  try {
-    const { stdout, stderr } = await execFileAsync('makensis', [nsiPath], { cwd: tempBuildDir });
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
     if (stderr && !stderr.includes('Processed')) {
       logCallback(`Compiler note: ${stderr.trim()}`);
     }
@@ -1232,11 +894,7 @@ SectionEnd
   }
 
   const stats = await fsp.stat(filePath);
-<<<<<<< HEAD
   logCallback(`Windows Executable ready: ${fileName} (${(stats.size / 1024).toFixed(1)} KB).`);
-=======
-  logCallback(`Windows Executable generated: ${fileName} (${(stats.size / 1024).toFixed(1)} KB).`);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
   return { filePath, fileName, fileSize: stats.size };
 }

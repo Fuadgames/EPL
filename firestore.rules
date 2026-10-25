@@ -5,7 +5,6 @@ service cloud.firestore {
       return request.auth != null;
     }
     
-<<<<<<< HEAD
     function isDeveloper() {
       return request.auth != null && (
         request.auth.token.email == 'fufazada@gmail.com' ||
@@ -73,86 +72,3 @@ service cloud.firestore {
     }
   }
 }
-=======
-    function isOwner(userId) {
-      return request.auth.uid == userId;
-    }
-    
-    function isDeveloper() {
-      // In a real app we'd check a secure admin collection.
-      // For now we check if their email matches the developer's email from the auth token.
-      return request.auth.token.email == 'fufazada@gmail.com';
-    }
-
-    match /users/{userId} {
-      allow read: if isSignedIn();
-      allow create: if isOwner(userId);
-      // Prevent changing eplCoins or role directly
-      allow update: if isOwner(userId) &&
-        (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['role', 'eplCoins'])) || isDeveloper();
-      allow delete: if isOwner(userId) || isDeveloper();
-    }
-    
-    match /users_public/{userId} {
-      allow read: if true;
-      allow write: if isOwner(userId) || isDeveloper();
-    }
-    
-    match /apps/{appId} {
-      allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
-      allow update: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isDeveloper();
-      allow delete: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isDeveloper();
-    }
-    
-    match /assets/{assetId} {
-      allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
-      allow update: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isDeveloper();
-      allow delete: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isDeveloper();
-    }
-    
-    match /comments/{commentId} {
-      allow read: if true;
-      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
-      allow update: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isDeveloper();
-      allow delete: if (isSignedIn() && resource.data.authorId == request.auth.uid) || isDeveloper();
-    }
-    
-    match /votes/{voteId} {
-      allow read: if true;
-      allow create, update, delete: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-    }
-    
-    match /friendRequests/{requestId} {
-      allow read: if isSignedIn() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
-      allow create: if isSignedIn() && request.resource.data.senderId == request.auth.uid;
-      allow update: if isSignedIn() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
-      allow delete: if isSignedIn() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
-    }
-    
-    match /premium_codes/{codeId} {
-      allow read: if isSignedIn();
-      allow write: if isDeveloper();
-    }
-
-    match /adminRequests/{requestId} {
-      allow read: if isDeveloper() || (isSignedIn() && resource.data.userId == request.auth.uid);
-      allow write: if isSignedIn();
-    }
-
-    match /collabSessions/{sessionId} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn() && request.resource.data.hostId == request.auth.uid;
-      allow update: if isSignedIn();
-      allow delete: if isSignedIn() && resource.data.hostId == request.auth.uid;
-    }
-
-    match /installed_apps/{installId} {
-      allow read: if isSignedIn();
-      allow create, update, delete: if isSignedIn() && (request.resource.data.userId == request.auth.uid || resource.data.userId == request.auth.uid);
-    }
-  }
-}
-
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d

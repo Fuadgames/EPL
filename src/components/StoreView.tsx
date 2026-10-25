@@ -10,11 +10,8 @@ import { AppData, AppCategory, UserVote } from '../types';
 import FriendsView from './FriendsView';
 import Gradient from './Gradient';
 import BuildDownloadModal from './BuildDownloadModal';
-<<<<<<< HEAD
 import UserRoleBadge from './UserRoleBadge';
 import VerifiedBadge from './VerifiedBadge';
-=======
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
 
 const CATEGORIES: AppCategory[] = ['games', 'apps', 'work', 'AI', 'Programming Language', 'Store', 'Custom Editor', 'Other'];
 
@@ -55,7 +52,6 @@ export default function StoreView() {
     }
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
-<<<<<<< HEAD
       let appsData = snapshot.docs.map(doc => {
         const data = doc.data() as any;
         return {
@@ -81,12 +77,6 @@ export default function StoreView() {
         }
         return true;
       });
-=======
-      let appsData = snapshot.docs.map(doc => ({ id: doc.id, ...(doc.data() as object) } as AppData));
-      
-      // Filter out private apps
-      appsData = appsData.filter(app => !app.isPrivate);
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
       
       if (selectedCategory !== 'all') {
         appsData = appsData.filter(app => app.category === selectedCategory);
@@ -484,31 +474,19 @@ export default function StoreView() {
                             className="flex items-center gap-1.5 text-emerald-400 bg-emerald-400/10 px-4 py-2 rounded-full text-sm font-bold border border-emerald-400/20 backdrop-blur-sm"
                           >
                             <Star className="w-4 h-4 fill-current" />
-<<<<<<< HEAD
                             {(typeof app.rating === 'number' ? app.rating : 5.0).toFixed(1)}
-=======
-                            {app.rating.toFixed(1)}
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                           </motion.div>
                         </div>
                       </div>
                       
                       <div className="relative z-10 flex-1 flex flex-col">
                         <h3 
-<<<<<<< HEAD
                           className={clsx("text-xl sm:text-2xl font-bold mb-3 truncate cursor-pointer transition-colors", isFrutigerAero ? "text-blue-900 hover:text-blue-600" : theme !== 'light' ? "text-white hover:text-emerald-400" : "text-zinc-900 hover:text-emerald-600")}
-=======
-                          className={clsx("text-xl sm:text-2xl font-bold mb-3 truncate cursor-pointer transition-colors", isFrutigerAero ? "text-blue-900 hover:text-blue-600" : "hover:text-emerald-500")}
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                           onClick={() => setSelectedAppId(app.id)}
                         >
                           {app.title}
                         </h3>
-<<<<<<< HEAD
                         <p className={clsx("text-sm sm:text-base mb-8 line-clamp-3 flex-1 leading-relaxed opacity-80", isFrutigerAero ? "text-blue-800" : theme !== 'light' ? 'text-zinc-400' : 'text-zinc-600')}>
-=======
-                        <p className={clsx("text-sm sm:text-base mb-8 line-clamp-3 flex-1 leading-relaxed opacity-80", isFrutigerAero ? "text-blue-800" : theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                           {app.description}
                         </p>
                         
@@ -521,17 +499,11 @@ export default function StoreView() {
                                   useStore.getState().setViewingProfileId(app.authorId);
                                   useStore.getState().setCurrentView('public-profile');
                                 }}
-<<<<<<< HEAD
                                 className="font-bold text-emerald-500/80 hover:underline cursor-pointer flex items-center gap-1 truncate"
                               >
                                 {(app.isVerified || (app as any).isVerifiedAuthor) && <VerifiedBadge size="xs" />}
                                 <span>by {app.authorName}</span>
                                 <UserRoleBadge role={(app as any).authorRole} isVerifiedAuthor={app.isVerified} size="xs" />
-=======
-                                className="font-bold text-emerald-500/80 hover:underline cursor-pointer"
-                              >
-                                by {app.authorName}
->>>>>>> 76052c4025bd6f96aed23817f0502844c437bf0d
                               </button>
                               <span className="opacity-30">•</span>
                               <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {app.visits || 0}</span>
