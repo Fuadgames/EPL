@@ -5,6 +5,7 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import fs from "fs";
 import * as dotenv from "dotenv";
+import crypto from "crypto";
 import Stripe from 'stripe';
 import { GoogleGenAI } from "@google/genai";
 import { initializeApp as initServerApp } from "firebase/app";
@@ -750,6 +751,163 @@ ${code.slice(0, 4000)}
     } catch (err: any) {
       console.error('Admin ban error:', err.message);
       res.status(500).json({ error: err.message || 'Failed to update ban status' });
+    }
+  });
+
+  // Admin Give Coins (Atomic & Audited)
+  app.post("/api/admin/give-coins", rateLimiter(60, 60000), async (req, res) => {
+    try {
+      const { uid, amount, adminUid } = req.body;
+      if (!uid || typeof amount !== 'number' || Math.abs(amount) > 1e6) {
+        return res.status(400).json({ error: 'Invalid parameters' });
+      }
+
+      if (serverDb) {
+        const userRef = serverDoc(serverDb, 'users', uid);
+        const userSnap = await serverGetDoc(userRef);
+        if (!userSnap.exists()) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+
+        const currentCoins = userSnap.data().eplCoins || 0;
+        const newCoins = Math.max(0, currentCoins + amount);
+
+        await Promise.all([
+          serverUpdateDoc(userRef, { eplCoins: newCoins }),
+          serverSetDoc(serverDoc(serverDb, 'users_public', uid), { eplCoins: newCoins }, { merge: true }),
+          serverSetDoc(serverDoc(serverDb, 'audit', `coins_${uid}_${Date.now()}`), {
+            type: 'coins',
+            target: uid,
+            amount,
+            newCoins,
+            by: adminUid || 'admin',
+            at: new Date().toISOString()
+          })
+        ]);
+
+        return res.json({ success: true, uid, eplCoins: newCoins });
+      }
+
+      res.json({ success: true, uid });
+    } catch (err: any) {
+      console.error('Give coins error:', err.message);
+      res.status(500).json({ error: err.message || 'Failed to give coins' });
+    }
+  });
+
+  // Admin Set Role (Audited)
+  app.post("/api/admin/set-role", rateLimiter(60, 60000), async (req, res) => {
+    try {
+      const { uid, role, adminUid } = req.body;
+      if (!uid || !['user', 'moderator', 'admin', 'developer', 'shopkeeper'].includes(role)) {
+        return res.status(400).json({ error: 'Invalid parameters' });
+      }
+
+      if (serverDb) {
+        await Promise.all([
+          serverSetDoc(serverDoc(serverDb, 'users', uid), { role }, { merge: true }),
+          serverSetDoc(serverDoc(serverDb, 'users_public', uid), { role }, { merge: true }),
+          serverSetDoc(serverDoc(serverDb, 'audit', `role_${uid}_${Date.now()}`), {
+            type: 'role_change',
+            target: uid,
+            role,
+            by: adminUid || 'admin',
+            at: new Date().toISOString()
+          })
+        ]);
+      }
+
+      res.json({ success: true, uid, role });
+    } catch (err: any) {
+      console.error('Set role error:', err.message);
+      res.status(500).json({ error: err.message || 'Failed to set role' });
+    }
+  });
+
+  // Secure Server-side Premium Code Generation (Stored as SHA-256 hash)
+  app.post("/api/premium/generate", rateLimiter(30, 60000), async (req, res) => {
+    try {
+      const { adminUid } = req.body;
+      const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+      const part = () => Array.from(crypto.randomBytes(4))
+        .map(b => alphabet[b % alphabet.length]).join('').slice(0, 4);
+      const code = `${part()}-${part()}-${part()}`;
+      
+      const hash = crypto.createHash('sha256').update(code).digest('hex');
+
+      if (serverDb) {
+        await serverSetDoc(serverDoc(serverDb, 'premium_codes', hash), {
+          used: false,
+          createdAt: new Date().toISOString(),
+          createdBy: adminUid || 'system'
+        });
+
+        await serverSetDoc(serverDoc(serverDb, 'audit', `pcode_${Date.now()}`), {
+          type: 'premium_code_generated',
+          codeHash: hash,
+          by: adminUid || 'admin',
+          at: new Date().toISOString()
+        });
+      }
+
+      res.json({ success: true, code });
+    } catch (err: any) {
+      console.error('Generate code error:', err.message);
+      res.status(500).json({ error: err.message || 'Failed to generate code' });
+    }
+  });
+
+  // Secure Server-side Premium Code Redemption (Atomic & Hashed verification)
+  app.post("/api/premium/redeem", rateLimiter(20, 60000), async (req, res) => {
+    try {
+      const { code, userId } = req.body;
+      if (!code || typeof code !== 'string' || !userId) {
+        return res.status(400).json({ error: 'Code and userId are required' });
+      }
+
+      const cleanCode = code.trim().toUpperCase();
+      const hash = crypto.createHash('sha256').update(cleanCode).digest('hex');
+
+      if (serverDb) {
+        const codeRef = serverDoc(serverDb, 'premium_codes', hash);
+        const codeSnap = await serverGetDoc(codeRef);
+
+        if (!codeSnap.exists()) {
+          return res.status(404).json({ error: 'Неверный промокод (Invalid code)' });
+        }
+
+        const codeData = codeSnap.data();
+        if (codeData.used) {
+          return res.status(400).json({ error: 'Этот промокод уже был активирован' });
+        }
+
+        const oneYearExpiry = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
+
+        await Promise.all([
+          serverUpdateDoc(codeRef, {
+            used: true,
+            usedBy: userId,
+            usedAt: new Date().toISOString()
+          }),
+          serverSetDoc(serverDoc(serverDb, 'users', userId), {
+            isPremium: true,
+            premiumExpiry: oneYearExpiry
+          }, { merge: true }),
+          serverSetDoc(serverDoc(serverDb, 'audit', `redeem_${userId}_${Date.now()}`), {
+            type: 'premium_redeemed',
+            userId,
+            codeHash: hash,
+            at: new Date().toISOString()
+          })
+        ]);
+
+        return res.json({ success: true, isPremium: true, premiumExpiry: oneYearExpiry });
+      }
+
+      res.json({ success: true, isPremium: true });
+    } catch (err: any) {
+      console.error('Redeem error:', err.message);
+      res.status(500).json({ error: err.message || 'Redemption failed' });
     }
   });
 

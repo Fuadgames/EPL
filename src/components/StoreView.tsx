@@ -31,7 +31,7 @@ export default function StoreView() {
   const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
   const simulatedRole = useStore(state => state.simulatedRole);
-  const actualRole = (user?.email === 'fufazada@gmail.com') ? 'admin' : userData?.role;
+  const actualRole = userData?.role || 'user';
   const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
   const isPremium = useStore(state => state.isPremium);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);

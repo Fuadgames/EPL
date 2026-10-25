@@ -44,7 +44,6 @@ export function parseJwt(token: string): any {
 // Ensure user profile in Firestore
 export async function syncGoogleUserToFirestore(profile: GoogleUserProfile) {
   const uid = profile.sub;
-  const isDevEmail = profile.email === 'fufazada@gmail.com';
   
   try {
     const userRef = doc(db, 'users', uid);
@@ -59,7 +58,7 @@ export async function syncGoogleUserToFirestore(profile: GoogleUserProfile) {
         avatarUrl: profile.picture || '',
         region: 'Global',
         friends: [],
-        role: isDevEmail ? 'developer' : 'user',
+        role: 'user',
         eplCoins: 0,
         purchasedItems: [],
         purchasedApps: [],
@@ -78,12 +77,7 @@ export async function syncGoogleUserToFirestore(profile: GoogleUserProfile) {
       });
       return userData;
     } else {
-      const data = snap.data();
-      if (isDevEmail && data.role !== 'developer') {
-        data.role = 'developer';
-        await setDoc(userRef, { role: 'developer' }, { merge: true });
-      }
-      return data;
+      return snap.data();
     }
   } catch (err) {
     console.warn("Could not sync directly to Firestore client-side, trying backend:", err);

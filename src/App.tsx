@@ -9,20 +9,41 @@ import { useAchievementEnforcer } from './hooks/useAchievementEnforcer';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import SuccessPage from './components/SuccessPage';
 
-// Lazy load components
-const StoreView = lazy(() => import('./components/StoreView'));
-const EditorView = lazy(() => import('./components/EditorView'));
-const MyAppsView = lazy(() => import('./components/MyAppsView'));
-const ProfileView = lazy(() => import('./components/ProfileView'));
-const PublicProfileView = lazy(() => import('./components/PublicProfileView'));
-const PlayerView = lazy(() => import('./components/PlayerView'));
-const SettingsView = lazy(() => import('./components/SettingsView'));
-const PremiumView = lazy(() => import('./components/PremiumView'));
-const ControlView = lazy(() => import('./components/ControlView'));
-const AssetStoreView = lazy(() => import('./components/AssetStoreView'));
-const DonatePage = lazy(() => import('./components/DonatePage'));
-const LeaderboardsView = lazy(() => import('./components/LeaderboardsView'));
-const InstalledAppsView = lazy(() => import('./components/InstalledAppsView'));
+// Safe lazy load with automatic retry for deployment updates or network hiccups
+function safeLazy<T extends React.ComponentType<any>>(factory: () => Promise<{ default: T }>) {
+  return lazy(async () => {
+    try {
+      return await factory();
+    } catch (err: any) {
+      console.warn('Initial chunk load failed, retrying once...', err);
+      try {
+        return await factory();
+      } catch (retryErr) {
+        console.error('Chunk retry failed:', retryErr);
+        const reloadKey = 'chunk_reload_' + window.location.pathname;
+        if (!sessionStorage.getItem(reloadKey)) {
+          sessionStorage.setItem(reloadKey, '1');
+          window.location.reload();
+        }
+        throw retryErr;
+      }
+    }
+  });
+}
+
+const StoreView = safeLazy(() => import('./components/StoreView'));
+const EditorView = safeLazy(() => import('./components/EditorView'));
+const MyAppsView = safeLazy(() => import('./components/MyAppsView'));
+const ProfileView = safeLazy(() => import('./components/ProfileView'));
+const PublicProfileView = safeLazy(() => import('./components/PublicProfileView'));
+const PlayerView = safeLazy(() => import('./components/PlayerView'));
+const SettingsView = safeLazy(() => import('./components/SettingsView'));
+const PremiumView = safeLazy(() => import('./components/PremiumView'));
+const ControlView = safeLazy(() => import('./components/ControlView'));
+const AssetStoreView = safeLazy(() => import('./components/AssetStoreView'));
+const DonatePage = safeLazy(() => import('./components/DonatePage'));
+const LeaderboardsView = safeLazy(() => import('./components/LeaderboardsView'));
+const InstalledAppsView = safeLazy(() => import('./components/InstalledAppsView'));
 
 function ViewRenderer() {
   const currentView = useStore(state => state.currentView);
@@ -30,8 +51,8 @@ function ViewRenderer() {
   const userData = useStore(state => state.userData);
   const simulatedRole = useStore(state => state.simulatedRole);
   
-  const actualRole = (user?.email === 'fufazada@gmail.com') ? 'admin' : userData?.role;
-  const effectiveRole = (actualRole === 'admin' && simulatedRole) ? simulatedRole : actualRole;
+  const actualRole = userData?.role || 'user';
+  const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
 
   switch (currentView) {
     case 'store': return <StoreView />;
@@ -72,7 +93,7 @@ export default function App() {
   const setPremiumExpiry = useStore(state => state.setPremiumExpiry);
 
   const simulatedRole = useStore(state => state.simulatedRole);
-  const actualRole = (user?.email === 'fufazada@gmail.com') ? 'developer' : userData?.role;
+  const actualRole = userData?.role || 'user';
   const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
 
   useEffect(() => {
@@ -101,7 +122,6 @@ export default function App() {
             // Document might not exist yet, create it
             console.log("User document missing, creating...");
             try {
-              const isDevEmail = fbUser.email === 'fufazada@gmail.com';
               await setDoc(doc(db, 'users', fbUser.uid), {
                 uid: fbUser.uid,
                 name: fbUser.displayName || 'User',
@@ -110,7 +130,7 @@ export default function App() {
                 avatarUrl: fbUser.photoURL || '',
                 region: 'Global',
                 friends: [],
-                role: isDevEmail ? 'developer' : 'user',
+                role: 'user',
                 eplCoins: 0,
                 purchasedItems: [],
                 purchasedApps: [],
@@ -130,17 +150,6 @@ export default function App() {
               console.error("Error creating user document in App.tsx", err);
             }
           } else {
-            // Force developer role for fufazada@gmail.com if not already set
-            const isDevEmail = fbUser.email === 'fufazada@gmail.com';
-            if (isDevEmail && data.role !== 'developer') {
-              try {
-                await updateDoc(doc(db, 'users', fbUser.uid), { role: 'developer' });
-                data.role = 'developer'; // Update local data object too
-              } catch (err) {
-                console.error("Error updating developer role for fufazada@gmail.com", err);
-              }
-            }
-            
             setUserData(data);
 
             // Restore user's installed apps from cloud if available

@@ -56,53 +56,30 @@ export default function PremiumView() {
   };
 
   const handleUnlock = async () => {
-    if (!code.trim()) return;
-
-    if (code === 'System.Unlock.Premium: Code XXXX-XXXX-XXXX') {
-      setIsPremium(true);
-      setPremiumExpiry(null);
-      setSuccess(true);
-      setError('');
-      if (user) {
-        try {
-          await updateDoc(doc(db, 'users', user.uid), { isPremium: true, premiumExpiry: null });
-        } catch (err) { console.error(err); }
-      }
+    if (!code.trim() || !user) {
+      setError(language === 'ru' ? 'Войдите в аккаунт для активации' : 'Please log in to redeem');
       return;
     }
 
     try {
-      const codeDoc = await getDoc(doc(db, 'premium_codes', code));
-      if (codeDoc.exists()) {
-        const data = codeDoc.data();
-        if (data.used) {
-          setError(language === 'ru' ? 'Этот код уже был использован' : 'This code has already been used');
-          return;
-        }
+      const res = await fetch('/api/premium/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code.trim(), userId: user.uid })
+      });
 
-        // Mark code as used
-        await updateDoc(doc(db, 'premium_codes', code), {
-          used: true,
-          usedBy: user?.uid || 'unknown',
-          usedAt: new Date().toISOString()
-        });
-
-        setIsPremium(true);
-        setPremiumExpiry(null);
-        setSuccess(true);
-        setError('');
-
-        if (user) {
-          await updateDoc(doc(db, 'users', user.uid), {
-            isPremium: true,
-            premiumExpiry: null
-          });
-        }
-      } else {
-        setError(t.invalidCode);
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || t.invalidCode);
         setSuccess(false);
+        return;
       }
-    } catch (err) {
+
+      setIsPremium(true);
+      setPremiumExpiry(data.premiumExpiry || null);
+      setSuccess(true);
+      setError('');
+    } catch (err: any) {
       console.error("Error unlocking premium", err);
       setError(language === 'ru' ? 'Ошибка при проверке кода' : 'Error checking code');
     }

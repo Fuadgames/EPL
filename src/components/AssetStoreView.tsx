@@ -29,7 +29,7 @@ export default function AssetStoreView() {
   const user = useStore(state => state.user);
   const language = useStore(state => state.language);
   const simulatedRole = useStore(state => state.simulatedRole);
-  const actualRole = (user?.email === 'fufazada@gmail.com') ? 'admin' : userData?.role;
+  const actualRole = userData?.role || 'user';
   const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const setIsFrutigerAero = useStore(state => state.setIsFrutigerAero);
@@ -126,11 +126,15 @@ export default function AssetStoreView() {
 
   const allAssets = [
     FRUTIGER_AERO_ASSET,
-    ...assets.filter(a => a.id !== 'frutiger-aero' && a.title.toLowerCase() !== 'frutiger aero')
+    ...assets.filter(a => a && a.id !== 'frutiger-aero' && (a.title ? a.title.toLowerCase() !== 'frutiger aero' : true))
   ];
 
   const filteredAssets = allAssets.filter(asset => {
-    const matchesSearch = asset.title.toLowerCase().includes(search.toLowerCase()) || asset.description.toLowerCase().includes(search.toLowerCase());
+    if (!asset) return false;
+    const title = (asset.title || '').toLowerCase();
+    const desc = (asset.description || '').toLowerCase();
+    const query = search.toLowerCase();
+    const matchesSearch = title.includes(query) || desc.includes(query);
     const matchesTab = activeTab === 'all' || asset.type === activeTab;
     
     if (activeSection === 'featured') {
@@ -139,12 +143,12 @@ export default function AssetStoreView() {
     if (activeSection === 'recent') {
       const oneWeekAgo = new Date();
       oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-      return matchesSearch && matchesTab && new Date(asset.createdAt) > oneWeekAgo;
+      return matchesSearch && matchesTab && new Date(asset.createdAt || 0) > oneWeekAgo;
     }
     
     return matchesSearch && matchesTab;
   }).sort((a, b) => {
-    if (activeSection === 'recent') return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    if (activeSection === 'recent') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
     if (activeSection === 'featured') return (b.visits || 0) - (a.visits || 0);
     return 0;
   });
@@ -238,16 +242,22 @@ export default function AssetStoreView() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredAssets.map(asset => {
-              const hasPurchased = userData?.purchasedItems?.includes(asset.id);
+              if (!asset) return null;
+              const assetId = asset.id || Math.random().toString();
+              const hasPurchased = userData?.purchasedItems?.includes(assetId);
               const isOutOfStock = asset.stock !== 'infinite' && (typeof asset.stock === 'string' ? parseInt(asset.stock) : asset.stock) <= 0;
+              const assetTitle = asset.title || (language === 'ru' ? 'Без названия' : 'Untitled Asset');
+              const assetDesc = asset.description || '';
+              const assetType = asset.type || 'style';
+              const assetPrice = typeof asset.price === 'number' ? asset.price : 0;
               
               return (
-                <div key={asset.id} className={clsx(
+                <div key={assetId} className={clsx(
                   "rounded-2xl border overflow-hidden flex flex-col transition-transform hover:scale-[1.02]",
                   isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.1)]" : theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
                 )}>
                   {asset.coverUrl ? (
-                    <img src={asset.coverUrl} alt={asset.title} className="w-full h-48 object-cover" referrerPolicy="no-referrer" />
+                    <img src={asset.coverUrl} alt={assetTitle} className="w-full h-48 object-cover" referrerPolicy="no-referrer" />
                   ) : (
                     <div className={clsx("w-full h-48 flex items-center justify-center", isFrutigerAero ? "bg-gradient-to-br from-blue-200 to-cyan-200" : theme !== 'light' ? "bg-zinc-800" : "bg-zinc-100")}>
                       <Package className="w-12 h-12 opacity-20" />
@@ -255,20 +265,20 @@ export default function AssetStoreView() {
                   )}
                   <div className="p-5 flex-1 flex flex-col">
                     <div className="flex justify-between items-start mb-2">
-                      <h3 className={clsx("font-bold text-lg line-clamp-1", isFrutigerAero ? "text-blue-900" : "")}>{asset.title}</h3>
+                      <h3 className={clsx("font-bold text-lg line-clamp-1", isFrutigerAero ? "text-blue-900" : "")}>{assetTitle}</h3>
                       <span className={clsx("text-xs px-2 py-1 rounded-md capitalize font-medium", isFrutigerAero ? "bg-blue-100 text-blue-700" : theme !== 'light' ? "bg-zinc-800 text-zinc-300" : "bg-zinc-100 text-zinc-600")}>
-                        {asset.type}
+                        {assetType}
                       </span>
                     </div>
-                    <p className={clsx("text-sm mb-4 line-clamp-2 flex-1", isFrutigerAero ? "text-blue-700/80" : "text-zinc-500")}>{asset.description}</p>
+                    <p className={clsx("text-sm mb-4 line-clamp-2 flex-1", isFrutigerAero ? "text-blue-700/80" : "text-zinc-500")}>{assetDesc}</p>
                     
                     <div className="flex items-center justify-between mt-auto pt-4 border-t border-zinc-500/20">
                       <div className="flex flex-col">
                         <span className={clsx("font-bold flex items-center gap-1", isFrutigerAero ? "text-blue-600" : "text-emerald-500")}>
-                          <Coins className="w-4 h-4" /> {effectiveRole === 'admin' ? 0 : asset.price}
+                          <Coins className="w-4 h-4" /> {effectiveRole === 'admin' ? 0 : assetPrice}
                         </span>
                         <span className="text-xs text-zinc-500">
-                          {asset.visits || 0} {language === 'ru' ? 'визитов' : 'visits'} • {asset.stock === 'infinite' ? 'Infinite stock' : `${asset.stock} left`}
+                          {asset.visits || 0} {language === 'ru' ? 'визитов' : 'visits'} • {asset.stock === 'infinite' ? 'Infinite stock' : `${asset.stock ?? 0} left`}
                         </span>
                       </div>
                       
@@ -283,11 +293,11 @@ export default function AssetStoreView() {
                       ) : (
                         <button
                           onClick={() => handlePurchase(asset)}
-                          disabled={purchasing === asset.id || (userData?.eplCoins || 0) < asset.price}
+                          disabled={purchasing === asset.id || (userData?.eplCoins || 0) < assetPrice}
                           className={clsx(
                             "px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2",
                             purchasing === asset.id ? "opacity-50 cursor-not-allowed" : "",
-                            (userData?.eplCoins || 0) < asset.price ? "opacity-50 cursor-not-allowed bg-zinc-500 text-white" : isFrutigerAero ? "bg-blue-500 hover:bg-blue-600 text-white shadow-md" : "bg-emerald-500 hover:bg-emerald-600 text-white"
+                            (userData?.eplCoins || 0) < assetPrice ? "opacity-50 cursor-not-allowed bg-zinc-500 text-white" : isFrutigerAero ? "bg-blue-500 hover:bg-blue-600 text-white shadow-md" : "bg-emerald-500 hover:bg-emerald-600 text-white"
                           )}
                         >
                           {purchasing === asset.id ? 'Purchasing...' : 'Purchase'}

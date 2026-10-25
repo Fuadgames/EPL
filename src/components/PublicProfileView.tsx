@@ -20,7 +20,7 @@ export default function PublicProfileView() {
   const userData = useStore(state => state.userData);
   const language = useStore(state => state.language);
   const simulatedRole = useStore(state => state.simulatedRole);
-  const isStaff = user?.email === 'fufazada@gmail.com' || userData?.role === 'developer' || userData?.role === 'admin' || userData?.role === 'moderator' || simulatedRole === 'developer' || simulatedRole === 'admin' || simulatedRole === 'moderator';
+  const isStaff = userData?.role === 'developer' || userData?.role === 'admin' || userData?.role === 'moderator' || simulatedRole === 'developer' || simulatedRole === 'admin' || simulatedRole === 'moderator';
 
   const [profileData, setProfileData] = useState<any>(null);
   const [profileApps, setProfileApps] = useState<AppData[]>([]);

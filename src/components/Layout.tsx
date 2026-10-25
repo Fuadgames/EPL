@@ -38,7 +38,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   };
 
   const simulatedRole = useStore(state => state.simulatedRole);
-  const actualRole = (user?.email === 'fufazada@gmail.com') ? 'developer' : userData?.role;
+  const actualRole = userData?.role || 'user';
   const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
 
   useEffect(() => {
@@ -70,7 +70,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   ] as const;
 
   const filteredNavItems = navItems.filter(item => {
-    if (user?.email === 'fufazada@gmail.com') return true;
+    if (actualRole === 'developer' || actualRole === 'admin') return true;
     if ('permission' in item && userData?.permissions) {
       const permKey = item.permission as keyof typeof userData.permissions;
       return userData.permissions[permKey] !== false;

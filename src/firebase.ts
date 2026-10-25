@@ -7,6 +7,7 @@ import {
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
   sendPasswordResetEmail,
+  sendEmailVerification,
   updateProfile,
   signOut,
   connectAuthEmulator
@@ -45,7 +46,7 @@ export const signInWithApple = async () => {
         name: user.displayName || 'User',
         email: user.email,
         photoUrl: user.photoURL,
-        role: user.email === 'fufazada@gmail.com' ? 'developer' : 'user',
+        role: 'user',
         eplCoins: 0,
         purchasedItems: [],
         createdAt: new Date().toISOString()
@@ -75,12 +76,21 @@ export const signUpWithEmail = async (email: string, password: string, name: str
     if (user) {
       await updateProfile(user, { displayName: name });
       
-      // Create user document in Firestore
+      // Send verification email to enforce F-03
+      try {
+        await sendEmailVerification(user);
+      } catch (emailErr) {
+        console.warn("Could not send email verification immediately:", emailErr);
+      }
+      
+      // Create user document with baseline 'user' role only
       await setDoc(doc(db, 'users', user.uid), {
         uid: user.uid,
         name: name,
         email: user.email,
-        role: user.email === 'fufazada@gmail.com' ? 'admin' : 'user',
+        role: 'user',
+        isPremium: false,
+        premiumExpiry: null,
         eplCoins: 0,
         purchasedItems: [],
         createdAt: new Date().toISOString()
@@ -104,10 +114,15 @@ export const resetPassword = async (email: string) => {
 
 export const giveCoins = async (userId: string, amount: number) => {
   try {
-    const userRef = doc(db, 'users', userId);
-    await updateDoc(userRef, {
-      eplCoins: increment(amount)
+    const res = await fetch('/api/admin/give-coins', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uid: userId, amount, adminUid: auth.currentUser?.uid })
     });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Failed to update coins');
+    }
     return { error: null };
   } catch (error: any) {
     return { error };
@@ -128,10 +143,19 @@ export const sendProjectToVerify = async (projectId: string) => {
 
 export const verifyProject = async (projectId: string) => {
   try {
-    const appRef = doc(db, 'apps', projectId);
-    await updateDoc(appRef, {
-      status: 'verified'
+    const res = await fetch('/api/admin/manual-review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        appId: projectId,
+        action: 'approve',
+        reviewerName: auth.currentUser?.displayName || 'Admin'
+      })
     });
+    if (!res.ok) {
+      const data = await res.json();
+      throw new Error(data.error || 'Failed to verify project');
+    }
     return { error: null };
   } catch (error: any) {
     return { error };

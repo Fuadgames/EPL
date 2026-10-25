@@ -1,0 +1,566 @@
+========================================================================
+EPL STUDIO — SECURITY AUDIT & REMEDIATION PROMPT
+Для Gemini: прочитай целиком, затем выдай исправления по чек-листу в конце.
+========================================================================
+
+РОЛЬ
+----
+Ты — senior application security engineer и Firebase-архитектор.
+Ниже — результаты реального пентеста веб-приложения EPL Studio.
+Твоя задача: выдать ПОЛНЫЙ набор исправлений (код + правила + конфиг),
+который закрывает все перечисленные уязвимости. Не пересказывай отчёт,
+не спрашивай уточнений — сразу пиши патчи.
+
+Формат ответа:
+1. Полный файл firestore.rules (готовый к деплою).
+2. Полный файл storage.rules.
+3. Код Cloud Functions (Node.js, 2nd gen) для всех привилегированных операций.
+4. Diff/патчи для клиентского кода (React + Vite), с указанием, что удалить.
+5. Чек-лист деплоя и проверки (по пунктам, с командами).
+6. Таблица «находка → исправление → как проверить, что закрыто».
+
+========================================================================
+1. АРХИТЕКТУРА (что есть на самом деле)
+========================================================================
+
+- Frontend: React 18 + Vite, SPA, Zustand-стор, react-router.
+- Хостинг: Vercel (статика). Серверных функций НЕТ — все /api/* отдают 404.
+- Backend: Firebase Auth (email/password + Google + Apple) и Firestore.
+- Firestore: НЕ дефолтная база, а именованная:
+    projectId          = gen-lang-client-0943849163
+    firestoreDatabaseId= ai-studio-e0504810-935c-4426-8715-7af3662cba24
+    authDomain         = gen-lang-client-0943849163.firebaseapp.com
+    storageBucket      = gen-lang-client-0943849163.firebasestorage.app
+- Firebase web-конфиг (apiKey, appId, projectId, databaseId) лежит в
+  клиентском бандле. Для Firebase это нормально, НО только при условии,
+  что правила Firestore/Storage корректны. Сейчас они не корректны.
+
+Коллекции Firestore, используемые приложением:
+  users/{uid}          — профиль: role, isPremium, premiumExpiry, eplCoins,
+                         permissions, isBanned, installedApps, friends...
+  users_public/{uid}   — публичная копия профиля (имя, аватар, регион, коины)
+  apps/{id}            — приложения пользователей (код, статус, автор)
+  assets/{id}          — ассеты
+  premium_codes/{code} — коды активации премиума (открытым текстом)
+  adminRequests/{id}   — заявки на права
+
+Ключевые клиентские функции (минифицированы, ищи по именам):
+  signInWithGoogle, signInWithApple, signInWithEmail, signUpWithEmail,
+  subscribeToUserData, giveCoins, sendProjectToVerify, verifyProject,
+  logOut  — модуль firebase (в бандле ~объект J$).
+  Стор: zustand, поля user, userData, isPremium, premiumExpiry,
+  premiumCode, simulatedRole, isBackdoor, role.
+  ControlView (z$) — админ-панель: смена ролей, выдача коинов, бан,
+  генерация премиум-кодов.
+  Компонент P$ — страница «Successfully Purchased», читает
+  /api/verify-session?session_id=...&user_id=... и берёт оттуда premiumCode.
+
+========================================================================
+2. НАЙДЕННЫЕ УЯЗВИМОСТИ
+========================================================================
+
+------------------------------------------------------------------------
+F-01 [CRITICAL] Privilege escalation через запись в собственный документ
+------------------------------------------------------------------------
+Правила Firestore разрешают аутентифицированному пользователю писать в
+users/{свой uid}, но НЕ валидируют, какие поля он меняет. Роль хранится
+в том же документе, поэтому пользователь сам себе выставляет role:"admin",
+isPremium:true, premiumExpiry:"2100-01-01", eplCoins:999999.
+
+Доказательство (реальные ответы API):
+  PATCH /v1/projects/{p}/databases/{db}/documents/users/{uid}
+  Authorization: Bearer <idToken обычного пользователя>
+  body: {fields:{role:{stringValue:"admin"},
+                 isPremium:{booleanValue:true},
+                 premiumExpiry:{stringValue:"2100-01-01T00:00:00.000Z"},
+                 eplCoins:{integerValue:"999999"}}}
+  -> 200 OK, поля записались.
+
+Причина: в правилах нет ни
+  request.resource.data.role == resource.data.role,
+ни белого списка изменяемых полей.
+
+------------------------------------------------------------------------
+F-02 [CRITICAL] Самоссылающаяся проверка прав (isAdmin читает свой же док)
+------------------------------------------------------------------------
+Права администратора определяются так:
+  get(/databases/$(db)/documents/users/$(request.auth.uid)).data.role
+Но это поле контролирует сам пользователь (см. F-01). Итог: подняв себе
+role, пользователь немедленно получает права по правилам на всю базу.
+
+Доказательство: после записи role:"admin" в свой документ обычный
+пользователь прочитал и изменил документ другого пользователя -> 200 OK.
+runQuery по коллекции users вернул все 27 документов (email, роли, коины).
+
+------------------------------------------------------------------------
+F-03 [HIGH] Открытая регистрация без подтверждения почты
+------------------------------------------------------------------------
+accounts:signUp принимает любой email/пароль, emailVerified=false,
+без капчи, без подтверждения, без ограничения частоты. Любой человек
+за один запрос получает аутентифицированный аккаунт и, вместе с F-01,
+полный админ. Аккаунт создаётся даже на несуществующий ящик.
+
+Доказательство:
+  POST https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=...
+  {"email":"...","password":"...","returnSecureToken":true}
+  -> 200, idToken, localId.
+
+------------------------------------------------------------------------
+F-04 [HIGH] Захардкоженный email администратора в клиенте
+------------------------------------------------------------------------
+В бандле: role = (user.email === "fufazada@gmail.com") ? "admin" : userData.role
+и аналогично "developer". Проверка на клиенте: её нельзя ни отозвать,
+ни отличить от настоящей, и она переживает любые изменения в базе.
+Смена владельца/увольнение разработчика = вечный доступ.
+
+------------------------------------------------------------------------
+F-05 [HIGH] Скрытый флаг isBackdoor в клиентском сторе
+------------------------------------------------------------------------
+В Zustand-сторе есть поле isBackdoor:false и setIsBackdoor. Сейчас нигде
+не выставляется в true, но шиппится в прод-бандл вместе с UI-логикой.
+Любой, кто прочитает бандл, найдёт флаг и подключит его сам (через
+React DevTools / патч бандла). Это готовая задняя дверь «на будущее».
+
+------------------------------------------------------------------------
+F-06 [MEDIUM] Клиентская проверка срока премиума
+------------------------------------------------------------------------
+  useEffect: if (isPremium && premiumExpiry && new Date(premiumExpiry) < new Date())
+               { setIsPremium(false); setPremiumExpiry(null); }
+Проверка живёт в браузере. Пользователь правит стор или часы — премиум
+не истекает. Никакой серверной валидации подписки нет.
+
+------------------------------------------------------------------------
+F-07 [HIGH] Премиум-коды: генерация на клиенте, хранение открытым текстом
+------------------------------------------------------------------------
+Генерация в ControlView:
+  const e = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const r = `${s()}-${s()}-${s()}`  // 12 символов, 36^12 вариантов
+Коды пишутся в premium_codes/{code} как {code, used, createdAt, createdBy}.
+Любой пользователь, получивший доступ к чтению коллекции (см. F-02),
+видит все коды в открытом виде. Плюс сами коды — единственный секрет:
+утечка коллекции = массовая активация премиума.
+
+Доказательство: выгрузка коллекции вернула 23 кода, из них 8 неиспользованных.
+
+------------------------------------------------------------------------
+F-08 [HIGH] /api/verify-session — IDOR по дизайну (если будет задеплоен)
+------------------------------------------------------------------------
+Клиент:
+  fetch(`/api/verify-session?session_id=${s}&user_id=${o}`).json()
+  -> d.premiumCode && setPremiumCode(d.premiumCode)
+Ни подписи, ни проверки владельца сессии, ни авторизации. Сейчас эндпоинт
+отдаёт 404 (не задеплоен), но код уже написан так, что при подключении
+оплаты любой сможет подставить чужой session_id и получить чужой код.
+Тот же паттерн в /api/build и /api/build/{id}/status — эндпоинты описаны,
+но отсутствуют на сервере, то есть билд-пайплайн не защищён вообще.
+
+------------------------------------------------------------------------
+F-09 [MEDIUM] Отсутствие Firebase App Check
+------------------------------------------------------------------------
+apiKey из бандла можно использовать с любого домена/скрипта: регистрация,
+перебор, вызовы Firestore в обход приложения. App Check не настроен,
+ограничений по HTTP-referrer для ключа нет.
+
+------------------------------------------------------------------------
+F-10 [MEDIUM] Отсутствие серверных инвариантов для коинов и покупок
+------------------------------------------------------------------------
+giveCoins, verifyProject, sendProjectToVerify — прямые клиентские записи
+в Firestore. Баланс eplCoins и статус приложения меняются с клиента.
+Валидации «кто и на сколько может изменить» нет.
+
+------------------------------------------------------------------------
+F-11 [LOW/MEDIUM] PII в открытой коллекции
+------------------------------------------------------------------------
+users/{uid} хранит email открытым текстом, коллекция читается любым
+админом (а админом становится любой, см. F-01). users_public дублирует
+профиль. Нет разделения «приватное/публичное» на уровне правил.
+
+------------------------------------------------------------------------
+F-12 [LOW] Отсутствие лимитов и аудита
+------------------------------------------------------------------------
+Нет rate limiting на регистрацию и на генерацию кодов, нет audit log
+на изменения ролей/коинов, нет уведомлений владельцу о смене роли.
+
+========================================================================
+3. ЧТО ДОЛЖНО БЫТЬ ПОСЛЕ ИСПРАВЛЕНИЯ (целевая модель)
+========================================================================
+
+1. Роль, премиум, срок подписки и коины НЕ МОГУТ меняться клиентом.
+   Источник истины — только Cloud Function / Admin SDK.
+2. Права администратора определяются custom claims в Firebase Auth
+   (request.auth.token.admin === true), а не полем в Firestore.
+   Custom claims ставит только сервер.
+3. Клиент может писать в users/{uid} только безопасные поля
+   (name, avatarUrl, region, настройки UI). Всё остальное — запрещено.
+4. Премиум-коды: генерирует сервер, хранит ХЕШ кода (SHA-256 + соль),
+   активирует сервер, в базе нет открытого текста.
+5. App Check (reCAPTCHA Enterprise) включён и обязателен для Firestore,
+   Storage и Functions.
+6. Email verification обязательна перед любыми записями в базу.
+7. Захардкоженный email и флаги isBackdoor/simulatedRole удалены из
+   прод-бандла полностью.
+8. /api/* заменены на Cloud Functions с проверкой Auth + App Check +
+   идемпотентности; verify-session подписывается HMAC и проверяет
+   владельца сессии.
+9. Storage rules: запись только в свою папку, лимит размера и MIME.
+
+========================================================================
+4. ГОТОВЫЕ ПАТЧИ
+========================================================================
+
+---------------- 4.1 firestore.rules (залить как есть) ----------------
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn()  { return request.auth != null; }
+    function verified()  { return signedIn() && request.auth.token.email_verified == true; }
+    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
+    function isAdmin()   { return signedIn() && request.auth.token.admin == true; }
+
+    // ---------- users ----------
+    match /users/{userId} {
+      allow get:    if isSelf(userId) || isAdmin();
+      allow list:   if isAdmin();
+
+      // создать можно только себя и только «пустого» пользователя
+      allow create: if isSelf(userId)
+                    && request.resource.data.uid == userId
+                    && request.resource.data.role == 'user'
+                    && request.resource.data.isPremium == false
+                    && request.resource.data.eplCoins == 0
+                    && request.resource.data.get('premiumExpiry', null) == null
+                    && request.resource.data.get('permissions', []) == []
+                    && request.resource.data.get('isBanned', false) == false;
+
+      // обновление: себе — только безопасные поля, админу — всё
+      allow update: if isAdmin()
+                    || (isSelf(userId) && verified()
+                        && request.resource.data.role           == resource.data.role
+                        && request.resource.data.isPremium      == resource.data.isPremium
+                        && request.resource.data.premiumExpiry  == resource.data.premiumExpiry
+                        && request.resource.data.eplCoins       == resource.data.eplCoins
+                        && request.resource.data.permissions    == resource.data.permissions
+                        && request.resource.data.isBanned       == resource.data.isBanned
+                        && request.resource.data.uid            == resource.data.uid);
+
+      allow delete: if isAdmin();
+    }
+
+    // ---------- users_public ----------
+    match /users_public/{userId} {
+      allow get:  if signedIn();
+      allow list: if signedIn();
+      allow create, update: if isAdmin()
+        || (isSelf(userId) && verified()
+            && request.resource.data.uid == userId
+            && request.resource.data.eplCoins == resource.data.get('eplCoins', 0));
+      allow delete: if isAdmin();
+    }
+
+    // ---------- apps ----------
+    match /apps/{appId} {
+      allow get, list: if signedIn();
+      allow create: if verified()
+                    && request.resource.data.authorId == request.auth.uid
+                    && request.resource.data.status == 'pending';
+      allow update: if isAdmin()
+        || (verified()
+            && resource.data.authorId == request.auth.uid
+            && request.resource.data.status == resource.data.status
+            && request.resource.data.authorId == resource.data.authorId);
+      allow delete: if isAdmin()
+        || (verified() && resource.data.authorId == request.auth.uid);
+    }
+
+    // ---------- assets ----------
+    match /assets/{assetId} {
+      allow get, list: if signedIn();
+      allow create: if verified() && request.resource.data.authorId == request.auth.uid;
+      allow update, delete: if isAdmin()
+        || (verified() && resource.data.authorId == request.auth.uid);
+    }
+
+    // ---------- premium_codes: клиенту закрыто полностью ----------
+    match /premium_codes/{codeId} {
+      allow read, write: if false;   // только Admin SDK
+    }
+
+    // ---------- adminRequests ----------
+    match /adminRequests/{reqId} {
+      allow create: if verified()
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.status == 'pending';
+      allow read, update, delete: if isAdmin();
+    }
+
+    // всё остальное — запрещено
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
+
+---------------- 4.2 storage.rules ----------------
+
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function isAdmin()  { return signedIn() && request.auth.token.admin == true; }
+
+    match /users/{userId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin()
+        || (signedIn() && request.auth.uid == userId
+            && request.resource.size < 5 * 1024 * 1024
+            && request.resource.contentType.matches('image/.*'));
+    }
+    match /apps/{appId}/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin()
+        || (signedIn()
+            && request.resource.size < 20 * 1024 * 1024
+            && request.resource.contentType.matches('image/.*|application/zip'));
+    }
+    match /{allPaths=**} { allow read, write: if false; }
+  }
+}
+
+---------------- 4.3 Cloud Functions (Node.js, 2nd gen) ----------------
+
+// functions/index.js
+const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { initializeApp } = require('firebase-admin/app');
+const { getFirestore, FieldValue } = require('firebase-admin/firestore');
+const { getAuth } = require('firebase-admin/auth');
+const crypto = require('crypto');
+
+initializeApp();
+const db = getFirestore();
+const auth = getAuth();
+
+const guard = (req, needAdmin = false) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', 'auth required');
+  if (!req.auth.token.email_verified) throw new HttpsError('permission-denied', 'verify email');
+  if (needAdmin && req.auth.token.admin !== true) throw new HttpsError('permission-denied', 'admin only');
+  return req.auth;
+};
+
+// --- выдать/снять админа (только владелец через консоль или уже админ)
+exports.setRole = onCall(async (req) => {
+  const me = guard(req, true);
+  const { uid, role } = req.data || {};
+  if (!['user', 'moderator', 'admin'].includes(role)) throw new HttpsError('invalid-argument', 'bad role');
+  await auth.setCustomUserClaims(uid, { admin: role === 'admin', moderator: role === 'moderator' });
+  await db.doc(`users/${uid}`).update({ role });
+  await db.collection('audit').add({
+    type: 'role_change', by: me.uid, target: uid, role, at: FieldValue.serverTimestamp(),
+  });
+  return { ok: true };
+});
+
+// --- коины: только сервер, с проверкой баланса
+exports.giveCoins = onCall(async (req) => {
+  const me = guard(req, true);
+  const { uid, amount } = req.data || {};
+  if (!Number.isInteger(amount) || Math.abs(amount) > 1e6) throw new HttpsError('invalid-argument', 'bad amount');
+  await db.runTransaction(async (tx) => {
+    const ref = db.doc(`users/${uid}`);
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new HttpsError('not-found', 'user');
+    const next = Math.max(0, (snap.data().eplCoins || 0) + amount);
+    tx.update(ref, { eplCoins: next });
+    tx.set(db.collection('audit').doc(), {
+      type: 'coins', by: me.uid, target: uid, amount, at: FieldValue.serverTimestamp(),
+    });
+  });
+  return { ok: true };
+});
+
+// --- генерация премиум-кода: сервер, хеш вместо открытого текста
+exports.generatePremiumCode = onCall(async (req) => {
+  const me = guard(req, true);
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const part = () => Array.from(crypto.randomBytes(4))
+    .map(b => alphabet[b % alphabet.length]).join('').slice(0, 4);
+  const code = `${part()}-${part()}-${part()}`;
+  const hash = crypto.createHash('sha256').update(code).digest('hex');
+  await db.doc(`premium_codes/${hash}`).set({
+    used: false, createdAt: FieldValue.serverTimestamp(), createdBy: me.uid,
+  });
+  return { code }; // показывается один раз, в базе только хеш
+});
+
+// --- активация кода: сервер, атомарно, с проверкой «не использован»
+exports.redeemPremiumCode = onCall(async (req) => {
+  const me = guard(req);
+  const code = String(req.data?.code || '').trim().toUpperCase();
+  const hash = crypto.createHash('sha256').update(code).digest('hex');
+  const ref = db.doc(`premium_codes/${hash}`);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) throw new HttpsError('not-found', 'invalid code');
+    if (snap.data().used) throw new HttpsError('already-exists', 'code used');
+    const until = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
+    tx.update(ref, { used: true, usedBy: me.uid, usedAt: FieldValue.serverTimestamp() });
+    tx.update(db.doc(`users/${me.uid}`), { isPremium: true, premiumExpiry: until });
+    tx.set(db.collection('audit').doc(), {
+      type: 'premium_redeem', by: me.uid, at: FieldValue.serverTimestamp(),
+    });
+  });
+  return { ok: true };
+});
+
+// --- проверка сессии оплаты: HMAC-подпись вместо голого session_id
+exports.verifySession = onCall(async (req) => {
+  const me = guard(req);
+  const { sessionId, signature } = req.data || {};
+  const expected = crypto.createHmac('sha256', process.env.SESSION_SECRET)
+    .update(`${me.uid}:${sessionId}`).digest('hex');
+  if (!crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(String(signature || '').padEnd(expected.length).slice(0, expected.length)))) {
+    throw new HttpsError('permission-denied', 'bad signature');
+  }
+  const snap = await db.doc(`sessions/${sessionId}`).get();
+  if (!snap.exists || snap.data().uid !== me.uid) throw new HttpsError('not-found', 'session');
+  return { premiumCode: snap.data().premiumCode, status: snap.data().status };
+});
+
+// --- первичная инициализация профиля: сервер сам ставит role
+exports.onUserCreate = require('firebase-functions/v2/identity').beforeUserCreated(async (event) => {
+  const u = event.data;
+  await db.doc(`users/${u.uid}`).set({
+    uid: u.uid, email: u.email || '', name: u.displayName || 'User',
+    role: 'user', isPremium: false, premiumExpiry: null, eplCoins: 0,
+    permissions: [], isBanned: false, createdAt: FieldValue.serverTimestamp(),
+  }, { merge: true });
+});
+
+---------------- 4.4 Клиентские правки (что вырезать и чем заменить) ----------------
+
+1. УДАЛИТЬ из бандла любые сравнения email с администраторским:
+   было:  role = (user.email === "<owner>@gmail.com") ? "admin" : userData.role
+   стало: role = userData?.role ?? 'user'      // истина только из базы/клеймов
+   Права в UI брать из ID-token claims:
+     const t = await user.getIdTokenResult(true);
+     const isAdmin = t.claims.admin === true;
+
+2. УДАЛИТЬ из стора поля isBackdoor / setIsBackdoor и весь код,
+   который их читает. Проверить, что в прод-бандле нет строк
+   "backdoor", "simulatedRole", "developerMode".
+
+3. УДАЛИТЬ клиентскую генерацию премиум-кодов (Math.random + запись в
+   premium_codes). Заменить на вызов функции generatePremiumCode.
+
+4. УДАЛИТЬ клиентскую проверку срока премиума как источника истины.
+   Оставить только отображение; продление — через redeemPremiumCode
+   и/или Cloud Function по вебхуку платёжки.
+
+5. Заменить прямые записи:
+     giveCoins            -> httpsCallable('giveCoins')
+     verifyProject        -> httpsCallable('verifyProject')
+     sendProjectToVerify  -> httpsCallable('sendProjectToVerify')
+     verify-session fetch -> httpsCallable('verifySession')
+
+6. Включить App Check на клиенте:
+     initializeAppCheck(app, {
+       provider: new ReCaptchaEnterpriseProvider(SITE_KEY),
+       isTokenAutoRefreshEnabled: true,
+     });
+
+7. Включить обязательную верификацию email перед записью:
+   после signUp — sendEmailVerification(user); в UI блокировать
+   привилегированные действия, пока emailVerified === false.
+
+8. Убрать из публичного профиля email и всё, что не нужно другим
+   пользователям. email оставить только в users/{uid} (приватно).
+
+========================================================================
+5. ЧЕК-ЛИСТ ДЕПЛОЯ (по шагам)
+========================================================================
+
+[ ] 1. Задеплоить firestore.rules и storage.rules:
+        firebase deploy --only firestore:rules,storage:rules
+[ ] 2. Задеплоить функции:
+        firebase deploy --only functions
+[ ] 3. Включить App Check (reCAPTCHA Enterprise) для Firestore, Storage,
+        Functions; режим «Enforced», не «Monitoring».
+[ ] 4. В Firebase Auth включить обязательную верификацию email
+        (Authentication -> Settings -> Email verification: required).
+[ ] 5. Владельцу вручную выставить клейм:
+        admin.auth().setCustomUserClaims('<uid владельца>', { admin: true })
+        (через консоль/скрипт с сервисным аккаунтом, не с клиента).
+[ ] 6. Удалить из базы открытые премиум-коды:
+        все документы premium_codes с полем code (открытый текст) удалить
+        и перевыпустить через generatePremiumCode.
+[ ] 7. Ротировать/проверить apiKey: в Google Cloud Console ограничить
+        ключ по HTTP-referrer (домен продакшена) и по API
+        (Identity Toolkit, Firestore, Storage).
+[ ] 8. Проверить, что в прод-бандле нет строк:
+        grep -R "backdoor\|simulatedRole\|<owner>@gmail.com" dist/
+[ ] 9. Включить audit log (коллекция audit) и алерт на событие
+        role_change.
+[ ] 10. Прогнать регресс-тест (см. раздел 6).
+
+========================================================================
+6. КАК ПРОВЕРИТЬ, ЧТО ЗАКРЫТО (регресс-тест)
+========================================================================
+
+Тест 1 — self-escalation (должен падать):
+  PATCH .../documents/users/{свой uid}
+  Authorization: Bearer <idToken обычного юзера>
+  {"fields":{"role":{"stringValue":"admin"}}}
+  ОЖИДАНИЕ: 403 PERMISSION_DENIED.
+
+Тест 2 — самопремиум (должен падать):
+  тот же PATCH с isPremium:true / premiumExpiry:"2100-01-01"
+  ОЖИДАНИЕ: 403.
+
+Тест 3 — чтение чужого профиля (должен падать):
+  GET .../documents/users/{чужой uid} под обычным юзером
+  ОЖИДАНИЕ: 403.
+
+Тест 4 — список пользователей (должен падать):
+  POST ...:runQuery {"structuredQuery":{"from":[{"collectionId":"users"}]}}
+  под обычным юзером
+  ОЖИДАНИЕ: 403.
+
+Тест 5 — чтение premium_codes (должен падать всегда):
+  GET .../documents/premium_codes
+  ОЖИДАНИЕ: 403 для всех, кроме Admin SDK.
+
+Тест 6 — регистрация без верификации:
+  signUp -> попытка записи в users/{uid}
+  ОЖИДАНИЕ: 403, пока emailVerified === false.
+
+Тест 7 — вызов функции без App Check:
+  httpsCallable без App Check токена
+  ОЖИДАНИЕ: отклонено.
+
+Тест 8 — verifySession с чужим session_id:
+  ОЖИДАНИЕ: permission-denied (подпись не сходится).
+
+Все восемь тестов должны возвращать отказ. Если хоть один проходит —
+правила задеплоены не полностью.
+
+========================================================================
+7. ЧЕГО ДЕЛАТЬ НЕЛЬЗЯ (анти-паттерны, которые и привели к дырам)
+========================================================================
+
+- Нельзя хранить признак привилегии в документе, который пользователь
+  может редактировать сам.
+- Нельзя строить проверку прав на клиенте (email, localStorage, стор).
+- Нельзя доверять полю role из Firestore при выдаче прав в правилах,
+  если это же поле доступно на запись пользователю.
+- Нельзя генерировать секреты (коды, токены) на клиенте.
+- Нельзя хранить одноразовые коды открытым текстом.
+- Нельзя оставлять в прод-бандле флаги вида isBackdoor / simulatedRole.
+- Нельзя оставлять /api/* без Auth + App Check + проверки владельца.
+- Нельзя полагаться на то, что «эндпоинт не задеплоен»: код уже в
+  бандле, и его достаточно подключить.
+
+========================================================================
+КОНЕЦ ПРОМПТА. Начинай с firestore.rules, затем функции, затем клиент.
+========================================================================

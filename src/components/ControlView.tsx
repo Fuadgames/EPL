@@ -27,7 +27,7 @@ export default function ControlView() {
   const [adminRequests, setAdminRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const user = useStore(state => state.user);
-  const actualRole = (user?.email === 'fufazada@gmail.com') ? 'developer' : userData?.role;
+  const actualRole = userData?.role || 'user';
   const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
   const isDeveloper = (actualRole === 'developer' || effectiveRole === 'developer');
 
@@ -100,14 +100,6 @@ export default function ControlView() {
       console.error("Error fetching assets", error);
     });
 
-    // Subscribe to premium codes
-    const codesUnsubscribe = onSnapshot(collection(db, 'premium_codes'), (snapshot) => {
-      const codesData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setPremiumCodes(codesData);
-    }, (error) => {
-      console.error("Error fetching premium codes:", error);
-    });
-    
     // Subscribe to admin requests
     const requestsUnsubscribe = onSnapshot(collection(db, 'adminRequests'), (snapshot) => {
       const reqsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -132,7 +124,6 @@ export default function ControlView() {
       appsUnsubscribe();
       usersUnsubscribe();
       assetsUnsubscribe();
-      codesUnsubscribe();
       requestsUnsubscribe();
     };
   }, []);
@@ -391,11 +382,19 @@ export default function ControlView() {
       return;
     }
     try {
-      await updateDoc(doc(db, 'users', userId), { role });
+      const res = await fetch('/api/admin/set-role', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: userId, role, adminUid: userData?.uid })
+      });
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || 'Failed to update role');
+      }
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, role } : u));
       showToast(language === 'ru' ? 'Роль пользователя обновлена' : 'User role updated', 'success');
     } catch (error: any) {
       showToast(error.message, 'error');
-      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
     }
   };
 
@@ -530,42 +529,42 @@ export default function ControlView() {
 
   const handleGiveCoins = async (userId: string, amount: number) => {
     try {
-      await updateDoc(doc(db, 'users', userId), { 
-        eplCoins: increment(amount) 
+      const res = await fetch('/api/admin/give-coins', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ uid: userId, amount, adminUid: userData?.uid })
       });
-      alert(language === 'ru' ? `Монеты выданы: ${amount}` : `Coins given: ${amount}`);
+      if (!res.ok) {
+        const d = await res.json();
+        throw new Error(d.error || 'Failed to give coins');
+      }
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, eplCoins: (u.eplCoins || 0) + amount } : u));
+      showToast(language === 'ru' ? `Монеты выданы: ${amount}` : `Coins given: ${amount}`, 'success');
     } catch (error: any) {
-      alert(error.message);
-      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
+      showToast(error.message, 'error');
     }
   };
 
   const handleGenerateCode = async () => {
     if (!userData?.uid) {
-      alert(language === 'ru' ? "Ошибка: пользователь не авторизован" : "Error: User not authenticated");
+      showToast(language === 'ru' ? "Ошибка: пользователь не авторизован" : "Error: User not authenticated", 'error');
       return;
     }
 
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    const gen = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    const newCode = `${gen()}-${gen()}-${gen()}`;
-    
     try {
-      // Add to premium_codes collection
-      await setDoc(doc(db, 'premium_codes', newCode), {
-        code: newCode,
-        used: false,
-        createdAt: new Date().toISOString(),
-        createdBy: userData.uid
+      const res = await fetch('/api/premium/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ adminUid: userData.uid })
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to generate code');
       
-      // Update local state to show the new code
-      setPremiumCode(newCode);
-      
-      alert(language === 'ru' ? `Новый код сгенерирован: ${newCode}` : `New code generated: ${newCode}`);
-    } catch (error) {
+      setPremiumCode(data.code);
+      showToast(language === 'ru' ? `Новый код сгенерирован: ${data.code}` : `New code generated: ${data.code}`, 'success');
+    } catch (error: any) {
       console.error("Error generating premium code:", error);
-      alert(language === 'ru' ? "Ошибка генерации кода. Проверьте права доступа." : "Error generating premium code. Check your permissions.");
+      showToast(error.message || "Error generating premium code", 'error');
     }
   };
 
@@ -573,7 +572,7 @@ export default function ControlView() {
     return <div className="h-full flex items-center justify-center p-8"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div></div>;
   }
 
-  if (userData.role !== 'developer' && effectiveRole !== 'admin' && effectiveRole !== 'moderator' && userData.email !== 'fufazada@gmail.com') {
+  if (userData.role !== 'developer' && effectiveRole !== 'admin' && effectiveRole !== 'moderator') {
     return (
       <div className="h-full flex items-center justify-center p-8 text-center">
         <ShieldCheck className="w-16 h-16 text-red-500 mb-4 opacity-50" />
@@ -1730,38 +1729,45 @@ export default function ControlView() {
             <h2 className="text-xl font-bold">{language === 'ru' ? 'Отправленные запросы' : 'Sent Requests'}</h2>
             <div className="grid grid-cols-1 gap-4">
               {adminRequests.map(req => {
+                if (!req) return null;
                 // If not developer or admin, only show own requests
                 if (effectiveRole !== 'developer' && effectiveRole !== 'admin' && req.requesterId !== userData?.uid) return null;
                 
+                const reqType = typeof req.type === 'string' ? req.type : '';
+                const reqStatus = typeof req.status === 'string' ? req.status : 'pending';
+                const reqTargetName = req.targetName || req.targetId || (language === 'ru' ? 'Объект' : 'Item');
+                const reqRequesterName = req.requesterName || req.requesterId || (language === 'ru' ? 'Пользователь' : 'User');
+                const isDeleteOrBan = reqType.includes('delete') || reqType.includes('ban');
+
                 return (
-                  <div key={req.id} className={clsx(
+                  <div key={req.id || Math.random()} className={clsx(
                     "p-6 rounded-2xl border flex flex-col sm:flex-row items-start justify-between gap-4",
                     theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
                   )}>
                     <div className="flex-1">
                       <div className="flex items-center gap-3 mb-2">
                         <span className={clsx("px-2 py-1 rounded-md text-xs font-bold uppercase tracking-wider", 
-                          req.type.includes('delete') || req.type.includes('ban') ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'
+                          isDeleteOrBan ? 'bg-red-500/10 text-red-500' : 'bg-emerald-500/10 text-emerald-500'
                         )}>
-                          {req.type.replace('_', ' ')}
+                          {reqType ? reqType.replace(/_/g, ' ') : 'REQUEST'}
                         </span>
                         <span className={clsx("px-2 py-1 rounded-md text-xs font-bold capitalize",
-                          req.status === 'pending' ? 'bg-amber-500/10 text-amber-500' :
-                          req.status === 'approved' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-zinc-500/10 text-zinc-500'
+                          reqStatus === 'pending' ? 'bg-amber-500/10 text-amber-500' :
+                          reqStatus === 'approved' ? 'bg-emerald-500/10 text-emerald-500' : 'bg-zinc-500/10 text-zinc-500'
                         )}>
-                          {req.status}
+                          {reqStatus}
                         </span>
                       </div>
-                      <h3 className="font-bold text-lg">{req.targetName}</h3>
+                      <h3 className="font-bold text-lg">{reqTargetName}</h3>
                       <p className="text-sm text-zinc-500">
-                        {language === 'ru' ? 'Отправитель:' : 'Requester:'} {req.requesterName}
+                        {language === 'ru' ? 'Отправитель:' : 'Requester:'} {reqRequesterName}
                       </p>
                       {req.reason && (
                         <p className="text-sm text-zinc-400 mt-2 p-3 bg-black/10 rounded-lg italic">
                           "{req.reason}"
                         </p>
                       )}
-                      {req.type === 'avatar_change' && req.avatarUrl && (
+                      {reqType === 'avatar_change' && req.avatarUrl && (
                         <div className="mt-4">
                           <p className="text-sm mb-2 text-zinc-500">Avatar Image:</p>
                           <img src={req.avatarUrl} alt="New Avatar" className="w-24 h-24 rounded-full object-cover border border-zinc-700 bg-zinc-800" />
@@ -1770,14 +1776,14 @@ export default function ControlView() {
                     </div>
                     
                     <div className="flex flex-col gap-2 min-w-[140px]">
-                      {(effectiveRole === 'developer' || effectiveRole === 'admin') && req.status === 'pending' && (
+                      {(effectiveRole === 'developer' || effectiveRole === 'admin') && reqStatus === 'pending' && (
                         <>
                           <button
                             onClick={async () => {
                               try {
-                                if (req.type === 'verify_app') await updateDoc(doc(db, 'apps', req.targetId), { status: 'verified' });
-                                if (req.type === 'verify_asset') await updateDoc(doc(db, 'assets', req.targetId), { status: 'verified' });
-                                if (req.type === 'delete_app') {
+                                if (reqType === 'verify_app' && req.targetId) await updateDoc(doc(db, 'apps', req.targetId), { status: 'verified' });
+                                if (reqType === 'verify_asset' && req.targetId) await updateDoc(doc(db, 'assets', req.targetId), { status: 'verified' });
+                                if (reqType === 'delete_app' && req.targetId) {
                                   try {
                                     await fetch('/api/admin/delete-app', {
                                       method: 'POST',
@@ -1790,10 +1796,10 @@ export default function ControlView() {
                                   } catch (err) {}
                                   setApps(prev => prev.filter(a => a.id !== req.targetId));
                                 }
-                                if (req.type === 'delete_asset') {
+                                if (reqType === 'delete_asset' && req.targetId) {
                                   await deleteDoc(doc(db, 'assets', req.targetId));
                                 }
-                                if (req.type === 'ban_user') {
+                                if (reqType === 'ban_user' && req.targetId) {
                                   try {
                                     await fetch('/api/admin/ban', {
                                       method: 'POST',
@@ -1808,11 +1814,11 @@ export default function ControlView() {
                                 }
                                 
                                 // If it was a deletion request, delete all requests for this target
-                                if (req.type.startsWith('delete_')) {
+                                if (reqType.startsWith('delete_') && req.targetId) {
                                   const q = query(collection(db, 'adminRequests'), where('targetId', '==', req.targetId));
                                   const qSnap = await getDocs(q);
                                   await Promise.all(qSnap.docs.map(d => deleteDoc(d.ref)));
-                                } else {
+                                } else if (req.id) {
                                   await updateDoc(doc(db, 'adminRequests', req.id), { status: 'approved' });
                                 }
                                 showToast(language === 'ru' ? 'Выполнено' : 'Approved and applied', 'success');
@@ -1822,23 +1828,24 @@ export default function ControlView() {
                             }}
                             className="w-full px-4 py-2 bg-emerald-500 text-white rounded-xl text-sm font-medium hover:bg-emerald-600 transition-colors"
                           >
-                            {req.type === 'avatar_change' ? 'Allow' : 'Approve'}
+                            {reqType === 'avatar_change' ? 'Allow' : 'Approve'}
                           </button>
                           <button
                             onClick={async () => {
-                              if (req.type === 'avatar_change') {
+                              if (reqType === 'avatar_change' && req.targetId) {
                                 try {
                                   // Reject avatar = reset to emoji
-                                  const defaultAvatar = 'https://ui-avatars.com/api/?name=' + req.targetName;
+                                  const defaultAvatar = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(reqTargetName);
                                   await updateDoc(doc(db, 'users', req.targetId), { avatarUrl: defaultAvatar });
                                   await updateDoc(doc(db, 'users_public', req.targetId), { avatarUrl: defaultAvatar });
-                                  await updateDoc(doc(db, 'adminRequests', req.id), { status: 'rejected' });
-                                  alert(language === 'ru' ? 'Отклонено' : 'Rejected');
+                                  if (req.id) await updateDoc(doc(db, 'adminRequests', req.id), { status: 'rejected' });
+                                  showToast(language === 'ru' ? 'Отклонено' : 'Rejected', 'success');
                                 } catch(e) {
                                   console.error(e);
                                 }
-                              } else {
+                              } else if (req.id) {
                                 await updateDoc(doc(db, 'adminRequests', req.id), { status: 'rejected' });
+                                showToast(language === 'ru' ? 'Отклонено' : 'Rejected', 'success');
                               }
                             }}
                             className="w-full px-4 py-2 bg-red-500/10 text-red-500 rounded-xl text-sm font-medium hover:bg-red-500 hover:text-white transition-colors"
@@ -1850,10 +1857,10 @@ export default function ControlView() {
                       
                       {(effectiveRole === 'developer' || effectiveRole === 'admin' || req.requesterId === userData?.uid) && (
                         <>
-                          {req.requesterId === userData?.uid && req.status === 'pending' && req.type !== 'avatar_change' && (
+                          {req.requesterId === userData?.uid && reqStatus === 'pending' && reqType !== 'avatar_change' && req.id && (
                             <button
                               onClick={async () => {
-                                const newReason = prompt('New format/reason:', req.reason);
+                                const newReason = prompt('New format/reason:', req.reason || '');
                                 if (newReason !== null) {
                                   await updateDoc(doc(db, 'adminRequests', req.id), { reason: newReason, updatedAt: new Date().toISOString() });
                                 }
@@ -1863,20 +1870,23 @@ export default function ControlView() {
                               Edit Reason
                             </button>
                           )}
-                          <button
-                            onClick={async () => {
-                              if (confirm('Delete this request?')) {
-                                try {
-                                  await deleteDoc(doc(db, 'adminRequests', req.id));
-                                } catch (e) {
-                                  handleFirestoreError(e, OperationType.DELETE, `adminRequests/${req.id}`);
+                          {req.id && (
+                            <button
+                              onClick={async () => {
+                                if (confirm(language === 'ru' ? 'Удалить этот запрос?' : 'Delete this request?')) {
+                                  try {
+                                    await deleteDoc(doc(db, 'adminRequests', req.id));
+                                    showToast(language === 'ru' ? 'Запрос удален' : 'Request deleted', 'success');
+                                  } catch (e) {
+                                    handleFirestoreError(e, OperationType.DELETE, `adminRequests/${req.id}`);
+                                  }
                                 }
-                              }
-                            }}
-                            className="w-full px-4 py-2 bg-zinc-800 text-zinc-400 rounded-xl text-sm font-medium hover:bg-red-500 hover:text-white transition-colors"
-                          >
-                            Delete Request
-                          </button>
+                              }}
+                              className="w-full px-4 py-2 bg-zinc-800 text-zinc-400 rounded-xl text-sm font-medium hover:bg-red-500 hover:text-white transition-colors"
+                            >
+                              Delete Request
+                            </button>
+                          )}
                         </>
                       )}
                     </div>
