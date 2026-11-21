@@ -1,16 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useStore } from '../store/useStore';
-import { 
-  Plus, Trash2, GripVertical, Play, Code2, Sparkles, ChevronRight, ChevronDown, 
-  Layers, MousePointer, Cpu, Zap, Copy, Check, Eye, HelpCircle, ArrowUp, ArrowDown 
+import {
+  Plus, Trash2, GripVertical, Code2, ChevronRight, ChevronDown,
+  Layers, Zap, Copy, Check, FolderInput, X
 } from 'lucide-react';
 import { clsx } from 'clsx';
-import { EPL_DICTIONARY, TokenDef } from '../lib/epl-dictionary';
 
 export interface BlockItem {
   id: string;
   type: 'event' | 'action' | 'entity' | 'control';
-  name: string; // e.g. 'started?', 'clicked?', 'move', 'button', 'if'
+  name: string;
   params: Record<string, string>;
   children?: BlockItem[];
   collapsed?: boolean;
@@ -21,14 +20,16 @@ interface BlockEditorProps {
   onChange: (newCode: string) => void;
 }
 
-const PRESET_BLOCKS: Array<{
+interface PresetBlockDef {
   type: 'event' | 'action' | 'entity' | 'control';
   name: string;
   label: string;
   description: string;
   params: Record<string, string>;
   hasChildren?: boolean;
-}> = [
+}
+
+const PRESET_BLOCKS: PresetBlockDef[] = [
   // Events
   { type: 'event', name: 'started?', label: 'started?', description: 'При запуске приложения', params: {}, hasChildren: true },
   { type: 'event', name: 'clicked?', label: 'clicked?', description: 'При клике на объект', params: { target: 'button1' }, hasChildren: true },
@@ -61,25 +62,149 @@ const PRESET_BLOCKS: Array<{
   { type: 'control', name: 'wait', label: 'wait', description: 'Пауза в секундах', params: { seconds: '1' } },
 ];
 
+type DragPayload =
+  | { source: 'palette'; presetIndex: number }
+  | { source: 'workspace'; blockId: string };
+
+type DropTarget =
+  | { type: 'sibling'; blockId: string; parentId: string | null; placement: 'before' | 'after' }
+  | { type: 'container'; parentId: string }
+  | { type: 'root-end' }
+  | null;
+
+const createBlockId = () =>
+  `block_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+const createBlockFromPreset = (preset: PresetBlockDef): BlockItem => ({
+  id: createBlockId(),
+  type: preset.type,
+  name: preset.name,
+  params: { ...preset.params },
+  ...(preset.hasChildren ? { children: [], collapsed: false } : {})
+});
+
+const containsBlockId = (items: BlockItem[], targetId: string): boolean => {
+  for (const item of items) {
+    if (item.id === targetId) return true;
+    if (item.children && containsBlockId(item.children, targetId)) return true;
+  }
+  return false;
+};
+
+const isDescendantOrSelf = (items: BlockItem[], sourceId: string, targetId: string | null): boolean => {
+  if (!targetId) return false;
+  if (sourceId === targetId) return true;
+  const findSource = (list: BlockItem[]): BlockItem | null => {
+    for (const item of list) {
+      if (item.id === sourceId) return item;
+      if (item.children) {
+        const found = findSource(item.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+  const sourceBlock = findSource(items);
+  if (!sourceBlock || !sourceBlock.children) return false;
+  return containsBlockId(sourceBlock.children, targetId);
+};
+
+const removeBlockById = (
+  items: BlockItem[],
+  blockId: string
+): { nextItems: BlockItem[]; removed: BlockItem | null } => {
+  let removed: BlockItem | null = null;
+  const nextItems: BlockItem[] = [];
+
+  for (const item of items) {
+    if (item.id === blockId) {
+      removed = item;
+      continue;
+    }
+    if (item.children) {
+      const childRes = removeBlockById(item.children, blockId);
+      if (childRes.removed) {
+        removed = childRes.removed;
+        nextItems.push({ ...item, children: childRes.nextItems });
+        continue;
+      }
+    }
+    nextItems.push(item);
+  }
+
+  return { nextItems, removed };
+};
+
+const insertBlockIntoParent = (
+  items: BlockItem[],
+  blockToInsert: BlockItem,
+  targetParentId: string | null,
+  relative?: { siblingId: string; placement: 'before' | 'after' }
+): BlockItem[] => {
+  const insertInList = (list: BlockItem[]): BlockItem[] => {
+    if (!relative) {
+      return [...list, blockToInsert];
+    }
+    const idx = list.findIndex(b => b.id === relative.siblingId);
+    if (idx === -1) {
+      return [...list, blockToInsert];
+    }
+    const insertIdx = relative.placement === 'before' ? idx : idx + 1;
+    const copy = [...list];
+    copy.splice(insertIdx, 0, blockToInsert);
+    return copy;
+  };
+
+  if (targetParentId === null) {
+    return insertInList(items);
+  }
+
+  return items.map(item => {
+    if (item.id === targetParentId) {
+      const existingChildren = item.children || [];
+      return {
+        ...item,
+        collapsed: false,
+        children: insertInList(existingChildren)
+      };
+    }
+    if (item.children) {
+      return {
+        ...item,
+        children: insertBlockIntoParent(item.children, blockToInsert, targetParentId, relative)
+      };
+    }
+    return item;
+  });
+};
+
 export default function BlockEditor({ code, onChange }: BlockEditorProps) {
   const theme = useStore(state => state.theme);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const language = useStore(state => state.language);
+
   const [activeTab, setActiveTab] = useState<'all' | 'events' | 'actions' | 'entities' | 'control'>('all');
   const [blocks, setBlocks] = useState<BlockItem[]>([]);
   const [showCodePreview, setShowCodePreview] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
 
-  // Convert block tree into clean EPL code
+  const [dragPayload, setDragPayload] = useState<DragPayload | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget>(null);
+  const dragPayloadRef = useRef<DragPayload | null>(null);
+  const lastEmittedCodeRef = useRef<string | null>(null);
+
   const blocksToCode = useCallback((items: BlockItem[], depth = 0): string => {
     const indent = '  '.repeat(depth);
     let result = '';
 
     for (const item of items) {
-      const paramKeys = Object.keys(item.params).filter(k => item.params[k] !== undefined && item.params[k] !== '');
-      const paramStr = paramKeys.length > 0 
-        ? `{${paramKeys.map(k => `${k}=${item.params[k]}`).join(', ')}}`
-        : '';
+      const paramKeys = Object.keys(item.params).filter(
+        k => item.params[k] !== undefined && item.params[k] !== ''
+      );
+      const paramStr =
+        paramKeys.length > 0
+          ? `{${paramKeys.map(k => `${k}=${item.params[k]}`).join(', ')}}`
+          : '';
 
       if (item.type === 'event') {
         result += `${indent}${item.name}${paramStr}\n`;
@@ -112,7 +237,6 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
     return result;
   }, []);
 
-  // Parse EPL code string into BlockItem tree
   const codeToBlocks = useCallback((codeString: string): BlockItem[] => {
     const lines = codeString.split('\n');
     const rootBlocks: BlockItem[] = [];
@@ -130,15 +254,19 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
       }
 
       let namePart = line;
-      let params: Record<string, string> = {};
+      const params: Record<string, string> = {};
       const paramMatch = line.match(/^(.*?)\{(.*?)\}(.*)$/);
-      
+
       if (paramMatch) {
         namePart = (paramMatch[1] + paramMatch[3]).trim();
         const paramPairs = paramMatch[2].split(',');
         paramPairs.forEach(pair => {
-          const [k, v] = pair.split('=').map(s => s?.trim());
-          if (k) params[k] = v || '';
+          const eqIdx = pair.indexOf('=');
+          if (eqIdx !== -1) {
+            const k = pair.slice(0, eqIdx).trim();
+            const v = pair.slice(eqIdx + 1).trim();
+            if (k) params[k] = v;
+          }
         });
       }
 
@@ -158,12 +286,14 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
           const condition = line.replace(/^if\s+/, '').replace(/\s+then$/, '').trim();
           params.check = condition;
         }
-      } else if (['button', 'block', 'text_label', 'sprite', 'player', 'enemy', '3Dblock', 'circle', 'textbox'].includes(namePart)) {
+      } else if (
+        ['button', 'block', 'text_label', 'sprite', 'player', 'enemy', '3Dblock', 'circle', 'textbox'].includes(namePart)
+      ) {
         blockType = 'entity';
       }
 
       const newBlock: BlockItem = {
-        id: `block_${Date.now()}_${idx}_${Math.random().toString(36).substr(2, 4)}`,
+        id: `block_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
         type: blockType,
         name: namePart,
         params,
@@ -187,113 +317,67 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
   }, []);
 
   useEffect(() => {
-    if (blocks.length === 0 && code.trim()) {
+    if (lastEmittedCodeRef.current === code) return;
+    if (code.trim()) {
       const parsed = codeToBlocks(code);
-      if (parsed.length > 0) {
-        setBlocks(parsed);
-      }
+      setBlocks(parsed);
+      lastEmittedCodeRef.current = code;
+    } else if (blocks.length > 0 && lastEmittedCodeRef.current === '') {
+      setBlocks([]);
     }
-  }, [code, blocks.length, codeToBlocks]);
+  }, [code, codeToBlocks, blocks.length]);
 
-  const updateBlocksAndCode = (newBlocks: BlockItem[]) => {
-    setBlocks(newBlocks);
-    const newCode = blocksToCode(newBlocks);
-    onChange(newCode);
-  };
+  const updateBlocksAndCode = useCallback(
+    (newBlocks: BlockItem[]) => {
+      setBlocks(newBlocks);
+      const newCode = blocksToCode(newBlocks);
+      lastEmittedCodeRef.current = newCode;
+      onChange(newCode);
+    },
+    [blocksToCode, onChange]
+  );
 
-  const handleAddPresetBlock = (preset: typeof PRESET_BLOCKS[0], targetParentId?: string) => {
-    const newBlock: BlockItem = {
-      id: `block_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      type: preset.type,
-      name: preset.name,
-      params: { ...preset.params },
-      ...(preset.hasChildren ? { children: [], collapsed: false } : {})
-    };
+  const handleAddPresetBlock = useCallback(
+    (preset: PresetBlockDef, targetParentId?: string) => {
+      const newBlock = createBlockFromPreset(preset);
+      const next = insertBlockIntoParent(blocks, newBlock, targetParentId ?? null);
+      updateBlocksAndCode(next);
+    },
+    [blocks, updateBlocksAndCode]
+  );
 
-    if (targetParentId) {
-      const addDeep = (items: BlockItem[]): BlockItem[] => {
-        return items.map(item => {
-          if (item.id === targetParentId) {
-            return { ...item, children: [...(item.children || []), newBlock] };
+  const handleDeleteBlock = useCallback(
+    (blockId: string) => {
+      const { nextItems } = removeBlockById(blocks, blockId);
+      updateBlocksAndCode(nextItems);
+    },
+    [blocks, updateBlocksAndCode]
+  );
+
+  const handleUpdateParam = useCallback(
+    (blockId: string, paramKey: string, newValue: string) => {
+      const updateDeep = (items: BlockItem[]): BlockItem[] =>
+        items.map(item => {
+          if (item.id === blockId) {
+            return {
+              ...item,
+              params: { ...item.params, [paramKey]: newValue }
+            };
           }
           if (item.children) {
-            return { ...item, children: addDeep(item.children) };
+            return { ...item, children: updateDeep(item.children) };
           }
           return item;
         });
-      };
-      updateBlocksAndCode(addDeep(blocks));
-    } else {
-      updateBlocksAndCode([...blocks, newBlock]);
-    }
-  };
+      updateBlocksAndCode(updateDeep(blocks));
+    },
+    [blocks, updateBlocksAndCode]
+  );
 
-  const handleDeleteBlock = (blockId: string) => {
-    const deleteDeep = (items: BlockItem[]): BlockItem[] => {
-      return items
-        .filter(item => item.id !== blockId)
-        .map(item => ({
-          ...item,
-          ...(item.children ? { children: deleteDeep(item.children) } : {})
-        }));
-    };
-    updateBlocksAndCode(deleteDeep(blocks));
-  };
-
-  // Move block up or down in workspace list
-  const handleMoveBlock = (index: number, direction: 'up' | 'down', parentId?: string) => {
-    if (parentId) {
-      const moveDeep = (items: BlockItem[]): BlockItem[] => {
-        return items.map(item => {
-          if (item.id === parentId && item.children) {
-            const children = [...item.children];
-            const targetIdx = direction === 'up' ? index - 1 : index + 1;
-            if (targetIdx < 0 || targetIdx >= children.length) return item;
-            const temp = children[index];
-            children[index] = children[targetIdx];
-            children[targetIdx] = temp;
-            return { ...item, children };
-          }
-          if (item.children) {
-            return { ...item, children: moveDeep(item.children) };
-          }
-          return item;
-        });
-      };
-      updateBlocksAndCode(moveDeep(blocks));
-    } else {
-      const newBlocks = [...blocks];
-      const targetIdx = direction === 'up' ? index - 1 : index + 1;
-      if (targetIdx < 0 || targetIdx >= newBlocks.length) return;
-      const temp = newBlocks[index];
-      newBlocks[index] = newBlocks[targetIdx];
-      newBlocks[targetIdx] = temp;
-      updateBlocksAndCode(newBlocks);
-    }
-  };
-
-  const handleUpdateParam = (blockId: string, paramKey: string, newValue: string) => {
-    const updateDeep = (items: BlockItem[]): BlockItem[] => {
-      return items.map(item => {
-        if (item.id === blockId) {
-          return {
-            ...item,
-            params: { ...item.params, [paramKey]: newValue }
-          };
-        }
-        if (item.children) {
-          return { ...item, children: updateDeep(item.children) };
-        }
-        return item;
-      });
-    };
-    updateBlocksAndCode(updateDeep(blocks));
-  };
-
-  const handleToggleCollapse = (blockId: string) => {
+  const handleToggleCollapse = useCallback((blockId: string) => {
     setBlocks(prev => {
-      const toggleDeep = (items: BlockItem[]): BlockItem[] => {
-        return items.map(item => {
+      const toggleDeep = (items: BlockItem[]): BlockItem[] =>
+        items.map(item => {
           if (item.id === blockId) {
             return { ...item, collapsed: !item.collapsed };
           }
@@ -302,10 +386,115 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
           }
           return item;
         });
-      };
       return toggleDeep(prev);
     });
+  }, []);
+
+  const resolveDragPayload = (e: React.DragEvent): DragPayload | null => {
+    if (dragPayloadRef.current) return dragPayloadRef.current;
+    try {
+      const raw = e.dataTransfer.getData('application/x-epl-block');
+      if (raw) return JSON.parse(raw) as DragPayload;
+    } catch {
+      // ignore
+    }
+    return null;
   };
+
+  const clearDragState = useCallback(() => {
+    dragPayloadRef.current = null;
+    setDragPayload(null);
+    setDropTarget(null);
+  }, []);
+
+  const canDropIntoTarget = useCallback(
+    (payload: DragPayload | null, targetBlockOrParentId: string | null): boolean => {
+      if (!payload) return false;
+      if (payload.source === 'palette') return true;
+      if (payload.blockId === targetBlockOrParentId) return false;
+      if (targetBlockOrParentId && isDescendantOrSelf(blocks, payload.blockId, targetBlockOrParentId)) {
+        return false;
+      }
+      return true;
+    },
+    [blocks]
+  );
+
+  const executeDrop = useCallback(
+    (e: React.DragEvent, target: Exclude<DropTarget, null>) => {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const payload = resolveDragPayload(e);
+      clearDragState();
+      if (!payload) return;
+
+      let blockToInsert: BlockItem | null = null;
+      let workingTree = blocks;
+
+      if (payload.source === 'palette') {
+        const preset = PRESET_BLOCKS[payload.presetIndex];
+        if (!preset) return;
+        blockToInsert = createBlockFromPreset(preset);
+      } else {
+        const targetIdToCheck =
+          target.type === 'container'
+            ? target.parentId
+            : target.type === 'sibling'
+              ? target.blockId
+              : null;
+
+        if (payload.blockId === targetIdToCheck) return;
+        if (targetIdToCheck && isDescendantOrSelf(blocks, payload.blockId, targetIdToCheck)) {
+          return;
+        }
+        if (target.type === 'sibling' && target.parentId && isDescendantOrSelf(blocks, payload.blockId, target.parentId)) {
+          return;
+        }
+
+        const removedRes = removeBlockById(blocks, payload.blockId);
+        if (!removedRes.removed) return;
+        blockToInsert = removedRes.removed;
+        workingTree = removedRes.nextItems;
+      }
+
+      if (!blockToInsert) return;
+
+      let nextTree = workingTree;
+      if (target.type === 'root-end') {
+        nextTree = insertBlockIntoParent(workingTree, blockToInsert, null);
+      } else if (target.type === 'container') {
+        nextTree = insertBlockIntoParent(workingTree, blockToInsert, target.parentId);
+      } else if (target.type === 'sibling') {
+        nextTree = insertBlockIntoParent(workingTree, blockToInsert, target.parentId, {
+          siblingId: target.blockId,
+          placement: target.placement
+        });
+      }
+
+      updateBlocksAndCode(nextTree);
+    },
+    [blocks, clearDragState, updateBlocksAndCode]
+  );
+
+  const handleStartPaletteDrag = (e: React.DragEvent, presetIndex: number) => {
+    const payload: DragPayload = { source: 'palette', presetIndex };
+    dragPayloadRef.current = payload;
+    setDragPayload(payload);
+    e.dataTransfer.effectAllowed = 'copy';
+    e.dataTransfer.setData('application/x-epl-block', JSON.stringify(payload));
+    e.dataTransfer.setData('text/plain', PRESET_BLOCKS[presetIndex].label);
+  };
+
+  const handleStartWorkspaceDrag = useCallback((e: React.DragEvent, blockId: string) => {
+    e.stopPropagation();
+    const payload: DragPayload = { source: 'workspace', blockId };
+    dragPayloadRef.current = payload;
+    setDragPayload(payload);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('application/x-epl-block', JSON.stringify(payload));
+    e.dataTransfer.setData('text/plain', blockId);
+  }, []);
 
   const generatedCode = blocksToCode(blocks);
 
@@ -315,54 +504,79 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
     setTimeout(() => setCopiedCode(false), 2000);
   };
 
-  const filteredPresets = PRESET_BLOCKS.filter(p => {
+  const filteredPresets = PRESET_BLOCKS.map((preset, originalIndex) => ({ preset, originalIndex })).filter(({ preset }) => {
     if (activeTab === 'all') return true;
-    if (activeTab === 'events') return p.type === 'event';
-    if (activeTab === 'actions') return p.type === 'action';
-    if (activeTab === 'entities') return p.type === 'entity';
-    if (activeTab === 'control') return p.type === 'control';
+    if (activeTab === 'events') return preset.type === 'event';
+    if (activeTab === 'actions') return preset.type === 'action';
+    if (activeTab === 'entities') return preset.type === 'entity';
+    if (activeTab === 'control') return preset.type === 'control';
     return true;
   });
+
+  const isLight = theme === 'light' && !isFrutigerAero;
 
   return (
     <div className="flex-1 flex flex-col md:flex-row h-full overflow-hidden select-none">
       {/* Palette Sidebar */}
-      <div className={clsx(
-        "w-full md:w-80 border-b md:border-b-0 md:border-r flex flex-col shrink-0 overflow-hidden",
-        isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md" :
-        theme !== 'light' ? "bg-zinc-900/90 border-zinc-800 text-zinc-100" : "bg-white border-zinc-200 text-zinc-900"
-      )}>
-        <div className="p-3 sm:p-4 border-b border-zinc-800/60 flex items-center justify-between">
+      <div
+        className={clsx(
+          'w-full md:w-80 border-b md:border-b-0 md:border-r flex flex-col shrink-0 overflow-hidden',
+          isFrutigerAero
+            ? 'bg-white/40 border-white/50 backdrop-blur-md text-slate-900'
+            : isLight
+              ? 'bg-white border-[#E2E5EA] text-[#111315]'
+              : 'bg-[#181B20] border-[#262B33] text-[#F3F4F6]'
+        )}
+      >
+        <div
+          className={clsx(
+            'p-3 sm:p-4 border-b flex items-center justify-between',
+            isFrutigerAero ? 'border-white/40' : isLight ? 'border-[#E2E5EA]' : 'border-[#262B33]'
+          )}
+        >
           <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30">
+            <span className="p-1.5 rounded-lg bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30">
               <Layers className="w-4 h-4" />
             </span>
-            <h3 className="font-bold text-sm">
-              {language === 'ru' ? 'Палитра Блоков' : 'Block Palette'}
-            </h3>
+            <div>
+              <h3 className="font-bold text-sm leading-tight">
+                {language === 'ru' ? 'Палитра Блоков' : 'Block Palette'}
+              </h3>
+              <p className={clsx('text-[10px]', isLight ? 'text-slate-500' : 'text-[#9CA3AF]')}>
+                {language === 'ru' ? 'Перетащите на холст или внутрь блока' : 'Drag onto canvas or inside a block'}
+              </p>
+            </div>
           </div>
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-            Scratch EPL
+          <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-semibold bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30">
+            EPL
           </span>
         </div>
 
         {/* Category Tabs */}
-        <div className="flex gap-1 p-2 border-b border-zinc-800/60 overflow-x-auto no-scrollbar">
+        <div
+          className={clsx(
+            'flex gap-1 p-2 border-b overflow-x-auto no-scrollbar',
+            isFrutigerAero ? 'border-white/40' : isLight ? 'border-[#E2E5EA]' : 'border-[#262B33]'
+          )}
+        >
           {[
             { id: 'all', label: language === 'ru' ? 'Все' : 'All' },
-            { id: 'events', label: 'События' },
-            { id: 'actions', label: 'Действия' },
-            { id: 'entities', label: 'Объекты' },
-            { id: 'control', label: 'Логика' },
+            { id: 'events', label: language === 'ru' ? 'События' : 'Events' },
+            { id: 'actions', label: language === 'ru' ? 'Действия' : 'Actions' },
+            { id: 'entities', label: language === 'ru' ? 'Объекты' : 'Entities' },
+            { id: 'control', label: language === 'ru' ? 'Логика' : 'Logic' }
           ].map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              type="button"
+              onClick={() => setActiveTab(tab.id as typeof activeTab)}
               className={clsx(
-                "px-2.5 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
+                'px-2.5 py-1 rounded-md text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap',
                 activeTab === tab.id
-                  ? "bg-purple-600 text-white shadow-md shadow-purple-600/30"
-                  : "bg-zinc-800/40 text-zinc-400 hover:text-zinc-200"
+                  ? 'bg-[#10B981] text-[#0A0C0E]'
+                  : isLight
+                    ? 'bg-[#F5F6F8] text-slate-600 hover:text-slate-900'
+                    : 'bg-[#111315] text-[#9CA3AF] hover:text-[#F3F4F6]'
               )}
             >
               {tab.label}
@@ -370,49 +584,72 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
           ))}
         </div>
 
-        {/* Presets List */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-2.5 custom-scrollbar">
-          {filteredPresets.map((preset, idx) => {
-            let colorClasses = "bg-purple-500/10 border-purple-500/30 text-purple-300 hover:bg-purple-500/20";
-            let badgeBg = "bg-purple-500";
+        {/* Presets List (Draggable + Click Quick-Add) */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-2 custom-scrollbar">
+          {filteredPresets.map(({ preset, originalIndex }) => {
+            let colorClasses = isLight
+              ? 'bg-violet-50 border-violet-200 text-violet-900 hover:border-violet-400'
+              : 'bg-violet-500/10 border-violet-500/25 text-violet-200 hover:border-violet-400/60';
+            let barBg = 'bg-violet-500';
+
             if (preset.type === 'event') {
-              colorClasses = "bg-amber-500/10 border-amber-500/30 text-amber-300 hover:bg-amber-500/20";
-              badgeBg = "bg-amber-500";
+              colorClasses = isLight
+                ? 'bg-amber-50 border-amber-200 text-amber-900 hover:border-amber-400'
+                : 'bg-amber-500/10 border-amber-500/25 text-amber-200 hover:border-amber-400/60';
+              barBg = 'bg-amber-500';
             } else if (preset.type === 'action') {
-              colorClasses = "bg-blue-500/10 border-blue-500/30 text-blue-300 hover:bg-blue-500/20";
-              badgeBg = "bg-blue-500";
+              colorClasses = isLight
+                ? 'bg-sky-50 border-sky-200 text-sky-900 hover:border-sky-400'
+                : 'bg-sky-500/10 border-sky-500/25 text-sky-200 hover:border-sky-400/60';
+              barBg = 'bg-sky-500';
             } else if (preset.type === 'entity') {
-              colorClasses = "bg-emerald-500/10 border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/20";
-              badgeBg = "bg-emerald-500";
+              colorClasses = isLight
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900 hover:border-emerald-400'
+                : 'bg-[#10B981]/10 border-[#10B981]/30 text-emerald-200 hover:border-[#10B981]/70';
+              barBg = 'bg-[#10B981]';
             }
 
             return (
               <div
-                key={idx}
+                key={originalIndex}
+                draggable
+                onDragStart={e => handleStartPaletteDrag(e, originalIndex)}
+                onDragEnd={clearDragState}
                 onClick={() => handleAddPresetBlock(preset)}
                 className={clsx(
-                  "p-3 rounded-2xl border transition-all cursor-pointer group hover:scale-[1.02] flex items-center justify-between gap-2 shadow-sm",
+                  'p-2.5 rounded-lg border transition-colors cursor-grab active:cursor-grabbing flex items-center justify-between gap-2',
                   colorClasses
                 )}
               >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <span className={clsx("w-2.5 h-2.5 rounded-full shrink-0", badgeBg)} />
+                <div className="flex items-center gap-2 min-w-0">
+                  <GripVertical className="w-3.5 h-3.5 opacity-45 shrink-0" />
+                  <span className={clsx('w-1.5 h-6 rounded-sm shrink-0', barBg)} />
                   <div className="min-w-0">
-                    <div className="font-bold text-xs truncate flex items-center gap-1.5">
+                    <div className="font-mono font-bold text-xs truncate flex items-center gap-1.5">
                       <span>{preset.label}</span>
+                      {preset.hasChildren && (
+                        <span className="text-[9px] px-1 py-0.2 rounded bg-black/20 font-sans font-medium opacity-80">
+                          {language === 'ru' ? 'контейнер' : 'container'}
+                        </span>
+                      )}
                     </div>
-                    <p className="text-[10px] opacity-70 truncate">{preset.description}</p>
+                    <p className="text-[10px] opacity-75 truncate">{preset.description}</p>
                   </div>
                 </div>
 
                 <button
                   type="button"
-                  onClick={(e) => {
+                  onClick={e => {
                     e.stopPropagation();
                     handleAddPresetBlock(preset);
                   }}
-                  className="p-1 rounded-lg bg-zinc-800/60 hover:bg-purple-600 text-zinc-300 hover:text-white transition-colors shrink-0 cursor-pointer"
-                  title="Добавить блок на холст"
+                  className={clsx(
+                    'p-1.5 rounded-md transition-colors shrink-0 cursor-pointer',
+                    isLight
+                      ? 'bg-black/5 hover:bg-[#10B981] text-slate-700 hover:text-white'
+                      : 'bg-black/30 hover:bg-[#10B981] text-[#D1D5DB] hover:text-[#0A0C0E]'
+                  )}
+                  title={language === 'ru' ? 'Добавить на холст' : 'Add to workspace'}
                 >
                   <Plus className="w-3.5 h-3.5" />
                 </button>
@@ -423,43 +660,74 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
       </div>
 
       {/* Main Block Canvas Workspace */}
-      <div className="flex-1 flex flex-col overflow-hidden relative">
-        <div className={clsx(
-          "p-3 sm:px-6 py-2.5 border-b flex items-center justify-between gap-3 shrink-0",
-          isFrutigerAero ? "bg-white/30 border-white/40" :
-          theme !== 'light' ? "bg-zinc-900/60 border-zinc-800" : "bg-white border-zinc-200"
-        )}>
-          <div className="flex items-center gap-2">
-            <span className="p-1.5 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+      <div
+        className={clsx(
+          'flex-1 flex flex-col overflow-hidden relative',
+          isFrutigerAero ? 'bg-transparent' : isLight ? 'bg-[#F5F6F8]' : 'bg-[#111315]'
+        )}
+      >
+        <div
+          className={clsx(
+            'p-3 sm:px-6 py-2.5 border-b flex items-center justify-between gap-3 shrink-0',
+            isFrutigerAero
+              ? 'bg-white/30 border-white/40'
+              : isLight
+                ? 'bg-white border-[#E2E5EA]'
+                : 'bg-[#181B20] border-[#262B33]'
+          )}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="p-1.5 rounded-lg bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30 shrink-0">
               <Zap className="w-4 h-4" />
             </span>
-            <h3 className="font-bold text-sm text-zinc-200">
-              {language === 'ru' ? 'Холст Блоков EPL' : 'EPL Block Workspace'}
-            </h3>
-            <span className="text-xs text-zinc-500">
-              ({blocks.length} {language === 'ru' ? 'блоков' : 'blocks'})
-            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className={clsx('font-bold text-sm truncate', isLight ? 'text-[#111315]' : 'text-[#F3F4F6]')}>
+                  {language === 'ru' ? 'Холст Блоков EPL' : 'EPL Block Workspace'}
+                </h3>
+                <span className={clsx('text-xs font-mono', isLight ? 'text-slate-500' : 'text-[#9CA3AF]')}>
+                  [{blocks.length}]
+                </span>
+              </div>
+              <p className={clsx('text-[10px] truncate hidden sm:block', isLight ? 'text-slate-500' : 'text-[#9CA3AF]')}>
+                {language === 'ru'
+                  ? 'Перетаскивайте блоки за маркер ⋮⋮ чтобы менять порядок или вкладывать внутрь'
+                  : 'Drag blocks by ⋮⋮ handle to reorder or nest inside containers'}
+              </p>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <button
+              type="button"
               onClick={() => setShowCodePreview(!showCodePreview)}
               className={clsx(
-                "px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer border",
-                showCodePreview 
-                  ? "bg-purple-600 text-white border-purple-500/50 shadow-md shadow-purple-600/20" 
-                  : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300 border-zinc-700/50"
+                'px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 cursor-pointer border',
+                showCodePreview
+                  ? 'bg-[#10B981] text-[#0A0C0E] border-[#10B981]'
+                  : isLight
+                    ? 'bg-[#F5F6F8] hover:bg-slate-200 text-slate-700 border-[#E2E5EA]'
+                    : 'bg-[#111315] hover:bg-[#262B33] text-[#D1D5DB] border-[#262B33]'
               )}
             >
-              <Code2 className="w-3.5 h-3.5 text-blue-400" />
-              <span>{showCodePreview ? (language === 'ru' ? 'Скрыть код' : 'Hide Code') : (language === 'ru' ? 'Код EPL' : 'View Code')}</span>
+              <Code2 className="w-3.5 h-3.5" />
+              <span>
+                {showCodePreview
+                  ? language === 'ru'
+                    ? 'Скрыть код'
+                    : 'Hide Code'
+                  : language === 'ru'
+                    ? 'Код EPL'
+                    : 'View Code'}
+              </span>
             </button>
 
             {blocks.length > 0 && (
               <button
+                type="button"
                 onClick={() => updateBlocksAndCode([])}
-                className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 transition-colors cursor-pointer flex items-center gap-1"
-                title="Очистить весь холст"
+                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 transition-colors cursor-pointer flex items-center gap-1"
+                title={language === 'ru' ? 'Очистить весь холст' : 'Clear workspace'}
               >
                 <Trash2 className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">{language === 'ru' ? 'Очистить' : 'Clear'}</span>
@@ -469,38 +737,86 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
         </div>
 
         {/* Canvas Body */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 custom-scrollbar relative">
-          {blocks.map((block, index) => (
+        <div
+          className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-2.5 custom-scrollbar relative"
+          onDragOver={e => {
+            if (!dragPayloadRef.current && !e.dataTransfer.types.includes('application/x-epl-block')) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = dragPayloadRef.current?.source === 'palette' ? 'copy' : 'move';
+            setDropTarget({ type: 'root-end' });
+          }}
+          onDragLeave={e => {
+            if (e.currentTarget === e.target) {
+              setDropTarget(prev => (prev?.type === 'root-end' ? null : prev));
+            }
+          }}
+          onDrop={e => executeDrop(e, { type: 'root-end' })}
+        >
+          {blocks.map(block => (
             <RenderBlockCard
               key={block.id}
               block={block}
-              index={index}
-              totalCount={blocks.length}
+              parentId={null}
+              draggingBlockId={dragPayload?.source === 'workspace' ? dragPayload.blockId : null}
+              dropTarget={dropTarget}
+              canDropIntoTarget={canDropIntoTarget}
+              dragPayload={dragPayload}
+              onDragStartBlock={handleStartWorkspaceDrag}
+              onDragEndBlock={clearDragState}
+              onSetDropTarget={setDropTarget}
+              onExecuteDrop={executeDrop}
               onDelete={handleDeleteBlock}
-              onMove={handleMoveBlock}
               onUpdateParam={handleUpdateParam}
               onToggleCollapse={handleToggleCollapse}
               onAddChild={handleAddPresetBlock}
               isFrutigerAero={isFrutigerAero}
-              theme={theme}
+              isLight={isLight}
               language={language}
             />
           ))}
 
+          {/* Root Drop Slot when canvas already has blocks and user is dragging */}
+          {blocks.length > 0 && (
+            <div
+              className={clsx(
+                'mt-2 rounded-lg border border-dashed py-3 px-4 text-center text-[11px] font-medium transition-colors',
+                dropTarget?.type === 'root-end'
+                  ? 'border-[#10B981] bg-[#10B981]/10 text-[#10B981]'
+                  : isLight
+                    ? 'border-[#E2E5EA] text-slate-400'
+                    : 'border-[#262B33] text-[#6B7280]'
+              )}
+            >
+              {language === 'ru'
+                ? 'Перетащите блок сюда, чтобы поместить на верхний уровень'
+                : 'Drop a block here to place at root level'}
+            </div>
+          )}
+
           {blocks.length === 0 && (
-            <div className="h-full flex flex-col items-center justify-center text-center p-12 border-2 border-dashed rounded-3xl border-zinc-800 text-zinc-500 my-auto">
-              <Layers className="w-12 h-12 opacity-30 mb-3 text-purple-400 animate-bounce" />
-              <h4 className="font-bold text-base text-zinc-300 mb-1">
+            <div
+              className={clsx(
+                'h-full min-h-[260px] flex flex-col items-center justify-center text-center p-10 border border-dashed rounded-xl transition-colors',
+                dropTarget?.type === 'root-end'
+                  ? 'border-[#10B981] bg-[#10B981]/10'
+                  : isLight
+                    ? 'border-[#E2E5EA] bg-white/60 text-slate-500'
+                    : 'border-[#262B33] bg-[#181B20]/40 text-[#9CA3AF]'
+              )}
+            >
+              <Layers className="w-10 h-10 opacity-50 mb-3 text-[#10B981]" />
+              <h4 className={clsx('font-bold text-sm mb-1', isLight ? 'text-[#111315]' : 'text-[#F3F4F6]')}>
                 {language === 'ru' ? 'Холст блоков пуст' : 'Workspace is empty'}
               </h4>
-              <p className="text-xs max-w-sm opacity-70 mb-4">
+              <p className="text-xs max-w-sm opacity-80 mb-4">
                 {language === 'ru'
-                  ? 'Нажмите на любой блок в левой палитре (События, Действия, Объекты), чтобы добавить его сюда!'
-                  : 'Click any block in the left palette to start building your EPL app!'}
+                  ? 'Перетащите любой блок из палитры слева сюда, или нажмите кнопку ниже для старта.'
+                  : 'Drag any block from the left palette here, or click below to start.'}
               </p>
               <button
+                type="button"
                 onClick={() => handleAddPresetBlock(PRESET_BLOCKS[0])}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold rounded-xl shadow-lg shadow-purple-600/30 transition-all flex items-center gap-2 cursor-pointer"
+                className="px-4 py-2 bg-[#10B981] hover:bg-[#059669] text-[#0A0C0E] text-xs font-semibold rounded-lg transition-colors flex items-center gap-2 cursor-pointer"
               >
                 <Plus className="w-4 h-4" />
                 {language === 'ru' ? 'Добавить блок "started?"' : 'Add "started?" Event'}
@@ -509,23 +825,42 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
           )}
         </div>
 
-        {/* Floating Side-by-Side EPL Code Preview Box */}
+        {/* Floating EPL Code Preview Box */}
         {showCodePreview && (
-          <div className="absolute top-14 right-4 z-40 w-80 sm:w-96 rounded-2xl bg-zinc-950/90 border border-purple-500/40 shadow-2xl p-4 backdrop-blur-xl text-xs space-y-2 animate-in fade-in slide-in-from-top-2">
-            <div className="flex items-center justify-between border-b border-zinc-800 pb-2">
-              <div className="flex items-center gap-1.5 font-bold text-purple-300">
+          <div
+            className={clsx(
+              'absolute top-14 right-4 z-40 w-80 sm:w-96 rounded-xl border shadow-2xl p-4 text-xs space-y-2',
+              isLight ? 'bg-white border-[#E2E5EA]' : 'bg-[#181B20] border-[#262B33]'
+            )}
+          >
+            <div
+              className={clsx(
+                'flex items-center justify-between border-b pb-2',
+                isLight ? 'border-[#E2E5EA]' : 'border-[#262B33]'
+              )}
+            >
+              <div className="flex items-center gap-1.5 font-bold text-[#10B981]">
                 <Code2 className="w-4 h-4" />
                 <span>{language === 'ru' ? 'Сгенерированный код EPL' : 'Generated EPL Code'}</span>
               </div>
               <button
+                type="button"
                 onClick={handleCopyCode}
-                className="p-1 rounded-md bg-zinc-800 hover:bg-zinc-700 text-zinc-300 flex items-center gap-1 text-[10px] cursor-pointer"
+                className={clsx(
+                  'px-2 py-1 rounded-md flex items-center gap-1 text-[10px] font-medium cursor-pointer',
+                  isLight ? 'bg-[#F5F6F8] hover:bg-slate-200 text-slate-700' : 'bg-[#111315] hover:bg-[#262B33] text-[#D1D5DB]'
+                )}
               >
-                {copiedCode ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                <span>{copiedCode ? 'Скопировано!' : 'Копировать'}</span>
+                {copiedCode ? <Check className="w-3 h-3 text-[#10B981]" /> : <Copy className="w-3 h-3" />}
+                <span>{copiedCode ? (language === 'ru' ? 'Скопировано' : 'Copied') : language === 'ru' ? 'Копировать' : 'Copy'}</span>
               </button>
             </div>
-            <pre className="p-3 bg-black/60 rounded-xl font-mono text-[11px] leading-relaxed text-emerald-400 overflow-x-auto max-h-64 custom-scrollbar border border-zinc-800">
+            <pre
+              className={clsx(
+                'p-3 rounded-lg font-mono text-[11px] leading-relaxed overflow-x-auto max-h-64 custom-scrollbar border',
+                isLight ? 'bg-[#F5F6F8] text-emerald-700 border-[#E2E5EA]' : 'bg-[#0A0C0E] text-[#10B981] border-[#262B33]'
+              )}
+            >
               {generatedCode || '// Блоки отсутствуют'}
             </pre>
           </div>
@@ -537,155 +872,370 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
 
 interface RenderBlockCardProps {
   block: BlockItem;
-  index: number;
-  totalCount: number;
-  parentId?: string;
+  parentId: string | null;
+  draggingBlockId: string | null;
+  dropTarget: DropTarget;
+  dragPayload: DragPayload | null;
+  canDropIntoTarget: (payload: DragPayload | null, targetId: string | null) => boolean;
+  onDragStartBlock: (e: React.DragEvent, blockId: string) => void;
+  onDragEndBlock: () => void;
+  onSetDropTarget: (target: DropTarget) => void;
+  onExecuteDrop: (e: React.DragEvent, target: Exclude<DropTarget, null>) => void;
   onDelete: (id: string) => void;
-  onMove: (index: number, direction: 'up' | 'down', parentId?: string) => void;
   onUpdateParam: (id: string, key: string, value: string) => void;
   onToggleCollapse: (id: string) => void;
-  onAddChild: (preset: typeof PRESET_BLOCKS[0], parentId: string) => void;
+  onAddChild: (preset: PresetBlockDef, parentId: string) => void;
   isFrutigerAero: boolean;
-  theme: string;
+  isLight: boolean;
   language: 'en' | 'ru';
 }
 
 function RenderBlockCard({
   block,
-  index,
-  totalCount,
   parentId,
+  draggingBlockId,
+  dropTarget,
+  dragPayload,
+  canDropIntoTarget,
+  onDragStartBlock,
+  onDragEndBlock,
+  onSetDropTarget,
+  onExecuteDrop,
   onDelete,
-  onMove,
   onUpdateParam,
   onToggleCollapse,
   onAddChild,
   isFrutigerAero,
-  theme,
+  isLight,
   language
 }: RenderBlockCardProps) {
-  let headerBg = "bg-purple-950/40 border-purple-800/60 text-purple-200";
-  let badgeBg = "bg-purple-500";
+  const [showInnerPicker, setShowInnerPicker] = useState(false);
+
+  const isContainer = block.children !== undefined;
+  const isBeingDragged = draggingBlockId === block.id;
+
+  const isSiblingBefore =
+    dropTarget?.type === 'sibling' && dropTarget.blockId === block.id && dropTarget.placement === 'before';
+  const isSiblingAfter =
+    dropTarget?.type === 'sibling' && dropTarget.blockId === block.id && dropTarget.placement === 'after';
+  const isContainerTarget = dropTarget?.type === 'container' && dropTarget.parentId === block.id;
+
+  let cardSurface = isLight
+    ? 'bg-white border-violet-300 text-slate-900'
+    : 'bg-[#181B20] border-violet-500/35 text-[#F3F4F6]';
+  let headerStrip = isLight ? 'bg-violet-50/70' : 'bg-violet-500/10';
+  let accentBar = 'bg-violet-500';
 
   if (block.type === 'event') {
-    headerBg = "bg-amber-950/40 border-amber-800/60 text-amber-200";
-    badgeBg = "bg-amber-500";
+    cardSurface = isLight
+      ? 'bg-white border-amber-300 text-slate-900'
+      : 'bg-[#181B20] border-amber-500/35 text-[#F3F4F6]';
+    headerStrip = isLight ? 'bg-amber-50/70' : 'bg-amber-500/10';
+    accentBar = 'bg-amber-500';
   } else if (block.type === 'action') {
-    headerBg = "bg-blue-950/40 border-blue-800/60 text-blue-200";
-    badgeBg = "bg-blue-500";
+    cardSurface = isLight
+      ? 'bg-white border-sky-300 text-slate-900'
+      : 'bg-[#181B20] border-sky-500/35 text-[#F3F4F6]';
+    headerStrip = isLight ? 'bg-sky-50/70' : 'bg-sky-500/10';
+    accentBar = 'bg-sky-500';
   } else if (block.type === 'entity') {
-    headerBg = "bg-emerald-950/40 border-emerald-800/60 text-emerald-200";
-    badgeBg = "bg-emerald-500";
+    cardSurface = isLight
+      ? 'bg-white border-emerald-300 text-slate-900'
+      : 'bg-[#181B20] border-[#10B981]/40 text-[#F3F4F6]';
+    headerStrip = isLight ? 'bg-emerald-50/70' : 'bg-[#10B981]/10';
+    accentBar = 'bg-[#10B981]';
+  }
+
+  if (isFrutigerAero) {
+    cardSurface = 'bg-white/60 border-white/70 text-slate-900 backdrop-blur-md';
   }
 
   const paramKeys = Object.keys(block.params);
+  const innerPresetOptions = PRESET_BLOCKS.filter(p => p.type !== 'event');
+
+  const handleCardHeaderDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!canDropIntoTarget(dragPayload, block.id)) return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relY = e.clientY - rect.top;
+    const ratio = rect.height > 0 ? relY / rect.height : 0.5;
+
+    // If collapsed container and pointer is in middle zone, drop inside container
+    if (isContainer && block.collapsed && ratio > 0.28 && ratio < 0.72) {
+      onSetDropTarget({ type: 'container', parentId: block.id });
+      return;
+    }
+
+    const placement: 'before' | 'after' = ratio < 0.5 ? 'before' : 'after';
+    onSetDropTarget({
+      type: 'sibling',
+      blockId: block.id,
+      parentId,
+      placement
+    });
+  };
+
+  const handleCardHeaderDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!canDropIntoTarget(dragPayload, block.id)) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relY = e.clientY - rect.top;
+    const ratio = rect.height > 0 ? relY / rect.height : 0.5;
+
+    if (isContainer && block.collapsed && ratio > 0.28 && ratio < 0.72) {
+      onExecuteDrop(e, { type: 'container', parentId: block.id });
+      return;
+    }
+
+    const placement: 'before' | 'after' = ratio < 0.5 ? 'before' : 'after';
+    onExecuteDrop(e, {
+      type: 'sibling',
+      blockId: block.id,
+      parentId,
+      placement
+    });
+  };
+
+  const handleContainerBodyDragOver = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!canDropIntoTarget(dragPayload, block.id)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    onSetDropTarget({ type: 'container', parentId: block.id });
+  };
+
+  const handleContainerBodyDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    if (!canDropIntoTarget(dragPayload, block.id)) return;
+    onExecuteDrop(e, { type: 'container', parentId: block.id });
+  };
 
   return (
-    <div className={clsx("rounded-2xl border transition-all shadow-md overflow-hidden", headerBg)}>
-      {/* Block Header */}
-      <div className="p-3 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <div className="flex flex-col gap-0.5 shrink-0">
-            <button
-              type="button"
-              disabled={index === 0}
-              onClick={() => onMove(index, 'up', parentId)}
-              className="p-0.5 rounded hover:bg-zinc-800/60 text-zinc-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-              title="Переместить вверх"
-            >
-              <ArrowUp className="w-3 h-3" />
-            </button>
-            <button
-              type="button"
-              disabled={index === totalCount - 1}
-              onClick={() => onMove(index, 'down', parentId)}
-              className="p-0.5 rounded hover:bg-zinc-800/60 text-zinc-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed cursor-pointer"
-              title="Переместить вниз"
-            >
-              <ArrowDown className="w-3 h-3" />
-            </button>
-          </div>
+    <div className="relative">
+      {/* Top Insertion Line */}
+      {isSiblingBefore && (
+        <div className="h-1 -mt-1 mb-1 rounded-full bg-[#10B981] shadow-[0_0_8px_rgba(16,185,129,0.7)] pointer-events-none" />
+      )}
 
-          <span className={clsx("w-3 h-3 rounded-full shrink-0", badgeBg)} />
-          <span className="font-mono font-bold text-xs sm:text-sm text-zinc-100">
-            {block.type === 'entity' ? `create ${block.name}` : block.name}
-          </span>
-
-          <div className="flex items-center gap-2 flex-wrap">
-            {paramKeys.map(key => (
-              <div key={key} className="flex items-center gap-1 bg-black/40 px-2 py-0.5 rounded-lg border border-zinc-700/55">
-                <span className="text-[10px] text-zinc-400 font-mono">{key}:</span>
-                <input
-                  type="text"
-                  value={block.params[key] || ''}
-                  onChange={(e) => onUpdateParam(block.id, key, e.target.value)}
-                  className="bg-transparent border-none text-xs font-mono text-emerald-300 focus:outline-none w-20 sm:w-28"
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1 shrink-0">
-          {block.children !== undefined && (
-            <button
-              type="button"
-              onClick={() => onToggleCollapse(block.id)}
-              className="p-1 rounded-lg hover:bg-zinc-800/60 text-zinc-400 hover:text-white transition-colors cursor-pointer"
-            >
-              {block.collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            </button>
+      <div
+        draggable
+        onDragStart={e => onDragStartBlock(e, block.id)}
+        onDragEnd={onDragEndBlock}
+        className={clsx(
+          'rounded-xl border transition-all overflow-hidden',
+          cardSurface,
+          isBeingDragged && 'opacity-45 ring-1 ring-[#10B981]',
+          isContainerTarget && 'ring-2 ring-[#10B981] border-[#10B981]'
+        )}
+      >
+        {/* Block Header */}
+        <div
+          onDragOver={handleCardHeaderDragOver}
+          onDrop={handleCardHeaderDrop}
+          className={clsx(
+            'p-2.5 sm:p-3 flex items-center justify-between gap-2.5 cursor-grab active:cursor-grabbing',
+            headerStrip
           )}
+        >
+          <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
+            <span
+              className={clsx(
+                'p-1 rounded cursor-grab active:cursor-grabbing shrink-0',
+                isLight ? 'text-slate-400 hover:text-slate-700' : 'text-[#6B7280] hover:text-[#F3F4F6]'
+              )}
+              title={language === 'ru' ? 'Потяните, чтобы переместить' : 'Drag to move'}
+            >
+              <GripVertical className="w-4 h-4" />
+            </span>
 
-          <button
-            type="button"
-            onClick={() => onDelete(block.id)}
-            className="p-1 rounded-lg hover:bg-red-500/20 text-zinc-400 hover:text-red-400 transition-colors cursor-pointer"
-            title="Удалить блок"
+            <span className={clsx('w-1.5 h-5 rounded-sm shrink-0', accentBar)} />
+
+            <span className="font-mono font-bold text-xs sm:text-sm">
+              {block.type === 'entity' ? `create ${block.name}` : block.name}
+            </span>
+
+            <div
+              className="flex items-center gap-1.5 flex-wrap"
+              draggable
+              onDragStart={e => {
+                e.preventDefault();
+                e.stopPropagation();
+              }}
+              onMouseDown={e => e.stopPropagation()}
+            >
+              {paramKeys.map(key => (
+                <div
+                  key={key}
+                  className={clsx(
+                    'flex items-center gap-1 px-2 py-0.5 rounded-md border',
+                    isLight ? 'bg-white border-[#E2E5EA]' : 'bg-[#0A0C0E] border-[#262B33]'
+                  )}
+                >
+                  <span className={clsx('text-[10px] font-mono', isLight ? 'text-slate-500' : 'text-[#9CA3AF]')}>
+                    {key}:
+                  </span>
+                  <input
+                    type="text"
+                    value={block.params[key] || ''}
+                    onChange={e => onUpdateParam(block.id, key, e.target.value)}
+                    className={clsx(
+                      'bg-transparent border-none text-xs font-mono focus:outline-none w-20 sm:w-28',
+                      isLight ? 'text-emerald-700' : 'text-[#10B981]'
+                    )}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div
+            className="flex items-center gap-1 shrink-0"
+            onMouseDown={e => e.stopPropagation()}
           >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+            {isContainer && (
+              <button
+                type="button"
+                onClick={() => onToggleCollapse(block.id)}
+                className={clsx(
+                  'p-1 rounded-md transition-colors cursor-pointer',
+                  isLight ? 'hover:bg-black/5 text-slate-500 hover:text-slate-900' : 'hover:bg-white/10 text-[#9CA3AF] hover:text-white'
+                )}
+                title={block.collapsed ? (language === 'ru' ? 'Развернуть' : 'Expand') : language === 'ru' ? 'Свернуть' : 'Collapse'}
+              >
+                {block.collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => onDelete(block.id)}
+              className="p-1 rounded-md hover:bg-red-500/20 text-[#9CA3AF] hover:text-red-400 transition-colors cursor-pointer"
+              title={language === 'ru' ? 'Удалить блок' : 'Delete block'}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
+
+        {/* Children Dropzone for Container Blocks */}
+        {isContainer && !block.collapsed && (
+          <div
+            onDragOver={handleContainerBodyDragOver}
+            onDrop={handleContainerBodyDrop}
+            className={clsx(
+              'p-3 pl-5 sm:pl-7 space-y-2 border-t transition-colors',
+              isLight ? 'border-[#E2E5EA] bg-[#F5F6F8]/70' : 'border-[#262B33] bg-[#0A0C0E]/45',
+              isContainerTarget && 'bg-[#10B981]/10'
+            )}
+          >
+            {block.children!.map(child => (
+              <RenderBlockCard
+                key={child.id}
+                block={child}
+                parentId={block.id}
+                draggingBlockId={draggingBlockId}
+                dropTarget={dropTarget}
+                dragPayload={dragPayload}
+                canDropIntoTarget={canDropIntoTarget}
+                onDragStartBlock={onDragStartBlock}
+                onDragEndBlock={onDragEndBlock}
+                onSetDropTarget={onSetDropTarget}
+                onExecuteDrop={onExecuteDrop}
+                onDelete={onDelete}
+                onUpdateParam={onUpdateParam}
+                onToggleCollapse={onToggleCollapse}
+                onAddChild={onAddChild}
+                isFrutigerAero={isFrutigerAero}
+                isLight={isLight}
+                language={language}
+              />
+            ))}
+
+            {/* Drop Slot inside Container */}
+            <div
+              onDragOver={handleContainerBodyDragOver}
+              onDrop={handleContainerBodyDrop}
+              className={clsx(
+                'p-2.5 text-center text-[11px] rounded-lg border border-dashed transition-colors flex items-center justify-center gap-1.5',
+                isContainerTarget
+                  ? 'border-[#10B981] bg-[#10B981]/15 text-[#10B981] font-semibold'
+                  : isLight
+                    ? 'border-[#D1D5DB] text-slate-500'
+                    : 'border-[#262B33] text-[#9CA3AF]'
+              )}
+            >
+              <FolderInput className="w-3.5 h-3.5 opacity-75" />
+              <span>
+                {block.children!.length === 0
+                  ? language === 'ru'
+                    ? 'Перетащите сюда любой блок или выберите через «+ В блок»'
+                    : 'Drag any block inside here or click "+ Add inside"'
+                  : language === 'ru'
+                    ? 'Перетащите сюда ещё блок, чтобы добавить внутрь'
+                    : 'Drop another block here to insert inside'}
+              </span>
+            </div>
+
+            {/* Inline Quick-Picker to add any block INSIDE this container */}
+            <div className="pt-0.5 space-y-2" onMouseDown={e => e.stopPropagation()}>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setShowInnerPicker(prev => !prev)}
+                  className={clsx(
+                    'px-2.5 py-1 rounded-md border text-[11px] font-semibold flex items-center gap-1 cursor-pointer transition-colors',
+                    showInnerPicker
+                      ? 'bg-[#10B981] text-[#0A0C0E] border-[#10B981]'
+                      : isLight
+                        ? 'bg-white hover:bg-emerald-50 text-emerald-700 border-emerald-300'
+                        : 'bg-[#181B20] hover:bg-[#10B981]/15 text-[#10B981] border-[#10B981]/35'
+                  )}
+                >
+                  {showInnerPicker ? <X className="w-3 h-3" /> : <Plus className="w-3 h-3" />}
+                  <span>{language === 'ru' ? 'Добавить в блок' : 'Add inside'}</span>
+                </button>
+              </div>
+
+              {showInnerPicker && (
+                <div
+                  className={clsx(
+                    'p-2.5 rounded-lg border grid grid-cols-2 sm:grid-cols-3 gap-1.5',
+                    isLight ? 'bg-white border-[#E2E5EA]' : 'bg-[#181B20] border-[#262B33]'
+                  )}
+                >
+                  {innerPresetOptions.map(preset => (
+                    <button
+                      key={`${preset.type}_${preset.name}`}
+                      type="button"
+                      onClick={() => {
+                        onAddChild(preset, block.id);
+                        setShowInnerPicker(false);
+                      }}
+                      className={clsx(
+                        'px-2 py-1.5 rounded-md text-left border transition-colors cursor-pointer flex items-center justify-between gap-1',
+                        isLight
+                          ? 'bg-[#F5F6F8] hover:bg-emerald-50 border-[#E2E5EA] hover:border-emerald-300 text-slate-800'
+                          : 'bg-[#111315] hover:bg-[#10B981]/10 border-[#262B33] hover:border-[#10B981]/40 text-[#F3F4F6]'
+                      )}
+                    >
+                      <div className="min-w-0">
+                        <div className="font-mono text-[11px] font-semibold truncate">{preset.label}</div>
+                        <div className={clsx('text-[9px] truncate', isLight ? 'text-slate-500' : 'text-[#9CA3AF]')}>
+                          {preset.description}
+                        </div>
+                      </div>
+                      <Plus className="w-3 h-3 text-[#10B981] shrink-0" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Children Container for Event / Control Blocks */}
-      {block.children !== undefined && !block.collapsed && (
-        <div className="p-3 pt-0 pl-6 sm:pl-8 space-y-2 border-t border-zinc-800/40 bg-black/20">
-          {block.children.map((child, childIdx) => (
-            <RenderBlockCard
-              key={child.id}
-              block={child}
-              index={childIdx}
-              totalCount={block.children!.length}
-              parentId={block.id}
-              onDelete={onDelete}
-              onMove={onMove}
-              onUpdateParam={onUpdateParam}
-              onToggleCollapse={onToggleCollapse}
-              onAddChild={onAddChild}
-              isFrutigerAero={isFrutigerAero}
-              theme={theme}
-              language={language}
-            />
-          ))}
-
-          {block.children.length === 0 && (
-            <div className="p-2 text-center text-[11px] text-zinc-500 italic border border-dashed border-zinc-800/60 rounded-xl">
-              {language === 'ru' ? 'Вложите сюда действия из палитры' : 'Drop actions or entities inside here'}
-            </div>
-          )}
-
-          <div className="pt-1 flex justify-end">
-            <button
-              type="button"
-              onClick={() => onAddChild(PRESET_BLOCKS[5], block.id)}
-              className="px-2.5 py-1 rounded-lg bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 border border-blue-500/30 text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-all"
-            >
-              <Plus className="w-3 h-3" />
-              {language === 'ru' ? 'Добавить внутри' : 'Add inside'}
-            </button>
-          </div>
-        </div>
+      {/* Bottom Insertion Line */}
+      {isSiblingAfter && (
+        <div className="h-1 mt-1 -mb-1 rounded-full bg-[#10B981] shadow-[0_0_8px_rgba(16,185,129,0.7)] pointer-events-none" />
       )}
     </div>
   );

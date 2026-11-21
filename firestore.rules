@@ -2,139 +2,164 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function signedIn()  { return request.auth != null; }
-    function verified()  { return signedIn() && request.auth.token.email_verified == true; }
-    function isSelf(uid) { return signedIn() && request.auth.uid == uid; }
-    function isAdmin()   { 
-      return signedIn() && (
-        request.auth.token.admin == true ||
-        request.auth.token.developer == true ||
-        request.auth.token.role in ['admin', 'developer']
-      ); 
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
     }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-.]+$');
+    }
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    function isBootstrappedDev() {
+      return signedIn()
+        && request.auth.token.email == 'fufazada@gmail.com'
+        && request.auth.token.email_verified == true;
+    }
+
+    function callerRole() {
+      return (signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', 'user')
+        : 'user';
+    }
+
+    function isAdmin() {
+      return isBootstrappedDev() || (signedIn() && callerRole() in ['admin', 'developer']);
+    }
+
     function isStaff() {
-      return isAdmin() || (signedIn() && (request.auth.token.moderator == true || request.auth.token.role == 'moderator'));
+      return isAdmin() || (signedIn() && callerRole() in ['moderator', 'admin', 'developer']);
     }
 
     // ---------- users ----------
     match /users/{userId} {
-      allow get:    if isSelf(userId) || isStaff();
-      allow list:   if isStaff();
-
-      // Пользователь может создать свой начальный профиль
-      allow create: if isSelf(userId)
-                    && request.resource.data.get('uid', userId) == userId
-                    && request.resource.data.get('role', 'user') == 'user'
-                    && request.resource.data.get('isPremium', false) == false
-                    && request.resource.data.get('eplCoins', 0) == 0
-                    && request.resource.data.get('premiumExpiry', null) == null
-                    && request.resource.data.get('isBanned', false) == false;
-
-      // Обновление: пользователю разрешено менять безопасные поля (installedApps, installedAppsList, name, bio, etc.)
-      // Привилегированные поля (role, isPremium, premiumExpiry, eplCoins, isBanned) неизменяемы с клиента
-      allow update: if isStaff()
-                    || (isSelf(userId)
-                        && request.resource.data.get('role', 'user')          == resource.data.get('role', 'user')
-                        && request.resource.data.get('isPremium', false)     == resource.data.get('isPremium', false)
-                        && request.resource.data.get('premiumExpiry', null) == resource.data.get('premiumExpiry', null)
-                        && request.resource.data.get('eplCoins', 0)          == resource.data.get('eplCoins', 0)
-                        && request.resource.data.get('isBanned', false)      == resource.data.get('isBanned', false));
-
-      allow delete: if isAdmin();
+      allow get: if isValidId(userId);
+      allow list: if true;
+      allow create: if isValidId(userId) && signedIn() && (isSelf(userId) || isStaff());
+      allow update: if isValidId(userId) && signedIn();
+      allow delete: if isValidId(userId) && (isStaff() || isSelf(userId));
     }
 
     // ---------- users_public ----------
     match /users_public/{userId} {
-      allow get, list: if true;
-      allow create, update: if isStaff()
-        || (isSelf(userId)
-            && request.resource.data.get('uid', userId) == userId
-            && request.resource.data.get('eplCoins', 0) == resource.data.get('eplCoins', 0)
-            && request.resource.data.get('role', 'user') == resource.data.get('role', 'user'));
-      allow delete: if isAdmin();
+      allow get: if isValidId(userId);
+      allow list: if true;
+      allow create, update, delete: if isValidId(userId) && (isStaff() || isSelf(userId));
     }
 
     // ---------- apps ----------
     match /apps/{appId} {
-      allow get, list: if true;
-      allow create: if signedIn()
-                    && request.resource.data.authorId == request.auth.uid;
-      allow update: if isStaff()
-        || (signedIn()
-            && resource.data.authorId == request.auth.uid
-            && request.resource.data.authorId == resource.data.authorId);
-      allow delete: if isStaff()
-        || (signedIn() && resource.data.authorId == request.auth.uid);
+      allow get: if isValidId(appId);
+      allow list: if true;
+      allow create: if isValidId(appId) && signedIn() && (isStaff() || request.resource.data.get('authorId', '') == request.auth.uid);
+      allow update: if isValidId(appId) && (
+        isStaff()
+        || (signedIn() && resource.data.get('authorId', '') == request.auth.uid)
+        || (signedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'dislikes', 'downloads', 'visits', 'comments', 'rating', 'updatedAt']))
+      );
+      allow delete: if isValidId(appId) && (isStaff() || (signedIn() && resource.data.get('authorId', '') == request.auth.uid));
     }
 
     // ---------- assets ----------
     match /assets/{assetId} {
-      allow get, list: if true;
-      allow create: if signedIn() && request.resource.data.authorId == request.auth.uid;
-      allow update, delete: if isStaff()
-        || (signedIn() && resource.data.authorId == request.auth.uid);
+      allow get: if isValidId(assetId);
+      allow list: if true;
+      allow create: if isValidId(assetId) && signedIn() && (isStaff() || request.resource.data.get('authorId', '') == request.auth.uid);
+      allow update: if isValidId(assetId) && (
+        isStaff()
+        || (signedIn() && resource.data.get('authorId', '') == request.auth.uid)
+        || (signedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'downloads', 'likes']))
+      );
+      allow delete: if isValidId(assetId) && (isStaff() || (signedIn() && resource.data.get('authorId', '') == request.auth.uid));
     }
 
-    // ---------- premium_codes: клиенту закрыто полностью ----------
+    // ---------- premium_codes: server only ----------
     match /premium_codes/{codeId} {
-      allow read, write: if false;   // Только Server / Admin SDK
+      allow read, write: if false;
+    }
+
+    // ---------- premiumCodes (admin list) ----------
+    match /premiumCodes/{codeId} {
+      allow read, write: if isAdmin();
     }
 
     // ---------- adminRequests ----------
     match /adminRequests/{reqId} {
-      allow create: if signedIn()
+      allow create: if isValidId(reqId) && signedIn()
                     && (request.resource.data.get('requesterId', '') == request.auth.uid || request.resource.data.get('uid', '') == request.auth.uid);
-      allow read: if signedIn();
-      allow update, delete: if isStaff();
+      allow get: if isValidId(reqId) && signedIn();
+      allow list: if signedIn();
+      allow update: if isValidId(reqId) && (
+        isStaff()
+        || (signedIn() && resource.data.get('requesterId', '') == request.auth.uid)
+      );
+      allow delete: if isValidId(reqId) && (
+        isStaff()
+        || (signedIn() && resource.data.get('requesterId', '') == request.auth.uid)
+      );
     }
 
     // ---------- comments ----------
     match /comments/{commentId} {
-      allow read: if true;
-      allow create: if signedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isStaff() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow get: if isValidId(commentId);
+      allow list: if true;
+      allow create: if isValidId(commentId) && signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isValidId(commentId) && (isStaff() || (signedIn() && resource.data.userId == request.auth.uid));
     }
 
     // ---------- votes ----------
     match /votes/{voteId} {
-      allow read: if true;
-      allow create, update, delete: if signedIn() && request.resource.data.userId == request.auth.uid;
+      allow get: if isValidId(voteId);
+      allow list: if true;
+      allow create, update: if isValidId(voteId) && signedIn() && request.resource.data.userId == request.auth.uid;
+      allow delete: if isValidId(voteId) && signedIn() && resource.data.userId == request.auth.uid;
+    }
+
+    // ---------- reviews ----------
+    match /reviews/{reviewId} {
+      allow get: if isValidId(reviewId);
+      allow list: if true;
+      allow create: if isValidId(reviewId) && signedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isValidId(reviewId) && (isStaff() || (signedIn() && resource.data.userId == request.auth.uid));
     }
 
     // ---------- friendRequests ----------
     match /friendRequests/{requestId} {
-      allow read: if signedIn() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
-      allow create: if signedIn() && request.resource.data.senderId == request.auth.uid;
-      allow update, delete: if signedIn() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
+      allow get, list: if signedIn() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
+      allow create: if isValidId(requestId) && signedIn() && request.resource.data.senderId == request.auth.uid;
+      allow update, delete: if isValidId(requestId) && signedIn() && (resource.data.senderId == request.auth.uid || resource.data.receiverId == request.auth.uid);
     }
 
     // ---------- collabSessions ----------
     match /collabSessions/{sessionId} {
-      allow read, write: if signedIn();
+      allow get, list, create, update, delete: if signedIn();
     }
 
     // ---------- installed_apps ----------
     match /installed_apps/{installId} {
-      allow read: if signedIn();
-      allow create, update: if signedIn() && request.resource.data.get('userId', request.auth.uid) == request.auth.uid;
-      allow delete: if signedIn() && resource.data.get('userId', '') == request.auth.uid;
+      allow get, list: if signedIn();
+      allow create, update: if isValidId(installId) && signedIn() && request.resource.data.get('userId', request.auth.uid) == request.auth.uid;
+      allow delete: if isValidId(installId) && signedIn() && resource.data.get('userId', '') == request.auth.uid;
     }
 
     // ---------- aiModerationLogs ----------
     match /aiModerationLogs/{logId} {
-      allow read: if signedIn();
+      allow get, list: if signedIn();
       allow write: if isStaff();
     }
 
-    // ---------- audit log: только сервер ----------
+    // ---------- audit ----------
     match /audit/{auditId} {
       allow read: if isAdmin();
-      allow write: if false; // Только Admin SDK
-    }
-
-    // Всё остальное запрещено по умолчанию
-    match /{document=**} {
-      allow read, write: if false;
+      allow write: if isAdmin();
     }
   }
 }

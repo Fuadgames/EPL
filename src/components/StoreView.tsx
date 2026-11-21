@@ -1,19 +1,57 @@
-import React, { useEffect, useState, useCallback, useTransition } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { collection, getDocs, query, orderBy, limit, where, doc, updateDoc, increment, setDoc, getDoc, deleteDoc, arrayUnion, onSnapshot } from 'firebase/firestore';
-import { db, sendProjectToVerify } from '../firebase';
+import React, { useEffect, useState, useTransition } from 'react';
+import {
+  collection,
+  query,
+  orderBy,
+  limit,
+  where,
+  doc,
+  updateDoc,
+  increment,
+  setDoc,
+  getDoc,
+  deleteDoc,
+  arrayUnion,
+  onSnapshot,
+} from 'firebase/firestore';
+import { db } from '../firebase';
 import { useStore } from '../store/useStore';
-import { translations } from '../lib/translations';
-import { Search, Star, Download, Play, Monitor, Smartphone, Apple, Terminal, Lock, ThumbsUp, ThumbsDown, RefreshCw, Flame, Clock, Coins, Users, CheckCircle2 } from 'lucide-react';
+import { notify, confirmAction } from '../store/useDialogStore';
+import {
+  Search,
+  Star,
+  Download,
+  Monitor,
+  Smartphone,
+  Apple,
+  Terminal,
+  ThumbsUp,
+  ThumbsDown,
+  Flame,
+  Clock,
+  Coins,
+  Users,
+  CheckCircle2,
+  Play,
+  Package,
+} from 'lucide-react';
 import { clsx } from 'clsx';
 import { AppData, AppCategory, UserVote } from '../types';
 import FriendsView from './FriendsView';
-import Gradient from './Gradient';
 import BuildDownloadModal from './BuildDownloadModal';
 import UserRoleBadge from './UserRoleBadge';
 import VerifiedBadge from './VerifiedBadge';
 
-const CATEGORIES: AppCategory[] = ['games', 'apps', 'work', 'AI', 'Programming Language', 'Store', 'Custom Editor', 'Other'];
+const CATEGORIES: AppCategory[] = [
+  'games',
+  'apps',
+  'work',
+  'AI',
+  'Programming Language',
+  'Store',
+  'Custom Editor',
+  'Other',
+];
 
 export default function StoreView() {
   const [apps, setApps] = useState<AppData[]>([]);
@@ -21,75 +59,83 @@ export default function StoreView() {
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'featured' | 'recent' | 'friends'>('featured');
   const [selectedCategory, setSelectedCategory] = useState<AppCategory | 'all'>('all');
-  const [downloadingApp, setDownloadingApp] = useState<string | null>(null);
   const [userVotes, setUserVotes] = useState<Record<string, 'like' | 'dislike'>>({});
-  
-  const theme = useStore(state => state.theme);
-  const setCurrentView = useStore(state => state.setCurrentView);
-  const setPlayingAppId = useStore(state => state.setPlayingAppId);
-  const setSelectedAppId = useStore(state => state.setSelectedAppId);
-  const user = useStore(state => state.user);
-  const userData = useStore(state => state.userData);
-  const simulatedRole = useStore(state => state.simulatedRole);
-  const actualRole = userData?.role || 'user';
-  const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
-  const isPremium = useStore(state => state.isPremium);
-  const isFrutigerAero = useStore(state => state.isFrutigerAero);
-  const language = useStore(state => state.language);
-  const isAppInstalled = useStore(state => state.isAppInstalled);
-  const installApp = useStore(state => state.installApp);
+
+  const theme = useStore((state) => state.theme);
+  const setCurrentView = useStore((state) => state.setCurrentView);
+  const setPlayingAppId = useStore((state) => state.setPlayingAppId);
+  const setSelectedAppId = useStore((state) => state.setSelectedAppId);
+  const user = useStore((state) => state.user);
+  const userData = useStore((state) => state.userData);
+  const isFrutigerAero = useStore((state) => state.isFrutigerAero);
+  const language = useStore((state) => state.language);
+  const isAppInstalled = useStore((state) => state.isAppInstalled);
+  const installApp = useStore((state) => state.installApp);
   const [installingAppId, setInstallingAppId] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
 
   const [buildTargetApp, setBuildTargetApp] = useState<AppData | null>(null);
   const [buildTargetPlatform, setBuildTargetPlatform] = useState<string | undefined>(undefined);
 
+  const [enteredCode, setEnteredCode] = useState('');
+  const [unlockError, setUnlockError] = useState('');
+  const [showUnlockModal, setShowUnlockModal] = useState(false);
+  const [unlockTargetApp, setUnlockTargetApp] = useState<AppData | null>(null);
+
+  const isLight = theme === 'light' && !isFrutigerAero;
+
   useEffect(() => {
     setLoading(true);
-    let q;
-    if (activeTab === 'featured') {
-      q = query(collection(db, 'apps'), orderBy('downloads', 'desc'), limit(50));
-    } else {
-      q = query(collection(db, 'apps'), orderBy('createdAt', 'desc'), limit(50));
-    }
+    const q =
+      activeTab === 'featured'
+        ? query(collection(db, 'apps'), orderBy('downloads', 'desc'), limit(50))
+        : query(collection(db, 'apps'), orderBy('createdAt', 'desc'), limit(50));
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      let appsData = snapshot.docs.map(doc => {
-        const data = doc.data() as any;
-        return {
-          id: doc.id,
-          ...data,
-          rating: typeof data?.rating === 'number' && !isNaN(data.rating) ? data.rating : 5.0,
-          downloads: typeof data?.downloads === 'number' ? data.downloads : 0,
-          visits: typeof data?.visits === 'number' ? data.visits : 0,
-          likes: typeof data?.likes === 'number' ? data.likes : 0,
-          dislikes: typeof data?.dislikes === 'number' ? data.dislikes : 0,
-          price: typeof data?.price === 'number' ? data.price : 0,
-        } as AppData;
-      });
-      
-      // Filter out private apps, rejected apps and malicious/hacked submissions
-      appsData = appsData.filter(app => {
-        if (app.isPrivate) return false;
-        if (app.moderationStatus === 'rejected' || app.status === 'rejected') return false;
-        const title = (app.title || '').toLowerCase();
-        const desc = (app.description || '').toLowerCase();
-        if (title.includes('hacked') || title.includes('взлом') || desc.includes('hacked') || desc.includes('взлом')) {
-          return false;
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        let appsData = snapshot.docs.map((docSnap) => {
+          const data = docSnap.data() as any;
+          return {
+            ...data,
+            id: docSnap.id,
+            rating: typeof data?.rating === 'number' && !isNaN(data.rating) ? data.rating : 5.0,
+            downloads: typeof data?.downloads === 'number' ? data.downloads : 0,
+            visits: typeof data?.visits === 'number' ? data.visits : 0,
+            likes: typeof data?.likes === 'number' ? data.likes : 0,
+            dislikes: typeof data?.dislikes === 'number' ? data.dislikes : 0,
+            price: typeof data?.price === 'number' ? data.price : 0,
+          } as AppData;
+        });
+
+        appsData = appsData.filter((app) => {
+          if (app.isPrivate) return false;
+          if (app.moderationStatus === 'rejected' || app.status === 'rejected') return false;
+          const title = (app.title || '').toLowerCase();
+          const desc = (app.description || '').toLowerCase();
+          if (
+            title.includes('hacked') ||
+            title.includes('взлом') ||
+            desc.includes('hacked') ||
+            desc.includes('взлом')
+          ) {
+            return false;
+          }
+          return true;
+        });
+
+        if (selectedCategory !== 'all') {
+          appsData = appsData.filter((app) => app.category === selectedCategory);
         }
-        return true;
-      });
-      
-      if (selectedCategory !== 'all') {
-        appsData = appsData.filter(app => app.category === selectedCategory);
+
+        setApps(appsData);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Error subscribing to apps', error);
+        setLoading(false);
       }
-      
-      setApps(appsData);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error subscribing to apps", error);
-      setLoading(false);
-    });
+    );
 
     return () => unsubscribe();
   }, [activeTab, selectedCategory]);
@@ -97,86 +143,77 @@ export default function StoreView() {
   useEffect(() => {
     if (user) {
       const q = query(collection(db, 'votes'), where('userId', '==', user.uid));
-      const unsubscribe = onSnapshot(q, (snapshot) => {
-        const votes: Record<string, 'like' | 'dislike'> = {};
-        snapshot.docs.forEach(doc => {
-          const data = doc.data() as UserVote;
-          votes[data.appId] = data.type;
-        });
-        setUserVotes(votes);
-      }, (error) => {
-        console.error("Error subscribing to votes", error);
-      });
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          const votes: Record<string, 'like' | 'dislike'> = {};
+          snapshot.docs.forEach((docSnap) => {
+            const data = docSnap.data() as UserVote;
+            votes[data.appId] = data.type;
+          });
+          setUserVotes(votes);
+        },
+        (error) => {
+          console.error('Error subscribing to votes', error);
+        }
+      );
       return () => unsubscribe();
     }
   }, [user]);
 
   const handleVote = async (appId: string, type: 'like' | 'dislike') => {
-    if (!user) return;
-    
+    if (!user) {
+      notify.info(language === 'ru' ? 'Войдите в аккаунт для оценки' : 'Sign in to vote.');
+      return;
+    }
+
     const voteId = `${user.uid}_${appId}`;
     const voteRef = doc(db, 'votes', voteId);
     const appRef = doc(db, 'apps', appId);
-    
     const currentVote = userVotes[appId];
-    
+
     try {
       if (currentVote === type) {
-        // Remove vote
         await deleteDoc(voteRef);
         await updateDoc(appRef, {
-          [type === 'like' ? 'likes' : 'dislikes']: increment(-1)
+          [type === 'like' ? 'likes' : 'dislikes']: increment(-1),
         });
-        setUserVotes(prev => {
+        setUserVotes((prev) => {
           const next = { ...prev };
           delete next[appId];
           return next;
         });
       } else {
-        // Add or change vote
         await setDoc(voteRef, { userId: user.uid, appId, type });
-        
         const updates: any = {
-          [type === 'like' ? 'likes' : 'dislikes']: increment(1)
+          [type === 'like' ? 'likes' : 'dislikes']: increment(1),
         };
-        
         if (currentVote) {
           updates[currentVote === 'like' ? 'likes' : 'dislikes'] = increment(-1);
         }
-        
         await updateDoc(appRef, updates);
-        setUserVotes(prev => ({ ...prev, [appId]: type }));
+        setUserVotes((prev) => ({ ...prev, [appId]: type }));
       }
     } catch (error) {
-      console.error("Error voting", error);
+      console.error('Error voting', error);
     }
   };
 
-  const [enteredCode, setEnteredCode] = useState('');
-  const [unlockError, setUnlockError] = useState('');
-  const [showUnlockModal, setShowUnlockModal] = useState(false);
-  const [unlockTargetApp, setUnlockTargetApp] = useState<AppData | null>(null);
-
   const proceedToPlay = async (app: AppData) => {
-    // Increment visits
     try {
       await updateDoc(doc(db, 'apps', app.id), {
-        visits: increment(1)
+        visits: increment(1),
       });
     } catch (error) {
-      console.error("Error incrementing visits", error);
+      console.error('Error incrementing visits', error);
     }
 
-    // Check if update is needed
     const installedAppVersion = userData?.installedApps?.[app.id];
-    if (installedAppVersion && installedAppVersion !== app.version) {
-      // Update logic
-      if (userData?.uid) {
-        await updateDoc(doc(db, 'users', userData.uid), {
-          [`installedApps.${app.id}`]: app.version
-        });
-        alert(language === 'ru' ? "Приложение обновлено!" : "App updated!");
-      }
+    if (installedAppVersion && installedAppVersion !== app.version && userData?.uid) {
+      await updateDoc(doc(db, 'users', userData.uid), {
+        [`installedApps.${app.id}`]: app.version,
+      }).catch(() => {});
+      notify.info(language === 'ru' ? 'Приложение обновлено до новой версии.' : 'App updated to latest version.');
     }
 
     startTransition(() => {
@@ -186,48 +223,60 @@ export default function StoreView() {
   };
 
   const handlePlay = async (app: AppData) => {
-    if (!user) return alert("Please sign in to play apps.");
-    
-    // Check if app is paid and not purchased
-    const isPurchased = userData?.purchasedApps?.includes(app.id) || app.authorId === user.uid || !app.price || app.price === 0;
-    
+    if (!user) {
+      notify.info(language === 'ru' ? 'Войдите, чтобы запускать приложения.' : 'Please sign in to play apps.');
+      return;
+    }
+
+    const isPurchased =
+      userData?.purchasedApps?.includes(app.id) ||
+      app.authorId === user.uid ||
+      !app.price ||
+      app.price === 0;
+
     if (!isPurchased) {
       if ((userData?.eplCoins || 0) < (app.price || 0)) {
-        return alert(language === 'ru' ? "Недостаточно EPLCoins!" : "Not enough EPLCoins!");
+        notify.error(language === 'ru' ? 'Недостаточно EPLCoins!' : 'Not enough EPLCoins!');
+        return;
       }
-      
-      const confirmPurchase = window.confirm(language === 'ru' ? `Купить ${app.title} за ${app.price} EPLCoins?` : `Buy ${app.title} for ${app.price} EPLCoins?`);
-      if (!confirmPurchase) return;
-      
+
+      const confirmed = await confirmAction({
+        title: language === 'ru' ? 'Покупка приложения' : 'Purchase App',
+        message:
+          language === 'ru'
+            ? `Купить «${app.title}» за ${app.price} EPLCoins?`
+            : `Buy "${app.title}" for ${app.price} EPLCoins?`,
+        confirmText: language === 'ru' ? 'Купить' : 'Buy',
+      });
+      if (!confirmed) return;
+
       try {
-        // Deduct from buyer
         await updateDoc(doc(db, 'users', user.uid), {
           eplCoins: increment(-(app.price || 0)),
           purchasedApps: arrayUnion(app.id),
-          [`installedApps.${app.id}`]: app.version
+          [`installedApps.${app.id}`]: app.version,
         });
-        
-        // Add to seller
+
         if (app.authorId) {
           const sellerRef = doc(db, 'users', app.authorId);
           await updateDoc(sellerRef, {
-            eplCoins: increment(app.price || 0)
-          });
-          
-          // Also update public profile coins
+            eplCoins: increment(app.price || 0),
+          }).catch(() => {});
+
           const sellerPublicRef = doc(db, 'users_public', app.authorId);
           const sellerPublicSnap = await getDoc(sellerPublicRef);
           if (sellerPublicSnap.exists()) {
             await updateDoc(sellerPublicRef, {
-              eplCoins: increment(app.price || 0)
-            });
+              eplCoins: increment(app.price || 0),
+            }).catch(() => {});
           }
         }
-        
-        alert(language === 'ru' ? "Приложение куплено!" : "App purchased!");
+
+        notify.success(language === 'ru' ? 'Приложение успешно куплено!' : 'App purchased!');
       } catch (error) {
-        console.error("Error purchasing app", error);
-        return alert("Purchase failed. Please try again.");
+        console.error('Error purchasing app', error);
+        notify.error(language === 'ru' ? 'Ошибка покупки. Попробуйте снова.' : 'Purchase failed. Please try again.');
+        return;
       }
     }
 
@@ -240,377 +289,529 @@ export default function StoreView() {
     await proceedToPlay(app);
   };
 
-  const handleDownload = (app: AppData, platform: string) => {
-    const url = (app as any)[`${platform}Url`];
-    if (url) {
-      window.open(url, '_blank');
-      updateDoc(doc(db, 'apps', app.id), { downloads: increment(1) });
-    } else {
-      // Fallback to simulated download
-      setDownloadingApp(`${app.id}-${platform}`);
-      setTimeout(() => {
-        const blob = new Blob([app.code], { type: 'text/plain' });
-        const downloadUrl = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = downloadUrl;
-        
-        let ext = '.epl';
-        if (platform === 'windows') ext = '.exe';
-        if (platform === 'macos') ext = '.app';
-        if (platform === 'linux') ext = '.AppImage';
-        if (platform === 'apk') ext = '.apk';
-        
-        a.download = `${app.title}${ext}`;
-        a.click();
-        setDownloadingApp(null);
-      }, 1000);
-    }
-  };
-
-  const filteredApps = apps.filter(app => 
-    app.title.toLowerCase().includes(search.toLowerCase()) || 
-    app.description.toLowerCase().includes(search.toLowerCase())
+  const filteredApps = apps.filter(
+    (app) =>
+      (app.title || '').toLowerCase().includes(search.toLowerCase()) ||
+      (app.description || '').toLowerCase().includes(search.toLowerCase())
   );
 
   const getPlatformIcon = (platform: string) => {
-    switch(platform) {
-      case 'windows': return <Monitor className="w-3.5 h-3.5" />;
-      case 'macos': return <Apple className="w-3.5 h-3.5" />;
-      case 'linux': return <Terminal className="w-3.5 h-3.5" />;
+    switch (platform) {
+      case 'windows':
+        return <Monitor className="w-3.5 h-3.5" />;
+      case 'macos':
+        return <Apple className="w-3.5 h-3.5" />;
+      case 'linux':
+        return <Terminal className="w-3.5 h-3.5" />;
       case 'android':
-      case 'apk': return <Smartphone className="w-3.5 h-3.5" />;
-      case 'ios': return <Smartphone className="w-3.5 h-3.5 text-blue-400" />;
-      default: return null;
+      case 'apk':
+      case 'ios':
+        return <Smartphone className="w-3.5 h-3.5" />;
+      default:
+        return null;
     }
   };
 
   return (
-    <div className={clsx("h-full flex flex-col pb-8", theme === 'gradient' ? 'bg-transparent' : '')}>
-      {/* Header & Search */}
-      <div className="p-4 sm:p-8 pb-0">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-          <div>
-            <h1 className={clsx("text-2xl sm:text-3xl font-bold tracking-tight", isFrutigerAero ? "text-blue-900" : "")}>App Store</h1>
-            <p className={clsx("mt-1 text-xs sm:text-sm", isFrutigerAero ? "text-blue-800/70" : theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>Discover programs written in EPL.</p>
-          </div>
-          <div className="flex items-center gap-4 w-full sm:w-auto">
-            {user && (
-              <div className={clsx("flex items-center gap-2 px-3 py-1.5 rounded-xl border", isFrutigerAero ? "bg-white/50 text-blue-800 border-white/40 shadow-sm" : "bg-amber-500/10 text-amber-500 border-amber-500/20")}>
-                <Coins className="w-4 h-4" />
-                <span className="font-bold">{userData?.eplCoins || 0}</span>
-              </div>
-            )}
-            <div className="relative flex-1 sm:w-72 flex gap-2">
-              <div className="relative flex-1">
-                <Search className={clsx("absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4", isFrutigerAero ? "text-blue-500" : "text-zinc-400")} />
+    <div className="h-full flex flex-col">
+      {/* Header & Controls */}
+      <div
+        className={clsx(
+          'px-6 py-5 border-b shrink-0',
+          isFrutigerAero
+            ? 'frutiger-aero-glass border-white/50'
+            : isLight
+            ? 'bg-[#FFFFFF] border-[#E2E5EA]'
+            : 'bg-[#181B20] border-[#262B33]'
+        )}
+      >
+        <div className="max-w-7xl mx-auto space-y-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">App Store</h1>
+              <p
+                className={clsx(
+                  'text-sm mt-0.5',
+                  isFrutigerAero
+                    ? 'text-[#1e4b73]'
+                    : isLight
+                    ? 'text-[#4B5563]'
+                    : 'text-[#9CA3AF]'
+                )}
+              >
+                {language === 'ru'
+                  ? 'Каталог приложений и игр на языке EPL'
+                  : 'Discover applications and games built with EPL'}
+              </p>
+            </div>
+
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              {user && (
+                <div
+                  className={clsx(
+                    'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-mono-num font-semibold shrink-0',
+                    isFrutigerAero
+                      ? 'bg-white/60 border-white text-[#062038]'
+                      : isLight
+                      ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#111315]'
+                      : 'bg-[#111315] border-[#262B33] text-[#F3F4F6]'
+                  )}
+                >
+                  <Coins className="w-4 h-4 text-[#D97706]" />
+                  <span>{userData?.eplCoins || 0}</span>
+                </div>
+              )}
+
+              <div className="relative flex-1 sm:w-72">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6B7280]" />
                 <input
                   type="text"
-                  placeholder="Search apps..."
+                  placeholder={language === 'ru' ? 'Поиск приложений...' : 'Search apps...'}
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className={clsx(
-                    "w-full pl-10 pr-4 py-2 rounded-xl border focus:outline-none focus:ring-2 transition-colors",
-                    isFrutigerAero ? "bg-white/60 border-white/40 text-blue-900 placeholder-blue-400 focus:ring-blue-400 backdrop-blur-md shadow-inner" :
-                    theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-zinc-100 focus:ring-emerald-500' : 'bg-white border-zinc-200 text-zinc-900 focus:ring-emerald-500'
+                    'w-full pl-9 pr-4 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 transition-colors',
+                    isFrutigerAero
+                      ? 'bg-white/65 border-white text-[#062038] placeholder-[#3b6f9c] focus:ring-blue-400'
+                      : isLight
+                      ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#111315] focus:ring-[#059669]/40'
+                      : 'bg-[#111315] border-[#262B33] text-[#F3F4F6] placeholder-[#6B7280] focus:ring-[#10B981]/40'
                   )}
                 />
               </div>
-              <button 
-                className={clsx(
-                  "p-2 rounded-xl border transition-all",
-                  isFrutigerAero ? "frutiger-aero-button" :
-                  theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-white hover:bg-zinc-800' : 'bg-white border-zinc-200 text-zinc-900 hover:bg-zinc-100'
-                )}
-              >
-                <RefreshCw className={clsx("w-5 h-5", loading && "animate-spin")} />
-              </button>
             </div>
           </div>
-        </div>
 
-        {/* Categories */}
-        <div className="flex gap-2 overflow-x-auto pb-4 no-scrollbar">
-          <button
-            onClick={() => setSelectedCategory('all')}
-            className={clsx(
-              "px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors",
-              selectedCategory === 'all' 
-                ? (isFrutigerAero ? 'bg-blue-500 text-white shadow-md' : 'bg-emerald-500 text-white') 
-                : (isFrutigerAero ? 'bg-white/40 text-blue-800 hover:bg-white/60 backdrop-blur-sm' : theme !== 'light' ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200')
-            )}
-          >
-            All
-          </button>
-          {CATEGORIES.map(cat => (
-            <button
-              key={cat}
-              onClick={() => setSelectedCategory(cat)}
-              className={clsx(
-                "px-4 py-1.5 rounded-full text-sm font-medium whitespace-nowrap transition-colors capitalize",
-                selectedCategory === cat 
-                  ? (isFrutigerAero ? 'bg-blue-500 text-white shadow-md' : 'bg-emerald-500 text-white') 
-                  : (isFrutigerAero ? 'bg-white/40 text-blue-800 hover:bg-white/60 backdrop-blur-sm' : theme !== 'light' ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200')
-              )}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
+          {/* Section Tabs & Category Filter Row */}
+          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+              {[
+                { id: 'featured', label: language === 'ru' ? 'Популярное' : 'Featured', icon: Flame },
+                { id: 'recent', label: language === 'ru' ? 'Новые' : 'Recent', icon: Clock },
+                { id: 'friends', label: language === 'ru' ? 'Друзья' : 'Friends', icon: Users },
+              ].map((tab) => {
+                const Icon = tab.icon;
+                const active = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as any)}
+                    className={clsx(
+                      'flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium border transition-colors whitespace-nowrap shrink-0',
+                      active
+                        ? isFrutigerAero
+                          ? 'frutiger-aero-button'
+                          : isLight
+                          ? 'bg-[#059669] text-white border-[#059669]'
+                          : 'bg-[#10B981] text-[#09120E] border-[#10B981] font-semibold'
+                        : isFrutigerAero
+                        ? 'bg-white/40 border-white/50 text-[#062038] hover:bg-white/60'
+                        : isLight
+                        ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#4B5563] hover:text-[#111315]'
+                        : 'bg-[#111315] border-[#262B33] text-[#9CA3AF] hover:text-[#F3F4F6]'
+                    )}
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
 
-        {/* Filter Tabs */}
-        <div className="flex gap-2 pb-6 overflow-x-auto no-scrollbar px-1 sticky top-0 z-10">
-          <button 
-            onClick={() => setActiveTab('featured')}
-            className={clsx(
-              "flex items-center gap-2 px-6 py-4 rounded-2xl text-sm font-bold uppercase tracking-wider transition-all border min-h-[48px] shadow-sm",
-              activeTab === 'featured' 
-                ? (isFrutigerAero ? "bg-blue-500 text-white border-blue-400 shadow-blue-500/20" : "bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/20") 
-                : (isFrutigerAero ? "bg-white/60 text-blue-800 border-white/50 backdrop-blur-md" : theme === 'gradient' ? "bg-black/40 border-emerald-500/20 text-emerald-100 backdrop-blur-xl" : theme === 'dark' ? "bg-zinc-900 border-zinc-800 text-zinc-400" : "bg-white border-zinc-200 text-zinc-600")
+            {activeTab !== 'friends' && (
+              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+                <button
+                  onClick={() => setSelectedCategory('all')}
+                  className={clsx(
+                    'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0',
+                    selectedCategory === 'all'
+                      ? isFrutigerAero
+                        ? 'bg-sky-600 text-white border-sky-600'
+                        : isLight
+                        ? 'bg-[#111315] text-white border-[#111315]'
+                        : 'bg-[#262B33] text-[#F3F4F6] border-[#374151]'
+                      : isFrutigerAero
+                      ? 'bg-white/40 border-white/50 text-[#062038]'
+                      : isLight
+                      ? 'bg-transparent border-[#E2E5EA] text-[#4B5563] hover:bg-[#F5F6F8]'
+                      : 'bg-transparent border-[#262B33] text-[#9CA3AF] hover:bg-[#20242B]'
+                  )}
+                >
+                  {language === 'ru' ? 'Все' : 'All'}
+                </button>
+                {CATEGORIES.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    className={clsx(
+                      'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 capitalize',
+                      selectedCategory === cat
+                        ? isFrutigerAero
+                          ? 'bg-sky-600 text-white border-sky-600'
+                          : isLight
+                          ? 'bg-[#111315] text-white border-[#111315]'
+                          : 'bg-[#262B33] text-[#F3F4F6] border-[#374151]'
+                        : isFrutigerAero
+                        ? 'bg-white/40 border-white/50 text-[#062038]'
+                        : isLight
+                        ? 'bg-transparent border-[#E2E5EA] text-[#4B5563] hover:bg-[#F5F6F8]'
+                        : 'bg-transparent border-[#262B33] text-[#9CA3AF] hover:bg-[#20242B]'
+                    )}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
             )}
-          >
-            <Flame className="w-5 h-5" />
-            Featured
-          </button>
-          <button 
-            onClick={() => setActiveTab('recent')}
-            className={clsx(
-              "flex items-center gap-2 px-6 py-4 rounded-2xl text-sm font-bold uppercase tracking-wider transition-all border min-h-[48px] shadow-sm",
-              activeTab === 'recent' 
-                ? (isFrutigerAero ? "bg-blue-500 text-white border-blue-400 shadow-blue-500/20" : "bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/20") 
-                : (isFrutigerAero ? "bg-white/60 text-blue-800 border-white/50 backdrop-blur-md" : theme === 'gradient' ? "bg-black/40 border-emerald-500/20 text-emerald-100 backdrop-blur-xl" : theme === 'dark' ? "bg-zinc-900 border-zinc-800 text-zinc-400" : "bg-white border-zinc-200 text-zinc-600")
-            )}
-          >
-            <Clock className="w-5 h-5" />
-            Recent
-          </button>
-          <button 
-            onClick={() => setActiveTab('friends')}
-            className={clsx(
-              "flex items-center gap-2 px-6 py-4 rounded-2xl text-sm font-bold uppercase tracking-wider transition-all border min-h-[48px] shadow-sm",
-              activeTab === 'friends' 
-                ? (isFrutigerAero ? "bg-blue-500 text-white border-blue-400 shadow-blue-500/20" : "bg-emerald-500 text-white border-emerald-400 shadow-emerald-500/20") 
-                : (isFrutigerAero ? "bg-white/60 text-blue-800 border-white/50 backdrop-blur-md" : theme === 'gradient' ? "bg-black/40 border-emerald-500/20 text-emerald-100 backdrop-blur-xl" : theme === 'dark' ? "bg-zinc-900 border-zinc-800 text-zinc-400" : "bg-white border-zinc-200 text-zinc-600")
-            )}
-          >
-            <Users className="w-5 h-5" />
-            Friends
-          </button>
+          </div>
         </div>
       </div>
 
+      {/* Main Content */}
       {activeTab === 'friends' ? (
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="flex-1 overflow-y-auto">
           <FriendsView />
         </div>
       ) : (
-        /* App List */
-        <div className="flex-1 overflow-y-auto p-4 sm:p-8 pt-0 custom-scrollbar">
-          {loading ? (
-            <div className="flex items-center justify-center h-64">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div>
-            </div>
-          ) : (
-          <div className="space-y-12">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-10 sm:gap-12">
-              <AnimatePresence mode="popLayout">
-                {filteredApps.map((app, index) => {
+        <div className="flex-1 overflow-y-auto p-6">
+          <div className="max-w-7xl mx-auto">
+            {loading ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {Array.from({ length: 6 }).map((_, idx) => (
+                  <div
+                    key={idx}
+                    className={clsx(
+                      'h-60 rounded-xl border p-5 flex flex-col justify-between',
+                      isFrutigerAero
+                        ? 'frutiger-aero-glass opacity-60'
+                        : isLight
+                        ? 'bg-white border-[#E2E5EA]'
+                        : 'bg-[#181B20] border-[#262B33]'
+                    )}
+                  >
+                    <div className="flex items-start gap-4">
+                      <div className="w-14 h-14 rounded-xl bg-current/10 shrink-0" />
+                      <div className="flex-1 space-y-2">
+                        <div className="h-4 w-2/3 rounded bg-current/10" />
+                        <div className="h-3 w-1/2 rounded bg-current/10" />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="h-3 w-full rounded bg-current/10" />
+                      <div className="h-3 w-4/5 rounded bg-current/10" />
+                    </div>
+                    <div className="h-9 w-full rounded-lg bg-current/10" />
+                  </div>
+                ))}
+              </div>
+            ) : filteredApps.length === 0 ? (
+              <div
+                className={clsx(
+                  'rounded-xl border p-12 text-center max-w-lg mx-auto my-8',
+                  isFrutigerAero
+                    ? 'frutiger-aero-glass'
+                    : isLight
+                    ? 'bg-white border-[#E2E5EA]'
+                    : 'bg-[#181B20] border-[#262B33]'
+                )}
+              >
+                <Package className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                <h3 className="text-base font-semibold mb-1">
+                  {language === 'ru' ? 'Приложения не найдены' : 'No applications found'}
+                </h3>
+                <p className="text-sm opacity-70">
+                  {language === 'ru'
+                    ? 'Попробуйте изменить поисковый запрос или выбрать другую категорию.'
+                    : 'Try adjusting your search query or selecting a different category.'}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                {filteredApps.map((app) => {
+                  const installed = isAppInstalled(app.id);
+                  const ratingText = (typeof app.rating === 'number' ? app.rating : 5.0).toFixed(1);
+
                   return (
-                    <motion.div 
-                      key={app.id} 
-                      layout
-                      initial={{ opacity: 0, y: 30, scale: 0.9 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
-                      whileHover={{ y: -8, transition: { duration: 0.2 } }}
-                      transition={{ 
-                        type: "spring",
-                        stiffness: 260,
-                        damping: 20,
-                        delay: index * 0.03 
-                      }}
+                    <article
+                      key={app.id}
                       className={clsx(
-                        "p-8 sm:p-10 rounded-[2.5rem] border transition-all hover:shadow-[0_20px_50px_rgba(0,0,0,0.3)] group flex flex-col relative overflow-hidden",
-                        isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm hover:bg-white/50" :
-                        theme === 'gradient' ? "bg-black/40 border-emerald-500/20 backdrop-blur-2xl hover:bg-black/50 hover:border-emerald-500/40" :
-                        theme !== 'light' ? 'bg-gradient-to-br from-zinc-900 via-zinc-900 to-emerald-900/20 border-zinc-800 hover:border-emerald-500/40' : 'bg-gradient-to-br from-white via-white to-emerald-50/30 border-zinc-200 hover:border-emerald-500/40'
+                        'rounded-xl border p-5 flex flex-col transition-colors',
+                        isFrutigerAero
+                          ? 'frutiger-aero-glass hover:border-white'
+                          : isLight
+                          ? 'bg-[#FFFFFF] border-[#E2E5EA] hover:border-[#D1D5DB]'
+                          : 'bg-[#181B20] border-[#262B33] hover:border-[#374151]'
                       )}
                     >
-                      {/* Decorative Gradient Blob */}
-                      <Gradient className="-top-24 -right-24 w-48 h-48" variant="emerald" />
-                      
-                      <div className="flex justify-between items-start mb-6 sm:mb-8 relative z-10">
-                        <motion.div 
-                          whileHover={{ scale: 1.1, rotate: 5 }}
+                      {/* Top Header */}
+                      <div className="flex items-start gap-3.5 mb-3.5">
+                        <button
+                          onClick={() => setSelectedAppId(app.id)}
                           className={clsx(
-                            "w-20 h-20 sm:w-24 sm:h-24 rounded-3xl sm:rounded-[2rem] flex items-center justify-center text-white font-bold text-3xl shadow-xl cursor-pointer overflow-hidden border-2",
-                            isFrutigerAero ? "bg-gradient-to-br from-blue-400 to-cyan-400 border-white/50" : "bg-gradient-to-br from-emerald-400 to-cyan-400 border-white/10"
+                            'w-14 h-14 rounded-xl border flex items-center justify-center font-bold text-xl shrink-0 overflow-hidden cursor-pointer',
+                            isFrutigerAero
+                              ? 'bg-white/70 border-white text-[#0284c7]'
+                              : isLight
+                              ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#059669]'
+                              : 'bg-[#111315] border-[#262B33] text-[#10B981]'
                           )}
-                          onClick={() => setSelectedAppId(app.id)}
                         >
-                        {app.iconUrl ? (
-                          <img 
-                            src={app.iconUrl} 
-                            alt={app.title} 
-                            className="w-full h-full object-cover"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          app.title.charAt(0)
-                        )}
-                      </motion.div>
-                        <div className="flex flex-col items-end gap-2">
-                          {app.price && app.price > 0 && (
-                            <motion.div 
-                              initial={{ x: 20, opacity: 0 }}
-                              animate={{ x: 0, opacity: 1 }}
-                              className="flex items-center gap-1.5 text-amber-400 bg-amber-400/10 px-4 py-2 rounded-full text-sm font-bold border border-amber-400/20 backdrop-blur-sm"
+                          {app.iconUrl ? (
+                            <img
+                              src={app.iconUrl}
+                              alt={app.title}
+                              className="w-full h-full object-cover"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            (app.title || 'A').charAt(0).toUpperCase()
+                          )}
+                        </button>
+
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center justify-between gap-2">
+                            <h3
+                              onClick={() => setSelectedAppId(app.id)}
+                              className="text-base font-semibold truncate cursor-pointer hover:text-[#10B981] transition-colors"
                             >
-                              <Coins className="w-4 h-4 fill-current" />
-                              {app.price}
-                            </motion.div>
-                          )}
-                          <motion.div 
-                            initial={{ x: 20, opacity: 0 }}
-                            animate={{ x: 0, opacity: 1 }}
-                            transition={{ delay: 0.1 }}
-                            className="flex items-center gap-1.5 text-emerald-400 bg-emerald-400/10 px-4 py-2 rounded-full text-sm font-bold border border-emerald-400/20 backdrop-blur-sm"
-                          >
-                            <Star className="w-4 h-4 fill-current" />
-                            {(typeof app.rating === 'number' ? app.rating : 5.0).toFixed(1)}
-                          </motion.div>
-                        </div>
-                      </div>
-                      
-                      <div className="relative z-10 flex-1 flex flex-col">
-                        <h3 
-                          className={clsx("text-xl sm:text-2xl font-bold mb-3 truncate cursor-pointer transition-colors", isFrutigerAero ? "text-blue-900 hover:text-blue-600" : theme !== 'light' ? "text-white hover:text-emerald-400" : "text-zinc-900 hover:text-emerald-600")}
-                          onClick={() => setSelectedAppId(app.id)}
-                        >
-                          {app.title}
-                        </h3>
-                        <p className={clsx("text-sm sm:text-base mb-8 line-clamp-3 flex-1 leading-relaxed opacity-80", isFrutigerAero ? "text-blue-800" : theme !== 'light' ? 'text-zinc-400' : 'text-zinc-600')}>
-                          {app.description}
-                        </p>
-                        
-                        <div className={clsx("flex flex-col gap-6 pt-6 border-t", isFrutigerAero ? "border-white/30" : "border-zinc-800/50")}>
-                          <div className={clsx("flex items-center justify-between text-sm", isFrutigerAero ? "text-blue-700/70" : "text-zinc-500")}>
-                            <div className="flex items-center gap-2 truncate max-w-[200px]">
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  useStore.getState().setViewingProfileId(app.authorId);
-                                  useStore.getState().setCurrentView('public-profile');
-                                }}
-                                className="font-bold text-emerald-500/80 hover:underline cursor-pointer flex items-center gap-1 truncate"
-                              >
-                                {(app.isVerified || (app as any).isVerifiedAuthor) && <VerifiedBadge size="xs" />}
-                                <span>by {app.authorName}</span>
-                                <UserRoleBadge role={(app as any).authorRole} isVerifiedAuthor={app.isVerified} size="xs" />
-                              </button>
-                              <span className="opacity-30">•</span>
-                              <span className="flex items-center gap-1"><Users className="w-3 h-3" /> {app.visits || 0}</span>
-                            </div>
-                            <div className="flex items-center gap-4">
-                              <button 
-                                onClick={() => handleVote(app.id, 'like')}
-                                className={clsx("flex items-center gap-1.5 transition-all hover:scale-110", userVotes[app.id] === 'like' ? (isFrutigerAero ? 'text-blue-600' : 'text-emerald-500') : (isFrutigerAero ? 'hover:text-blue-500' : 'hover:text-emerald-400'))}
-                              >
-                                <ThumbsUp className={clsx("w-4 h-4", userVotes[app.id] === 'like' && "fill-current")} />
-                                <span className="font-bold">{app.likes || 0}</span>
-                              </button>
-                              <button 
-                                onClick={() => handleVote(app.id, 'dislike')}
-                                className={clsx("flex items-center gap-1.5 transition-all hover:scale-110", userVotes[app.id] === 'dislike' ? 'text-red-500' : 'hover:text-red-400')}
-                              >
-                                <ThumbsDown className={clsx("w-4 h-4", userVotes[app.id] === 'dislike' && "fill-current")} />
-                                <span className="font-bold">{app.dislikes || 0}</span>
-                              </button>
-                            </div>
+                              {app.title}
+                            </h3>
+                            <span className="inline-flex items-center gap-1 text-xs font-mono-num font-medium shrink-0 text-[#D97706]">
+                              <Star className="w-3.5 h-3.5 fill-current" />
+                              {ratingText}
+                            </span>
                           </div>
-                          
-                          <div className="flex flex-wrap gap-3">
-                            {isAppInstalled(app.id) ? (
-                              <motion.button 
-                                whileTap={{ scale: 0.95 }}
-                                onClick={() => {
-                                  setPlayingAppId(app.id);
-                                  setCurrentView('player');
-                                }}
-                                className={clsx(
-                                  "flex-1 flex items-center justify-center gap-2 px-6 py-4 rounded-[1.5rem] text-base sm:text-lg font-bold transition-all shadow-xl cursor-pointer",
-                                  isFrutigerAero 
-                                    ? "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-400/30" 
-                                    : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/30"
-                                )}
-                              >
-                                <CheckCircle2 className="w-5 h-5 sm:w-6 sm:h-6 text-emerald-300" />
-                                <span>INSTALLED</span>
-                              </motion.button>
-                            ) : (
-                              <motion.button 
-                                whileTap={{ scale: 0.95 }}
-                                disabled={installingAppId === app.id}
-                                onClick={async (e) => {
-                                  e.stopPropagation();
-                                  if (app.price && app.price > 0 && !userData?.purchasedApps?.includes(app.id)) {
-                                    setSelectedAppId(app.id);
-                                    return;
-                                  }
-                                  try {
-                                    setInstallingAppId(app.id);
-                                    await installApp(app);
-                                  } catch (err) {
-                                    console.error('Install error:', err);
-                                  } finally {
-                                    setInstallingAppId(null);
-                                  }
-                                }}
-                                className={clsx(
-                                  "flex-1 flex items-center justify-center gap-2 px-6 py-4 rounded-[1.5rem] text-base sm:text-lg font-bold transition-all shadow-xl cursor-pointer active:scale-[0.98]",
-                                  isFrutigerAero 
-                                    ? "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-400/40" 
-                                    : "bg-blue-600 hover:bg-blue-500 text-white shadow-blue-600/35"
-                                )}
-                              >
-                                <Download className={clsx("w-5 h-5 sm:w-6 sm:h-6", installingAppId === app.id && "animate-bounce")} />
-                                <span>{installingAppId === app.id ? (language === 'ru' ? 'УСТАНОВКА...' : 'GETTING...') : 'GET'}</span>
-                              </motion.button>
+
+                          <div
+                            className={clsx(
+                              'text-xs mt-1 truncate',
+                              isFrutigerAero
+                                ? 'text-[#1e4b73]'
+                                : isLight
+                                ? 'text-[#6B7280]'
+                                : 'text-[#9CA3AF]'
                             )}
-                            
-                            {['windows', 'macos', 'linux', 'android', 'ios'].map(platform => {
-                              return (
-                                <motion.button
-                                  key={platform}
-                                  whileTap={{ scale: 0.9 }}
-                                  onClick={() => {
-                                    setBuildTargetApp(app);
-                                    setBuildTargetPlatform(platform);
-                                  }}
-                                  className="p-4 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-[1.5rem] transition-colors shadow-lg cursor-pointer flex items-center justify-center"
-                                  title={`Build & Download for ${platform.toUpperCase()}`}
-                                >
-                                  {getPlatformIcon(platform)}
-                                </motion.button>
-                              );
-                            })}
+                          >
+                            <span className="capitalize">{app.category || 'App'}</span>
+                            <span className="mx-1.5">·</span>
+                            <span className="font-mono-num">{app.visits || 0} runs</span>
+                            {app.price && app.price > 0 ? (
+                              <>
+                                <span className="mx-1.5">·</span>
+                                <span className="font-mono-num font-semibold text-[#D97706]">
+                                  {app.price} Coins
+                                </span>
+                              </>
+                            ) : null}
+                          </div>
+
+                          <div className="flex items-center gap-1.5 mt-1.5 min-w-0">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                useStore.getState().setViewingProfileId(app.authorId);
+                                useStore.getState().setCurrentView('public-profile');
+                              }}
+                              className="text-xs font-medium hover:underline flex items-center gap-1 truncate text-[#10B981]"
+                            >
+                              {(app.isVerified || (app as any).isVerifiedAuthor) && (
+                                <VerifiedBadge size="xs" />
+                              )}
+                              <span className="truncate">{app.authorName || 'Author'}</span>
+                            </button>
+                            <UserRoleBadge
+                              role={(app as any).authorRole}
+                              isVerifiedAuthor={app.isVerified}
+                              size="xs"
+                            />
                           </div>
                         </div>
                       </div>
-                    </motion.div>
+
+                      {/* Description */}
+                      <p
+                        className={clsx(
+                          'text-sm line-clamp-2 leading-relaxed mb-4 flex-1',
+                          isFrutigerAero
+                            ? 'text-[#1e4b73]'
+                            : isLight
+                            ? 'text-[#4B5563]'
+                            : 'text-[#9CA3AF]'
+                        )}
+                      >
+                        {app.description || (language === 'ru' ? 'Описание отсутствует' : 'No description provided.')}
+                      </p>
+
+                      {/* Votes + Platform Actions */}
+                      <div
+                        className={clsx(
+                          'flex items-center justify-between pt-3 mb-3 border-t text-xs',
+                          isFrutigerAero
+                            ? 'border-white/40'
+                            : isLight
+                            ? 'border-[#E2E5EA]'
+                            : 'border-[#262B33]'
+                        )}
+                      >
+                        <div className="flex items-center gap-3 font-mono-num">
+                          <button
+                            onClick={() => handleVote(app.id, 'like')}
+                            className={clsx(
+                              'inline-flex items-center gap-1 transition-colors',
+                              userVotes[app.id] === 'like'
+                                ? 'text-[#10B981] font-semibold'
+                                : 'text-[#6B7280] hover:text-[#10B981]'
+                            )}
+                          >
+                            <ThumbsUp className={clsx('w-3.5 h-3.5', userVotes[app.id] === 'like' && 'fill-current')} />
+                            <span>{app.likes || 0}</span>
+                          </button>
+                          <button
+                            onClick={() => handleVote(app.id, 'dislike')}
+                            className={clsx(
+                              'inline-flex items-center gap-1 transition-colors',
+                              userVotes[app.id] === 'dislike'
+                                ? 'text-[#DC2626] font-semibold'
+                                : 'text-[#6B7280] hover:text-[#DC2626]'
+                            )}
+                          >
+                            <ThumbsDown
+                              className={clsx('w-3.5 h-3.5', userVotes[app.id] === 'dislike' && 'fill-current')}
+                            />
+                            <span>{app.dislikes || 0}</span>
+                          </button>
+                        </div>
+
+                        <div className="flex items-center gap-1">
+                          {['windows', 'macos', 'linux', 'android', 'ios'].map((platform) => (
+                            <button
+                              key={platform}
+                              onClick={() => {
+                                setBuildTargetApp(app);
+                                setBuildTargetPlatform(platform);
+                              }}
+                              className={clsx(
+                                'p-1.5 rounded border transition-colors',
+                                isFrutigerAero
+                                  ? 'border-white/60 text-[#062038] hover:bg-white/60'
+                                  : isLight
+                                  ? 'border-[#E2E5EA] text-[#4B5563] hover:bg-[#F5F6F8]'
+                                  : 'border-[#262B33] text-[#9CA3AF] hover:bg-[#20242B] hover:text-[#F3F4F6]'
+                              )}
+                              title={`Build & Download for ${platform.toUpperCase()}`}
+                            >
+                              {getPlatformIcon(platform)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Primary Action */}
+                      {installed ? (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handlePlay(app)}
+                            className={clsx(
+                              'flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap',
+                              isFrutigerAero
+                                ? 'frutiger-aero-button'
+                                : isLight
+                                ? 'bg-[#059669] hover:bg-[#047857] text-white'
+                                : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
+                            )}
+                          >
+                            <Play className="w-4 h-4 fill-current" />
+                            <span>{language === 'ru' ? 'Запустить' : 'Launch'}</span>
+                          </button>
+                          <span
+                            className={clsx(
+                              'px-2.5 py-2 rounded-lg border text-xs font-medium inline-flex items-center gap-1 shrink-0',
+                              isFrutigerAero
+                                ? 'bg-white/50 border-white text-[#0284c7]'
+                                : isLight
+                                ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#059669]'
+                                : 'bg-[#111315] border-[#262B33] text-[#10B981]'
+                            )}
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            <span>{language === 'ru' ? 'Установлено' : 'Installed'}</span>
+                          </span>
+                        </div>
+                      ) : (
+                        <button
+                          disabled={installingAppId === app.id}
+                          onClick={async (e) => {
+                            e.stopPropagation();
+                            if (app.price && app.price > 0 && !userData?.purchasedApps?.includes(app.id)) {
+                              setSelectedAppId(app.id);
+                              return;
+                            }
+                            try {
+                              setInstallingAppId(app.id);
+                              await installApp(app);
+                              notify.success(
+                                language === 'ru'
+                                  ? `«${app.title}» добавлено в установленные`
+                                  : `"${app.title}" installed`
+                              );
+                            } catch (err) {
+                              console.error('Install error:', err);
+                              notify.error(language === 'ru' ? 'Ошибка установки' : 'Install failed');
+                            } finally {
+                              setInstallingAppId(null);
+                            }
+                          }}
+                          className={clsx(
+                            'w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap disabled:opacity-50',
+                            isFrutigerAero
+                              ? 'frutiger-aero-button'
+                              : isLight
+                              ? 'bg-[#059669] hover:bg-[#047857] text-white'
+                              : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
+                          )}
+                        >
+                          <Download className="w-4 h-4" />
+                          <span>
+                            {installingAppId === app.id
+                              ? language === 'ru'
+                                ? 'Установка...'
+                                : 'Installing...'
+                              : language === 'ru'
+                              ? 'Получить (Get)'
+                              : 'Get'}
+                          </span>
+                        </button>
+                      )}
+                    </article>
                   );
                 })}
-              </AnimatePresence>
-            </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
       )}
 
+      {/* Unlock Code Modal */}
       {showUnlockModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-          <div className="bg-zinc-900 border border-zinc-800 p-6 rounded-2xl w-full max-w-sm">
-            <h3 className="text-xl font-bold text-white mb-4">Enter Access Code</h3>
-            <p className="text-sm text-zinc-400 mb-4">This app is locked by the creator. Please enter the code to access.</p>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs">
+          <div
+            className={clsx(
+              'p-6 rounded-xl border w-full max-w-sm shadow-2xl',
+              isFrutigerAero
+                ? 'frutiger-aero-glass'
+                : isLight
+                ? 'bg-white border-[#E2E5EA] text-[#111315]'
+                : 'bg-[#181B20] border-[#262B33] text-[#F3F4F6]'
+            )}
+          >
+            <h3 className="text-lg font-bold mb-1">
+              {language === 'ru' ? 'Введите код доступа' : 'Enter Access Code'}
+            </h3>
+            <p className="text-sm opacity-75 mb-4">
+              {language === 'ru'
+                ? 'Это приложение защищено автором. Введите код для запуска.'
+                : 'This app is locked by the creator. Enter the access code to launch.'}
+            </p>
             <input
               type="text"
               value={enteredCode}
@@ -619,22 +820,30 @@ export default function StoreView() {
                 setUnlockError('');
               }}
               placeholder="Access code..."
-              className="w-full bg-zinc-800 border-zinc-700 rounded-xl px-4 py-2 text-white mb-4 focus:ring-2 focus:ring-emerald-500 outline-none"
+              className={clsx(
+                'w-full rounded-lg px-3 py-2 text-sm border mb-3 focus:outline-none focus:ring-2',
+                isLight
+                  ? 'bg-[#F5F6F8] border-[#E2E5EA] focus:ring-[#059669]/40'
+                  : 'bg-[#111315] border-[#262B33] focus:ring-[#10B981]/40'
+              )}
             />
-            {unlockError && <p className="text-red-500 text-sm mb-4">{unlockError}</p>}
+            {unlockError && <p className="text-[#DC2626] text-xs mb-3">{unlockError}</p>}
             <div className="flex gap-2 justify-end">
-              <button 
+              <button
                 onClick={() => {
                   setShowUnlockModal(false);
                   setEnteredCode('');
                   setUnlockError('');
                   setUnlockTargetApp(null);
                 }}
-                className="px-4 py-2 rounded-xl bg-zinc-800 text-white hover:bg-zinc-700"
+                className={clsx(
+                  'px-4 py-2 rounded-lg text-sm font-medium border',
+                  isLight ? 'border-[#E2E5EA] hover:bg-[#F5F6F8]' : 'border-[#262B33] hover:bg-[#20242B]'
+                )}
               >
-                Cancel
+                {language === 'ru' ? 'Отмена' : 'Cancel'}
               </button>
-              <button 
+              <button
                 onClick={() => {
                   if (unlockTargetApp && enteredCode === unlockTargetApp.unlockCode) {
                     setShowUnlockModal(false);
@@ -642,12 +851,12 @@ export default function StoreView() {
                     proceedToPlay(unlockTargetApp);
                     setUnlockTargetApp(null);
                   } else {
-                    setUnlockError('Incorrect code');
+                    setUnlockError(language === 'ru' ? 'Неверный код' : 'Incorrect code');
                   }
                 }}
-                className="px-4 py-2 rounded-xl bg-emerald-500 text-white hover:bg-emerald-600 font-medium"
+                className="px-4 py-2 rounded-lg bg-[#10B981] hover:bg-[#059669] text-[#09120E] text-sm font-semibold"
               >
-                Unlock
+                {language === 'ru' ? 'Открыть' : 'Unlock'}
               </button>
             </div>
           </div>
@@ -661,7 +870,6 @@ export default function StoreView() {
         initialPlatform={buildTargetPlatform}
         onClose={() => setBuildTargetApp(null)}
       />
-
     </div>
   );
 }

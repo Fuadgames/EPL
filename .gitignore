@@ -51,6 +51,7 @@ temp/
 *.sqlite
 *.sqlite3
 *.db
+.data/
 
 # Private credentials and certificates
 credentials.json

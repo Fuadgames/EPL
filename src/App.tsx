@@ -3,11 +3,13 @@ import Layout from './components/Layout';
 import { useStore } from './store/useStore';
 import { auth, subscribeToUserData, db } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import { setDoc, doc, updateDoc, getDocs, collection, query, where } from 'firebase/firestore';
+import { setDoc, doc, getDocs, collection, query, where } from 'firebase/firestore';
 import { AchievementNotifications } from './components/AchievementNotifications';
+import GlobalDialogs from './components/GlobalDialogs';
 import { useAchievementEnforcer } from './hooks/useAchievementEnforcer';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import SuccessPage from './components/SuccessPage';
+import { ShieldAlert, LogOut } from 'lucide-react';
 
 // Safe lazy load with automatic retry for deployment updates or network hiccups
 function safeLazy<T extends React.ComponentType<any>>(factory: () => Promise<{ default: T }>) {
@@ -47,10 +49,9 @@ const InstalledAppsView = safeLazy(() => import('./components/InstalledAppsView'
 
 function ViewRenderer() {
   const currentView = useStore(state => state.currentView);
-  const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
   const simulatedRole = useStore(state => state.simulatedRole);
-  
+
   const actualRole = userData?.role || 'user';
   const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
 
@@ -66,7 +67,7 @@ function ViewRenderer() {
     case 'premium': return <PremiumView />;
     case 'donate': return <DonatePage />;
     case 'asset-store': return <AssetStoreView />;
-    case 'control': 
+    case 'control':
       if (effectiveRole === 'developer' || effectiveRole === 'admin' || effectiveRole === 'moderator') {
         return <ControlView />;
       }
@@ -78,10 +79,8 @@ function ViewRenderer() {
 
 export default function App() {
   useAchievementEnforcer();
-  const currentView = useStore(state => state.currentView);
   const setUser = useStore(state => state.setUser);
   const setUserData = useStore(state => state.setUserData);
-  const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
   const theme = useStore(state => state.theme);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
@@ -92,24 +91,32 @@ export default function App() {
   const premiumExpiry = useStore(state => state.premiumExpiry);
   const setPremiumExpiry = useStore(state => state.setPremiumExpiry);
 
-  const simulatedRole = useStore(state => state.simulatedRole);
-  const actualRole = userData?.role || 'user';
-  const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
-
   useEffect(() => {
     if (isPremium && premiumExpiry) {
       const expiryDate = new Date(premiumExpiry);
       if (expiryDate < new Date()) {
         setIsPremium(false);
         setPremiumExpiry(null);
-        console.log("Premium expired.");
       }
     }
   }, [isPremium, premiumExpiry, setIsPremium, setPremiumExpiry]);
 
   useEffect(() => {
+    const root = document.documentElement;
+    const normalizedTheme = theme === 'light' ? 'light' : 'dark';
+    const currentTheme = isFrutigerAero ? 'frutiger-aero' : normalizedTheme;
+    root.setAttribute('data-theme', currentTheme);
+    root.classList.remove('theme-light', 'theme-dark', 'theme-gradient', 'frutiger-aero');
+    if (isFrutigerAero) {
+      root.classList.add('frutiger-aero');
+    } else {
+      root.classList.add(`theme-${normalizedTheme}`);
+    }
+  }, [theme, isFrutigerAero]);
+
+  useEffect(() => {
     let unsubscribeUser: (() => void) | undefined;
-    
+
     const unsubscribeAuth = onAuthStateChanged(auth, (fbUser) => {
       setUser(fbUser);
       if (unsubscribeUser) {
@@ -119,8 +126,6 @@ export default function App() {
       if (fbUser) {
         unsubscribeUser = subscribeToUserData(fbUser.uid, async (data) => {
           if (!data || !data.role) {
-            // Document might not exist yet, create it
-            console.log("User document missing, creating...");
             try {
               await setDoc(doc(db, 'users', fbUser.uid), {
                 uid: fbUser.uid,
@@ -152,7 +157,6 @@ export default function App() {
           } else {
             setUserData(data);
 
-            // Restore user's installed apps from cloud if available
             try {
               if (data.installedAppsList && Array.isArray(data.installedAppsList) && data.installedAppsList.length > 0) {
                 useStore.getState().setInstalledAppsList(data.installedAppsList);
@@ -166,8 +170,7 @@ export default function App() {
             } catch (err) {
               console.warn("Error restoring installed apps from cloud:", err);
             }
-            
-            // Sync users_public
+
             try {
               await setDoc(doc(db, 'users_public', fbUser.uid), {
                 uid: fbUser.uid,
@@ -175,6 +178,11 @@ export default function App() {
                 avatarUrl: data.avatarUrl || data.photoUrl || '',
                 region: data.region || 'Global',
                 eplCoins: data.eplCoins || 0,
+                role: data.role || 'user',
+                isVerifiedAuthor: !!data.isVerifiedAuthor,
+                isBanned: !!data.isBanned,
+                banReason: data.banReason || null,
+                roleVerification: data.roleVerification || null,
                 createdAt: data.createdAt || new Date().toISOString()
               }, { merge: true });
             } catch (err) {
@@ -198,73 +206,73 @@ export default function App() {
         });
       }
     });
-    
+
     return () => {
       unsubscribeAuth();
       if (unsubscribeUser) unsubscribeUser();
     };
-  }, [setUser]);
+  }, [setUser, setUserData, setIsPremium, setPremiumExpiry]);
 
   if (userData?.isBanned) {
     return (
-      <div className="fixed inset-0 bg-red-950 text-white flex flex-col items-center justify-center p-8 z-[100]">
-        <style dangerouslySetInnerHTML={{__html: `body { background-color: #450a0a !important; }`}} />
-        <h1 className="text-4xl sm:text-6xl font-bold mb-4 text-red-500 text-center">
-          {language === 'ru' ? 'Извините, но вы были забанены' : 'You have been banned'}
-        </h1>
-        <p className="text-xl text-red-200 text-center max-w-lg mb-8">
-          {language === 'ru' ? 'Причина:' : 'Reason:'} {userData.banReason || (language === 'ru' ? 'Нарушение правил' : 'Violation of terms of service.')}
-        </p>
-        <button 
-          onClick={() => auth.signOut()}
-          className="px-8 py-4 bg-red-600 hover:bg-red-700 text-white rounded-xl font-bold text-lg transition-colors"
-        >
-          {language === 'ru' ? 'Выйти' : 'Log Out'}
-        </button>
+      <div className="fixed inset-0 bg-[#111315] text-[#F3F4F6] flex flex-col items-center justify-center p-6 z-[100]">
+        <div className="w-full max-w-md rounded-xl bg-[#181B20] border border-[#DC2626]/40 p-8 text-center">
+          <div className="w-12 h-12 rounded-lg bg-[#DC2626]/10 border border-[#DC2626]/30 text-[#DC2626] flex items-center justify-center mx-auto mb-5">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight mb-2">
+            {language === 'ru' ? 'Аккаунт заблокирован' : 'Account Suspended'}
+          </h1>
+          <p className="text-sm text-[#9CA3AF] leading-relaxed mb-6">
+            {language === 'ru' ? 'Причина блокировки: ' : 'Reason: '}
+            <span className="text-[#F3F4F6]">
+              {userData.banReason || (language === 'ru' ? 'Нарушение правил безопасности платформы' : 'Violation of platform safety rules')}
+            </span>
+          </p>
+          <button
+            onClick={() => auth.signOut()}
+            className="w-full py-2.5 px-4 bg-[#DC2626] hover:bg-red-700 text-white rounded-lg font-medium text-sm transition-colors inline-flex items-center justify-center gap-2"
+          >
+            <LogOut className="w-4 h-4" />
+            {language === 'ru' ? 'Выйти из аккаунта' : 'Sign Out'}
+          </button>
+        </div>
+        <GlobalDialogs />
       </div>
     );
   }
 
-  useEffect(() => {
-    const root = document.documentElement;
-    const currentTheme = isFrutigerAero ? 'frutiger-aero' : theme;
-    root.setAttribute('data-theme', currentTheme);
-    root.classList.remove('theme-light', 'theme-dark', 'theme-gradient', 'frutiger-aero');
-    if (isFrutigerAero) {
-      root.classList.add('frutiger-aero');
-    } else {
-      root.classList.add(`theme-${theme}`);
-    }
-  }, [theme, isFrutigerAero]);
-
   return (
     <BrowserRouter>
-      <style dangerouslySetInnerHTML={{ __html: `
-        html, body, #root { 
-          ${isFrutigerAero 
-            ? `background: linear-gradient(135deg, #a0e8f5 0%, #d4f0ff 40%, #87d4f5 60%, #4cb8f5 100%) !important; color: #062038 !important;` 
-            : theme === 'light'
-            ? `background-color: #f8fafc !important; color: #0f172a !important;`
-            : `background-color: #09090b !important; color: #fafafa !important;`}
-          margin: 0; 
-          padding: 0; 
-          height: 100%; 
-          overflow: hidden;
+      <Suspense
+        fallback={
+          <div className="fixed inset-0 flex items-center justify-center bg-[var(--bg-canvas)] text-[var(--accent-emerald)]">
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-current border-t-transparent" />
+          </div>
         }
-      `}} />
-      <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-zinc-950 text-emerald-500"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-500"></div></div>}>
+      >
         <Routes>
           <Route path="/success" element={<SuccessPage />} />
-          <Route path="*" element={
-            <Layout>
-              <AchievementNotifications />
-              <Suspense fallback={<div className="flex-1 flex items-center justify-center h-full"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500"></div></div>}>
-                <ViewRenderer />
-              </Suspense>
-            </Layout>
-          } />
+          <Route
+            path="*"
+            element={
+              <Layout>
+                <AchievementNotifications />
+                <Suspense
+                  fallback={
+                    <div className="flex-1 flex items-center justify-center h-full text-[var(--accent-emerald)]">
+                      <div className="animate-spin rounded-full h-7 w-7 border-2 border-current border-t-transparent" />
+                    </div>
+                  }
+                >
+                  <ViewRenderer />
+                </Suspense>
+              </Layout>
+            }
+          />
         </Routes>
       </Suspense>
+      <GlobalDialogs />
     </BrowserRouter>
   );
 }

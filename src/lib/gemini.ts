@@ -4,7 +4,7 @@
  */
 
 export async function generateWithAI(
-  prompt: string, 
+  prompt: string,
   options?: { systemInstruction?: string; model?: string }
 ): Promise<string> {
   const res = await fetch('/api/ai/generate', {
@@ -12,9 +12,9 @@ export async function generateWithAI(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       prompt,
-      model: options?.model,
-      systemInstruction: options?.systemInstruction
-    })
+      model: options?.model || 'gemini-4-hydrogen',
+      systemInstruction: options?.systemInstruction,
+    }),
   });
 
   if (!res.ok) {
@@ -26,11 +26,18 @@ export async function generateWithAI(
   return data.text || '';
 }
 
-export async function generateImageWithAI(prompt: string): Promise<string> {
+export async function generateImageWithAI(
+  prompt: string,
+  options?: { aspectRatio?: '1:1' | '16:9'; title?: string }
+): Promise<{ imageBase64: string; mimeType: string; isSvgFallback?: boolean }> {
   const res = await fetch('/api/ai/generate-image', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ prompt })
+    body: JSON.stringify({
+      prompt,
+      aspectRatio: options?.aspectRatio || '1:1',
+      title: options?.title || 'EPL App',
+    }),
   });
 
   if (!res.ok) {
@@ -39,5 +46,9 @@ export async function generateImageWithAI(prompt: string): Promise<string> {
   }
 
   const data = await res.json();
-  return data.imageBase64 || '';
+  return {
+    imageBase64: data.imageBase64 || '',
+    mimeType: data.mimeType || 'image/png',
+    isSvgFallback: !!data.isSvgFallback,
+  };
 }

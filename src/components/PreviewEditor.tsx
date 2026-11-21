@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useStore } from '../store/useStore';
+import { notify } from '../store/useDialogStore';
 import { clsx } from 'clsx';
 import { Folder, Box, Plus, Settings, Play, StopCircle, Trash2, Copy, ChevronRight, ChevronDown, Type, MousePointerClick, Cloud, Asterisk, User, Droplet, CloudLightning, Menu, X, Save, Video, Undo2, Redo2 } from 'lucide-react';
 import VisualEditor from './VisualEditor';
 import { EPLInterpreter } from '../lib/epl-interpreter';
+import CustomSelect from './CustomSelect';
 
 interface PreviewEditorProps {
   type: '2D' | '3D';
@@ -658,7 +660,7 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
 
     onChange(newCode);
     setLastParsedCode(newCode);
-    if (showAlert) alert("Visual scene successfully synced to code!");
+    if (showAlert) notify.success("Visual scene successfully synced to code!");
   };
 
   syncToCodeRef.current = syncToCode;
@@ -701,20 +703,18 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
   return (
     <div className={clsx(
       "flex-1 flex flex-col md:flex-row w-full h-full text-white overflow-hidden text-sm relative",
-      isFrutigerAero ? "bg-white/20 backdrop-blur-md" :
-      theme === 'gradient' ? "bg-transparent" : "bg-zinc-950"
+      isFrutigerAero ? "bg-white/20 backdrop-blur-md" : "bg-[#111315]"
     )}>
       {/* Mobile Top Bar */}
       <div className={clsx(
         "md:hidden flex items-center justify-between p-2 border-b z-30 shrink-0",
-        isFrutigerAero ? "border-white/30 bg-white/40 backdrop-blur-md text-blue-900" :
-        theme === 'gradient' ? "border-emerald-500/20 bg-black/40 backdrop-blur-xl" : "bg-zinc-900 border-zinc-800"
+        isFrutigerAero ? "border-white/30 bg-white/40 backdrop-blur-md text-blue-900" : "bg-[#181B20] border-[#262B33]"
       )}>
-        <button className={clsx("p-2 rounded", isFrutigerAero ? "hover:bg-white/50" : "hover:bg-zinc-800")} onClick={() => setMobilePanel(p => p === 'toolbox' ? 'none' : 'toolbox')}>
+        <button className={clsx("p-2 rounded", isFrutigerAero ? "hover:bg-white/50" : "hover:bg-[#22262E]")} onClick={() => setMobilePanel(p => p === 'toolbox' ? 'none' : 'toolbox')}>
           {mobilePanel === 'toolbox' ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
         </button>
         <span className="font-bold text-sm">{type} Workspace</span>
-        <button className={clsx("p-2 rounded", isFrutigerAero ? "hover:bg-white/50" : "hover:bg-zinc-800")} onClick={() => setMobilePanel(p => p === 'explorer' ? 'none' : 'explorer')}>
+        <button className={clsx("p-2 rounded", isFrutigerAero ? "hover:bg-white/50" : "hover:bg-[#22262E]")} onClick={() => setMobilePanel(p => p === 'explorer' ? 'none' : 'explorer')}>
           {mobilePanel === 'explorer' ? <X className="w-5 h-5" /> : <Folder className="w-5 h-5 text-yellow-500" />}
         </button>
       </div>
@@ -723,8 +723,7 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
       <div className={clsx(
         "w-64 border-r flex flex-col shrink-0 absolute md:relative z-20 h-full transition-transform left-0",
         mobilePanel === 'toolbox' ? "translate-x-0" : "-translate-x-full md:translate-x-0",
-        isFrutigerAero ? "border-white/30 bg-white/40 backdrop-blur-md" : 
-        theme === 'gradient' ? "border-emerald-500/20 bg-black/40 backdrop-blur-xl" : "border-zinc-800 bg-zinc-900"
+        isFrutigerAero ? "border-white/30 bg-white/40 backdrop-blur-md" : "border-[#262B33] bg-[#181B20]"
       )}>
         <div className="p-3 font-bold border-b border-zinc-800 flex flex-col gap-2">
           <div className="flex items-center gap-2">
@@ -1138,14 +1137,8 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
         </div>
       {/* Script Editor Overlay */}
       {editingScript && (
-        <div className={clsx(
-          "absolute inset-0 z-[100] flex flex-col",
-          theme === 'gradient' ? "bg-slate-950/80 backdrop-blur-2xl" : "bg-zinc-950"
-        )}>
-          <div className={clsx(
-            "h-14 border-b flex items-center justify-between px-6 shadow-xl",
-            theme === 'gradient' ? "bg-black/40 border-emerald-500/20" : "bg-zinc-900 border-zinc-800"
-          )}>
+        <div className="absolute inset-0 z-[100] flex flex-col bg-[#111315]">
+          <div className="h-14 border-b flex items-center justify-between px-6 bg-[#181B20] border-[#262B33]">
             <div className="flex items-center gap-3">
               <Asterisk className="w-5 h-5 text-emerald-500" />
               <div>
@@ -1182,20 +1175,14 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
               <X className="w-6 h-6 text-zinc-400 group-hover:text-white" />
             </button>
           </div>
-          <div className={clsx(
-            "flex-1 relative overflow-auto",
-            theme === 'gradient' ? "bg-transparent" : "bg-zinc-950"
-          )}>
+          <div className="flex-1 relative overflow-auto bg-[#111315]">
             <VisualEditor 
               code={editingScript.content} 
               onChange={handleScriptChange}
               entities={nodes.reduce((acc, n) => ({ ...acc, [n.id]: n }), {})}
             />
           </div>
-          <div className={clsx(
-            "p-3 border-t flex justify-between items-center px-6",
-            theme === 'gradient' ? "bg-black/40 border-emerald-500/20" : "bg-zinc-900 border-zinc-800"
-          )}>
+          <div className="p-3 border-t flex justify-between items-center px-6 bg-[#181B20] border-[#262B33]">
              <div className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest">
                Lines: {editingScript.content.split('\n').length} | Characters: {editingScript.content.length}
              </div>
@@ -1204,7 +1191,7 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
                  updateNodeProperty(editingScript.id, 'scriptContent', editingScript.content);
                  setEditingScript(null);
                }}
-               className="bg-emerald-500 hover:bg-emerald-600 text-white px-6 py-2 rounded-lg font-bold transition-all shadow-lg shadow-emerald-500/20 flex items-center gap-2"
+               className="bg-[#10B981] hover:bg-[#059669] text-[#111315] px-5 py-2 rounded-lg font-semibold transition-colors flex items-center gap-2"
              >
                <Save className="w-4 h-4" /> SAVE & CLOSE
              </button>
@@ -1217,8 +1204,7 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
       <div className={clsx(
         "w-72 border-l flex flex-col shrink-0 absolute md:relative z-20 h-full transition-transform right-0",
         mobilePanel === 'explorer' ? "translate-x-0" : "translate-x-full md:translate-x-0",
-        isFrutigerAero ? "border-white/30 bg-white/40 backdrop-blur-md" : 
-        theme === 'gradient' ? "border-emerald-500/20 bg-black/40 backdrop-blur-xl" : "border-zinc-800 bg-zinc-900"
+        isFrutigerAero ? "border-white/30 bg-white/40 backdrop-blur-md" : "border-[#262B33] bg-[#181B20]"
       )}>
         <div className="h-1/2 flex flex-col border-b border-zinc-800">
           <div className="p-3 font-bold border-b border-zinc-800 flex items-center justify-between relative">
@@ -1270,10 +1256,7 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
         </div>
 
         {/* Settings */}
-        <div className={clsx(
-          "h-1/2 flex flex-col border-t",
-          theme === 'gradient' ? "bg-black/20 border-emerald-500/20 backdrop-blur-md" : "bg-zinc-950/50 border-zinc-800"
-        )}>
+        <div className="h-1/2 flex flex-col border-t bg-[#14171B] border-[#262B33]">
           <div className="p-3 font-bold border-b border-zinc-800 flex items-center gap-2 text-zinc-300">
             <Settings className="w-4 h-4 text-emerald-500" /> {selectedNode ? 'Object Settings' : 'Workspace Settings'}
           </div>
@@ -1362,14 +1345,16 @@ export default function PreviewEditor({ type, code, onChange }: PreviewEditorPro
                             className="bg-zinc-900 border border-zinc-700/50 p-0 w-full h-8 cursor-pointer rounded"
                           />
                         ) : key === 'effectType' ? (
-                           <select
-                             value={value}
-                             onChange={(e) => updateNodeProperty(selectedNode.id, key, e.target.value)}
-                             className="bg-zinc-900 border border-zinc-700/50 rounded px-1.5 py-1 text-white text-xs focus:border-emerald-500 w-full"
-                           >
-                              <option value="fire">Fire</option>
-                              <option value="water">Water</option>
-                           </select>
+                           <CustomSelect
+                             value={String(value)}
+                             onChange={(val) => updateNodeProperty(selectedNode.id, key, val)}
+                             size="sm"
+                             className="w-full"
+                             options={[
+                               { value: 'fire', label: 'Fire' },
+                               { value: 'water', label: 'Water' },
+                             ]}
+                           />
                         ) : typeof value === 'number' ? (
                           <input 
                             type="number" 

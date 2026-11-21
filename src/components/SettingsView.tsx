@@ -1,11 +1,13 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { auth } from '../firebase';
 import { updateProfile } from 'firebase/auth';
-import { Sun, Moon, User, Save, CheckCircle2, AlertCircle, Bot, Lock, Sparkles, ShieldCheck, Upload, Code2, Eye } from 'lucide-react';
+import { Sun, Moon, User, Save, CheckCircle2, AlertCircle, Bot, ShieldCheck, Upload, Code2, Eye, Layers } from 'lucide-react';
 import { clsx } from 'clsx';
-import { DEFAULT_EMOJIS, getEmojiAvatar } from '../lib/avatar';
+import { getEmojiAvatar } from '../lib/avatar';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
+import { notify } from '../store/useDialogStore';
+import CustomSelect from './CustomSelect';
 
 export default function SettingsView() {
   const theme = useStore(state => state.theme);
@@ -19,22 +21,28 @@ export default function SettingsView() {
   const setAiAnswerMode = useStore(state => state.setAiAnswerMode);
   const aiChangesEnabled = useStore(state => state.aiChangesEnabled);
   const setAiChangesEnabled = useStore(state => state.setAiChangesEnabled);
-  const isPremium = useStore(state => state.isPremium);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const setIsFrutigerAero = useStore(state => state.setIsFrutigerAero);
   const userData = useStore(state => state.userData);
   const setUserData = useStore(state => state.setUserData);
   const simulatedRole = useStore(state => state.simulatedRole);
   const setSimulatedRole = useStore(state => state.setSimulatedRole);
-  
+
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [bio, setBio] = useState((userData as any)?.bio || '');
   const [avatarUrl, setAvatarUrl] = useState(userData?.avatarUrl || user?.photoURL || '');
   const [region, setRegion] = useState(userData?.region || 'Global');
-  
+
   const [isUpdating, setIsUpdating] = useState(false);
-  const [status, setStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setDisplayName(prev => (prev ? prev : userData?.name || user?.displayName || ''));
+    setBio(prev => (prev ? prev : (userData as any)?.bio || ''));
+    setAvatarUrl(prev => (prev ? prev : userData?.avatarUrl || user?.photoURL || ''));
+    setRegion(prev => (prev && prev !== 'Global' ? prev : userData?.region || 'Global'));
+  }, [user, userData]);
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -48,9 +56,13 @@ export default function SettingsView() {
       await uploadBytes(storageRef, file);
       const url = await getDownloadURL(storageRef);
       setAvatarUrl(url);
-      setStatus({ type: 'success', message: 'Avatar uploaded! Click "Save Changes" to apply.' });
+      const msg = 'Avatar uploaded! Click "Save Changes" to apply.';
+      setStatus({ type: 'success', message: msg });
+      notify.success(msg);
     } catch (error: any) {
-      setStatus({ type: 'error', message: 'Upload failed: ' + error.message });
+      const msg = 'Upload failed: ' + error.message;
+      setStatus({ type: 'error', message: msg });
+      notify.error(msg);
     } finally {
       setIsUpdating(false);
     }
@@ -61,21 +73,22 @@ export default function SettingsView() {
     setIsUpdating(true);
     setStatus(null);
     try {
-      if (!auth.currentUser) throw new Error("No authenticated user");
+      if (!auth.currentUser) throw new Error('No authenticated user');
       await updateProfile(auth.currentUser, { displayName, photoURL: avatarUrl });
-      
-      const { doc, updateDoc, setDoc, addDoc, collection } = await import('firebase/firestore');
+
+      const { doc, setDoc } = await import('firebase/firestore');
       const { db } = await import('../firebase');
-      
+
       const updateData = {
+        uid: user.uid,
         name: displayName,
         bio,
         avatarUrl,
-        region
+        region,
       };
-      
-      await updateDoc(doc(db, 'users', user.uid), updateData);
-      await updateDoc(doc(db, 'users_public', user.uid), updateData);
+
+      await setDoc(doc(db, 'users', user.uid), updateData, { merge: true });
+      await setDoc(doc(db, 'users_public', user.uid), updateData, { merge: true }).catch(() => {});
 
       const oldAvatar = userData?.avatarUrl || user.photoURL || '';
       if (avatarUrl !== oldAvatar) {
@@ -88,45 +101,77 @@ export default function SettingsView() {
           requesterName: displayName,
           avatarUrl,
           status: 'pending',
-          createdAt: new Date().toISOString()
+          createdAt: new Date().toISOString(),
         });
       }
 
       setUser({ ...user, displayName, photoURL: avatarUrl } as any);
       setUserData({ ...userData, name: displayName, bio, avatarUrl, region } as any);
-      
+
       setStatus({ type: 'success', message: 'Profile updated successfully!' });
+      notify.success('Profile updated successfully!');
     } catch (error: any) {
       setStatus({ type: 'error', message: error.message });
+      notify.error(error.message);
     } finally {
       setIsUpdating(false);
     }
   };
 
+  const isDirty =
+    displayName !== (user?.displayName || '') ||
+    bio !== ((userData as any)?.bio || '') ||
+    avatarUrl !== (userData?.avatarUrl || user?.photoURL || '') ||
+    region !== (userData?.region || 'Global');
+
+  const sectionCard = clsx(
+    'p-6 rounded-xl border',
+    isFrutigerAero
+      ? 'bg-white/40 border-white/50 backdrop-blur-md shadow-sm'
+      : theme !== 'light'
+        ? 'bg-[#181B20] border-[#262B33]'
+        : 'bg-white border-[#E2E5EA]'
+  );
+
+  const inputClass = clsx(
+    'w-full px-3.5 py-2.5 rounded-lg border text-sm focus:outline-none transition-colors',
+    isFrutigerAero
+      ? 'bg-white/60 border-white/40 text-blue-900 shadow-inner'
+      : theme !== 'light'
+        ? 'bg-[#111315] border-[#262B33] text-[#F3F4F6] focus:border-[#10B981]'
+        : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#111315] focus:border-[#059669]'
+  );
+
   return (
     <div className="h-full flex flex-col p-4 sm:p-8 overflow-y-auto">
       <div className="max-w-2xl mx-auto w-full">
-        <h1 className={clsx("text-3xl font-bold tracking-tight mb-8", isFrutigerAero ? "text-blue-900" : "")}>Settings</h1>
+        <div className="mb-6 pb-4 border-b border-[#262B33]/60">
+          <h1 className={clsx('text-2xl font-bold tracking-tight', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
+            Settings
+          </h1>
+          <p className={clsx('text-xs mt-0.5', isFrutigerAero ? 'text-blue-800/70' : theme !== 'light' ? 'text-[#9CA3AF]' : 'text-[#525866]')}>
+            IDE theme preferences, live workspace options, and account configuration
+          </p>
+        </div>
 
-        <div className="space-y-6">
+        <div className="space-y-5">
           {/* Developer Simulation Section */}
           {userData?.role === 'developer' && simulatedRole && (
-            <section className={clsx(
-              "p-6 rounded-3xl border border-amber-500/50 bg-amber-500/5",
-              isFrutigerAero ? "backdrop-blur-md shadow-sm" : ""
-            )}>
-              <div className="flex items-center gap-3 mb-4">
-                <div className="p-2 rounded-lg bg-amber-500/20 text-amber-500">
+            <section className={clsx('p-6 rounded-xl border border-amber-500/40 bg-amber-500/10', isFrutigerAero ? 'backdrop-blur-md shadow-sm' : '')}>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="p-2 rounded-lg bg-amber-500/20 text-amber-400">
                   <ShieldCheck className="w-5 h-5" />
                 </div>
-                <h2 className={clsx("text-xl font-bold", isFrutigerAero ? "text-blue-900" : "")}>Developer Simulation</h2>
+                <h2 className={clsx('text-lg font-bold', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
+                  Developer Simulation
+                </h2>
               </div>
-              <p className={clsx("text-sm mb-4", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>
+              <p className={clsx('text-sm mb-4', isFrutigerAero ? 'text-blue-800/80' : theme !== 'light' ? 'text-[#D1D5DB]' : 'text-[#374151]')}>
                 You are currently simulating the <strong>{simulatedRole}</strong> role.
               </p>
               <button
                 onClick={() => setSimulatedRole(null)}
-                className="w-full py-3 rounded-xl font-bold bg-amber-500 hover:bg-amber-600 text-white transition-all shadow-lg shadow-amber-500/20"
+                className="w-full py-2.5 rounded-lg text-sm font-semibold bg-amber-500 hover:bg-amber-600 text-black transition-colors cursor-pointer"
               >
                 Revert to Developer Mode
               </button>
@@ -134,33 +179,37 @@ export default function SettingsView() {
           )}
 
           {/* Appearance Section */}
-          <section className={clsx(
-            "p-6 rounded-3xl border",
-            isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm" :
-            theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
-          )}>
-            <div className="flex items-center gap-3 mb-6">
-              <div className={clsx("p-2 rounded-lg", isFrutigerAero ? "bg-blue-500/20 text-blue-600 shadow-inner" : "bg-emerald-500/10 text-emerald-500")}>
-                <Sun className="w-5 h-5" />
+          <section className={sectionCard}>
+            <div className="flex items-center gap-3 mb-5">
+              <div className={clsx('p-2 rounded-lg border', isFrutigerAero ? 'bg-blue-500/20 border-blue-400/30 text-blue-600' : 'bg-[#10B981]/10 border-[#10B981]/25 text-[#10B981]')}>
+                <Sun className="w-4 h-4" />
               </div>
-              <h2 className={clsx("text-xl font-bold", isFrutigerAero ? "text-blue-900" : "")}>Appearance</h2>
+              <h2 className={clsx('text-base font-bold', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
+                Appearance
+              </h2>
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <p className={clsx("font-medium", isFrutigerAero ? "text-blue-900" : "")}>Theme Mode</p>
-                <p className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>Switch between light, dark, and gradient themes</p>
+                <p className={clsx('text-sm font-semibold', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
+                  Theme Mode
+                </p>
+                <p className={clsx('text-xs mt-0.5', isFrutigerAero ? 'text-blue-800/70' : 'text-[#9CA3AF]')}>
+                  Switch between crisp light and dark graphite IDE themes
+                </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 shrink-0">
                 <button
                   onClick={() => setTheme('light')}
                   className={clsx(
-                    "flex items-center gap-2 px-4 py-2 rounded-xl border transition-all",
-                    isFrutigerAero && theme === 'light' ? "bg-blue-500 text-white border-blue-600 shadow-md" :
-                    isFrutigerAero ? "bg-white/50 border-white/40 text-blue-800 hover:bg-white/70" :
-                    theme === 'light'
-                      ? 'bg-zinc-800 border-zinc-700 text-zinc-200'
-                      : 'bg-zinc-100 border-zinc-200 text-zinc-800 hover:bg-zinc-200'
+                    'flex items-center gap-2 px-3.5 py-2 rounded-lg border text-sm font-medium transition-colors cursor-pointer whitespace-nowrap',
+                    isFrutigerAero && theme === 'light'
+                      ? 'bg-blue-500 text-white border-blue-600 shadow-sm'
+                      : isFrutigerAero
+                        ? 'bg-white/50 border-white/40 text-blue-800 hover:bg-white/70'
+                        : theme === 'light'
+                          ? 'bg-[#111315] border-[#111315] text-white'
+                          : 'bg-[#111315] border-[#262B33] text-[#9CA3AF] hover:text-[#F3F4F6]'
                   )}
                 >
                   <Sun className="w-4 h-4" /> Light
@@ -168,54 +217,43 @@ export default function SettingsView() {
                 <button
                   onClick={() => setTheme('dark')}
                   className={clsx(
-                    "flex items-center gap-2 px-4 py-2 rounded-xl border transition-all",
-                    isFrutigerAero && theme === 'dark' ? "bg-blue-500 text-white border-blue-600 shadow-md" :
-                    isFrutigerAero ? "bg-white/50 border-white/40 text-blue-800 hover:bg-white/70" :
-                    theme === 'dark'
-                      ? 'bg-zinc-800 border-zinc-700 text-zinc-200'
-                      : 'bg-zinc-100 border-zinc-200 text-zinc-800 hover:bg-zinc-200'
+                    'flex items-center gap-2 px-3.5 py-2 rounded-lg border text-sm font-medium transition-colors cursor-pointer whitespace-nowrap',
+                    isFrutigerAero && theme === 'dark'
+                      ? 'bg-blue-500 text-white border-blue-600 shadow-sm'
+                      : isFrutigerAero
+                        ? 'bg-white/50 border-white/40 text-blue-800 hover:bg-white/70'
+                        : theme !== 'light'
+                          ? 'bg-[#10B981] border-[#10B981] text-[#0A0C0E] font-semibold'
+                          : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#525866] hover:text-[#111315]'
                   )}
                 >
                   <Moon className="w-4 h-4" /> Dark
                 </button>
-                <button
-                  onClick={() => isPremium && setTheme('gradient')}
-                  disabled={!isPremium}
-                  className={clsx(
-                    "flex items-center gap-2 px-4 py-2 rounded-xl border transition-all",
-                    isFrutigerAero && theme === 'gradient' ? "bg-blue-500 text-white border-blue-600 shadow-md" :
-                    isFrutigerAero && !isPremium ? "bg-white/30 border-white/20 text-blue-800/50 cursor-not-allowed" :
-                    isFrutigerAero ? "bg-white/50 border-white/40 text-blue-800 hover:bg-white/70" :
-                    theme === 'gradient'
-                      ? 'bg-gradient-to-r from-emerald-500 to-cyan-500 border-emerald-500 text-white'
-                      : !isPremium 
-                        ? 'bg-zinc-100 border-zinc-200 text-zinc-400 cursor-not-allowed opacity-50'
-                        : 'bg-zinc-100 border-zinc-200 text-zinc-800 hover:bg-zinc-200'
-                  )}
-                >
-                  <Sparkles className="w-4 h-4" /> Gradient {!isPremium && <Lock className="w-3 h-3" />}
-                </button>
               </div>
             </div>
 
-            {/* Frutiger Aero Toggle */}
+            {/* Frutiger Aero Toggle (Preserved Purchasable Skin) */}
             {userData?.purchasedItems?.includes('frutiger-aero') && (
-              <div className={clsx("flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-6 pt-6 border-t", isFrutigerAero ? "border-white/30" : "border-zinc-800/50")}>
+              <div className={clsx('flex flex-col sm:flex-row sm:items-center justify-between gap-4 mt-5 pt-5 border-t', isFrutigerAero ? 'border-white/30' : theme !== 'light' ? 'border-[#262B33]' : 'border-[#E2E5EA]')}>
                 <div>
-                  <p className={clsx("font-medium flex items-center gap-2", isFrutigerAero ? "text-blue-900" : "")}>
-                    <Sparkles className={clsx("w-4 h-4", isFrutigerAero ? "text-blue-500" : "text-blue-500")} />
+                  <p className={clsx('text-sm font-semibold flex items-center gap-2', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
+                    <Layers className="w-4 h-4 text-blue-500" />
                     Frutiger Aero Style
                   </p>
-                  <p className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>Enable the classic glass and aqua aesthetic</p>
+                  <p className={clsx('text-xs mt-0.5', isFrutigerAero ? 'text-blue-800/70' : 'text-[#9CA3AF]')}>
+                    Enable the classic glass and aqua aesthetic
+                  </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
                   <button
                     onClick={() => setIsFrutigerAero(true)}
                     className={clsx(
-                      "px-4 py-2 rounded-xl border transition-all font-medium",
+                      'px-3.5 py-1.5 rounded-lg border text-sm font-medium transition-colors cursor-pointer',
                       isFrutigerAero
-                        ? 'bg-blue-500 text-white border-blue-600 shadow-md'
-                        : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'
+                        ? 'bg-blue-500 text-white border-blue-600 shadow-sm'
+                        : theme !== 'light'
+                          ? 'bg-[#111315] border-[#262B33] text-[#9CA3AF] hover:text-[#F3F4F6]'
+                          : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#525866]'
                     )}
                   >
                     Yes
@@ -223,10 +261,12 @@ export default function SettingsView() {
                   <button
                     onClick={() => setIsFrutigerAero(false)}
                     className={clsx(
-                      "px-4 py-2 rounded-xl border transition-all font-medium",
+                      'px-3.5 py-1.5 rounded-lg border text-sm font-medium transition-colors cursor-pointer',
                       !isFrutigerAero
-                        ? 'bg-zinc-800 border-zinc-700 text-white'
-                        : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'
+                        ? theme !== 'light'
+                          ? 'bg-[#262B33] border-[#374151] text-[#F3F4F6]'
+                          : 'bg-[#111315] border-[#111315] text-white'
+                        : 'bg-white/50 border-white/40 text-blue-800 hover:bg-white/70'
                     )}
                   >
                     No
@@ -237,95 +277,109 @@ export default function SettingsView() {
           </section>
 
           {/* Editor Section */}
-          <section className={clsx(
-            "p-6 rounded-3xl border",
-            isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm" :
-            theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
-          )}>
-            <div className="flex items-center gap-3 mb-6">
-              <div className={clsx("p-2 rounded-lg", isFrutigerAero ? "bg-blue-500/20 text-blue-600 shadow-inner" : "bg-blue-500/10 text-blue-500")}>
-                <Code2 className="w-5 h-5" />
+          <section className={sectionCard}>
+            <div className="flex items-center gap-3 mb-5">
+              <div className={clsx('p-2 rounded-lg border', isFrutigerAero ? 'bg-blue-500/20 border-blue-400/30 text-blue-600' : 'bg-[#10B981]/10 border-[#10B981]/25 text-[#10B981]')}>
+                <Code2 className="w-4 h-4" />
               </div>
               <div>
-                <h2 className={clsx("text-xl font-bold", isFrutigerAero ? "text-blue-900" : "")}>
+                <h2 className={clsx('text-base font-bold', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
                   {language === 'ru' ? 'Редактор' : 'Editor'}
                 </h2>
-                <p className={clsx("text-xs", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>
+                <p className={clsx('text-xs', isFrutigerAero ? 'text-blue-800/70' : 'text-[#9CA3AF]')}>
                   {language === 'ru' ? 'Параметры рабочей области и отображения кода' : 'Workspace and code preview settings'}
                 </p>
               </div>
             </div>
 
-            <div className="space-y-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="max-w-md">
-                  <p className={clsx("font-medium flex items-center gap-2", isFrutigerAero ? "text-blue-900" : "")}>
-                    <Eye className="w-4 h-4 text-blue-500" />
-                    <span>{language === 'ru' ? 'Живой просмотр (Live Preview)' : 'Live Preview'}</span>
-                  </p>
-                  <p className={clsx("text-sm mt-0.5", isFrutigerAero ? "text-blue-800/70" : "text-zinc-400")}>
-                    {language === 'ru'
-                      ? 'Включает интерактивный показ проекта прямо в редакторе без нажатия на кнопку Run. Проект автоматически обновляется в реальном времени при каждом изменении кода.'
-                      : 'Shows interactive project preview directly in the editor without clicking Run. Automatically updates in real-time as you type code.'}
-                  </p>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setLivePreviewEnabled(true)}
-                    className={clsx(
-                      "px-4 py-2 rounded-xl border transition-all font-medium cursor-pointer",
-                      livePreviewEnabled
-                        ? (isFrutigerAero ? 'bg-blue-500 text-white border-blue-600 shadow-md' : 'bg-blue-600 text-white border-blue-500 shadow-lg shadow-blue-500/25')
-                        : (isFrutigerAero ? 'bg-white/50 border-white/40 text-blue-800 hover:bg-white/70' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700')
-                    )}
-                  >
-                    {language === 'ru' ? 'Вкл' : 'On'}
-                  </button>
-                  <button
-                    onClick={() => setLivePreviewEnabled(false)}
-                    className={clsx(
-                      "px-4 py-2 rounded-xl border transition-all font-medium cursor-pointer",
-                      !livePreviewEnabled
-                        ? (isFrutigerAero ? 'bg-blue-500 text-white border-blue-600 shadow-md' : 'bg-zinc-800 border-zinc-600 text-white shadow-md')
-                        : (isFrutigerAero ? 'bg-white/50 border-white/40 text-blue-800 hover:bg-white/70' : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700')
-                    )}
-                  >
-                    {language === 'ru' ? 'Выкл' : 'Off'}
-                  </button>
-                </div>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="max-w-md">
+                <p className={clsx('text-sm font-semibold flex items-center gap-2', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
+                  <Eye className="w-4 h-4 text-[#10B981]" />
+                  <span>{language === 'ru' ? 'Живой просмотр (Live Preview)' : 'Live Preview'}</span>
+                </p>
+                <p className={clsx('text-xs mt-1', isFrutigerAero ? 'text-blue-800/70' : 'text-[#9CA3AF]')}>
+                  {language === 'ru'
+                    ? 'Включает интерактивный показ проекта прямо в редакторе без нажатия на кнопку Run.'
+                    : 'Shows interactive project preview directly in the editor without clicking Run.'}
+                </p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  onClick={() => setLivePreviewEnabled(true)}
+                  className={clsx(
+                    'px-3.5 py-1.5 rounded-lg border text-sm font-medium transition-colors cursor-pointer',
+                    livePreviewEnabled
+                      ? isFrutigerAero
+                        ? 'bg-blue-500 text-white border-blue-600'
+                        : 'bg-[#10B981] text-[#0A0C0E] border-[#10B981] font-semibold'
+                      : isFrutigerAero
+                        ? 'bg-white/50 border-white/40 text-blue-800'
+                        : theme !== 'light'
+                          ? 'bg-[#111315] border-[#262B33] text-[#9CA3AF] hover:text-[#F3F4F6]'
+                          : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#525866]'
+                  )}
+                >
+                  {language === 'ru' ? 'Вкл' : 'On'}
+                </button>
+                <button
+                  onClick={() => setLivePreviewEnabled(false)}
+                  className={clsx(
+                    'px-3.5 py-1.5 rounded-lg border text-sm font-medium transition-colors cursor-pointer',
+                    !livePreviewEnabled
+                      ? isFrutigerAero
+                        ? 'bg-blue-500 text-white border-blue-600'
+                        : theme !== 'light'
+                          ? 'bg-[#262B33] border-[#374151] text-[#F3F4F6]'
+                          : 'bg-[#111315] border-[#111315] text-white'
+                      : isFrutigerAero
+                        ? 'bg-white/50 border-white/40 text-blue-800'
+                        : theme !== 'light'
+                          ? 'bg-[#111315] border-[#262B33] text-[#9CA3AF] hover:text-[#F3F4F6]'
+                          : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#525866]'
+                  )}
+                >
+                  {language === 'ru' ? 'Выкл' : 'Off'}
+                </button>
               </div>
             </div>
           </section>
 
           {/* AI Section */}
-          <section className={clsx(
-            "p-6 rounded-3xl border",
-            isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm" :
-            theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
-          )}>
-            <div className="flex items-center gap-3 mb-6">
-              <div className={clsx("p-2 rounded-lg", isFrutigerAero ? "bg-purple-500/20 text-purple-600 shadow-inner" : "bg-purple-500/10 text-purple-500")}>
-                <Bot className="w-5 h-5" />
+          <section className={sectionCard}>
+            <div className="flex items-center gap-3 mb-5">
+              <div className={clsx('p-2 rounded-lg border', isFrutigerAero ? 'bg-blue-500/20 border-blue-400/30 text-blue-600' : 'bg-[#10B981]/10 border-[#10B981]/25 text-[#10B981]')}>
+                <Bot className="w-4 h-4" />
               </div>
-              <h2 className={clsx("text-xl font-bold", isFrutigerAero ? "text-blue-900" : "")}>AI Settings</h2>
+              <h2 className={clsx('text-base font-bold', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
+                AI Settings
+              </h2>
             </div>
 
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
+            <div className="space-y-5">
+              <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className={clsx("font-medium", isFrutigerAero ? "text-blue-900" : "")}>Answer Mode</p>
-                  <p className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>How the AI should output answers</p>
+                  <p className={clsx('text-sm font-semibold', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
+                    Answer Mode
+                  </p>
+                  <p className={clsx('text-xs mt-0.5', isFrutigerAero ? 'text-blue-800/70' : 'text-[#9CA3AF]')}>
+                    How the AI should output answers
+                  </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex gap-2 shrink-0">
                   <button
                     onClick={() => setAiAnswerMode('text')}
                     className={clsx(
-                      "px-4 py-2 rounded-xl border transition-all",
-                      isFrutigerAero && aiAnswerMode === 'text' ? "bg-purple-500 text-white border-purple-600 shadow-md" :
-                      isFrutigerAero ? "bg-white/50 border-white/40 text-purple-800 hover:bg-white/70" :
+                      'px-3.5 py-1.5 rounded-lg border text-sm font-medium transition-colors cursor-pointer',
                       aiAnswerMode === 'text'
-                        ? 'bg-purple-500 text-white border-purple-600'
-                        : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'
+                        ? isFrutigerAero
+                          ? 'bg-blue-500 text-white border-blue-600'
+                          : 'bg-[#10B981] text-[#0A0C0E] border-[#10B981] font-semibold'
+                        : isFrutigerAero
+                          ? 'bg-white/50 border-white/40 text-blue-800'
+                          : theme !== 'light'
+                            ? 'bg-[#111315] border-[#262B33] text-[#9CA3AF] hover:text-[#F3F4F6]'
+                            : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#525866]'
                     )}
                   >
                     Text
@@ -333,12 +387,16 @@ export default function SettingsView() {
                   <button
                     onClick={() => setAiAnswerMode('console')}
                     className={clsx(
-                      "px-4 py-2 rounded-xl border transition-all",
-                      isFrutigerAero && aiAnswerMode === 'console' ? "bg-purple-500 text-white border-purple-600 shadow-md" :
-                      isFrutigerAero ? "bg-white/50 border-white/40 text-purple-800 hover:bg-white/70" :
+                      'px-3.5 py-1.5 rounded-lg border text-sm font-medium transition-colors cursor-pointer',
                       aiAnswerMode === 'console'
-                        ? 'bg-purple-500 text-white border-purple-600'
-                        : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:bg-zinc-700'
+                        ? isFrutigerAero
+                          ? 'bg-blue-500 text-white border-blue-600'
+                          : 'bg-[#10B981] text-[#0A0C0E] border-[#10B981] font-semibold'
+                        : isFrutigerAero
+                          ? 'bg-white/50 border-white/40 text-blue-800'
+                          : theme !== 'light'
+                            ? 'bg-[#111315] border-[#262B33] text-[#9CA3AF] hover:text-[#F3F4F6]'
+                            : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#525866]'
                     )}
                   >
                     Console
@@ -346,22 +404,29 @@ export default function SettingsView() {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className={clsx("font-medium", isFrutigerAero ? "text-blue-900" : "")}>AI Changes</p>
-                  <p className={clsx("text-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>Allow AI to modify app entities</p>
+                  <p className={clsx('text-sm font-semibold', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
+                    AI Changes
+                  </p>
+                  <p className={clsx('text-xs mt-0.5', isFrutigerAero ? 'text-blue-800/70' : 'text-[#9CA3AF]')}>
+                    Allow AI to modify app entities
+                  </p>
                 </div>
                 <button
                   onClick={() => setAiChangesEnabled(!aiChangesEnabled)}
                   className={clsx(
-                    "w-12 h-6 rounded-full transition-all relative",
-                    aiChangesEnabled ? 'bg-purple-500' : (isFrutigerAero ? 'bg-white/50 border border-white/60' : 'bg-zinc-700')
+                    'w-11 h-6 rounded-full transition-colors relative cursor-pointer border',
+                    aiChangesEnabled
+                      ? 'bg-[#10B981] border-[#10B981]'
+                      : isFrutigerAero
+                        ? 'bg-white/50 border-white/60'
+                        : theme !== 'light'
+                          ? 'bg-[#111315] border-[#262B33]'
+                          : 'bg-[#E2E5EA] border-[#CBD5E1]'
                   )}
                 >
-                  <div className={clsx(
-                    "w-4 h-4 rounded-full bg-white absolute top-1 transition-all shadow-sm",
-                    aiChangesEnabled ? 'left-7' : 'left-1'
-                  )} />
+                  <div className={clsx('w-4 h-4 rounded-full bg-white absolute top-0.5 transition-all shadow-sm', aiChangesEnabled ? 'left-6' : 'left-0.5')} />
                 </button>
               </div>
             </div>
@@ -369,136 +434,132 @@ export default function SettingsView() {
 
           {/* Account Section */}
           {user && (
-            <section className={clsx(
-              "p-6 rounded-3xl border",
-              isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm" :
-              theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
-            )}>
-              <div className="flex items-center gap-3 mb-6">
-                <div className={clsx("p-2 rounded-lg", isFrutigerAero ? "bg-blue-500/20 text-blue-600 shadow-inner" : "bg-blue-500/10 text-blue-500")}>
-                  <User className="w-5 h-5" />
+            <section className={sectionCard}>
+              <div className="flex items-center gap-3 mb-5">
+                <div className={clsx('p-2 rounded-lg border', isFrutigerAero ? 'bg-blue-500/20 border-blue-400/30 text-blue-600' : 'bg-[#10B981]/10 border-[#10B981]/25 text-[#10B981]')}>
+                  <User className="w-4 h-4" />
                 </div>
-                <h2 className={clsx("text-xl font-bold", isFrutigerAero ? "text-blue-900" : "")}>Account Settings</h2>
+                <h2 className={clsx('text-base font-bold', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
+                  Account Settings
+                </h2>
               </div>
 
               <div className="space-y-4">
                 <div>
-                  <label className={clsx("block text-sm font-medium mb-1", isFrutigerAero ? "text-blue-800/80" : "text-zinc-500")}>Display Name</label>
+                  <label className={clsx('block text-xs font-semibold uppercase tracking-wider mb-1.5', isFrutigerAero ? 'text-blue-800/80' : 'text-[#9CA3AF]')}>
+                    Display Name
+                  </label>
                   <input
                     type="text"
                     value={displayName}
                     onChange={(e) => setDisplayName(e.target.value)}
-                    className={clsx(
-                      "w-full px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 transition-all",
-                      isFrutigerAero ? "bg-white/60 border-white/40 text-blue-900 focus:ring-blue-400 shadow-inner" :
-                      theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white focus:ring-emerald-500/50' : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:ring-emerald-500/50'
-                    )}
+                    className={inputClass}
                     placeholder="Enter your name"
                   />
                 </div>
 
                 <div>
-                  <label className={clsx("block text-sm font-medium mb-1", isFrutigerAero ? "text-blue-800/80" : "text-zinc-500")}>Bio (Description)</label>
+                  <label className={clsx('block text-xs font-semibold uppercase tracking-wider mb-1.5', isFrutigerAero ? 'text-blue-800/80' : 'text-[#9CA3AF]')}>
+                    Bio (Description)
+                  </label>
                   <textarea
                     value={bio}
                     onChange={(e) => setBio(e.target.value)}
                     maxLength={500}
                     rows={3}
-                    className={clsx(
-                      "w-full px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 transition-all resize-none",
-                      isFrutigerAero ? "bg-white/60 border-white/40 text-blue-900 focus:ring-blue-400 shadow-inner" :
-                      theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white focus:ring-emerald-500/50' : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:ring-emerald-500/50'
-                    )}
+                    className={clsx(inputClass, 'resize-none')}
                     placeholder="Tell us about yourself..."
                   />
-                  <div className={clsx("text-xs text-right mt-1", isFrutigerAero ? "text-blue-800/60" : "text-zinc-500")}>{bio.length}/500</div>
+                  <div className={clsx('text-[11px] font-mono-num text-right mt-1', isFrutigerAero ? 'text-blue-800/60' : 'text-[#6B7280]')}>
+                    {bio.length}/500
+                  </div>
                 </div>
 
                 <div>
-                  <label className={clsx("block text-sm font-medium mb-1", isFrutigerAero ? "text-blue-800/80" : "text-zinc-500")}>Avatar URL (Or upload / choose emoji)</label>
+                  <label className={clsx('block text-xs font-semibold uppercase tracking-wider mb-1.5', isFrutigerAero ? 'text-blue-800/80' : 'text-[#9CA3AF]')}>
+                    Avatar URL (Or upload / choose emoji)
+                  </label>
                   <div className="flex gap-2 mb-3">
                     <input
                       type="text"
                       value={avatarUrl}
                       onChange={(e) => setAvatarUrl(e.target.value)}
-                      className={clsx(
-                        "flex-1 px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 transition-all",
-                        isFrutigerAero ? "bg-white/60 border-white/40 text-blue-900 focus:ring-blue-400 shadow-inner" :
-                        theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white focus:ring-emerald-500/50' : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:ring-emerald-500/50'
-                      )}
+                      className={clsx(inputClass, 'flex-1')}
                       placeholder="Enter avatar URL"
                     />
-                    <input 
-                      type="file" 
-                      accept="image/*" 
-                      ref={fileInputRef} 
-                      onChange={handleAvatarUpload} 
-                      className="hidden" 
-                    />
+                    <input type="file" accept="image/*" ref={fileInputRef} onChange={handleAvatarUpload} className="hidden" />
                     <button
                       onClick={() => fileInputRef.current?.click()}
                       className={clsx(
-                        "px-4 py-2.5 rounded-xl border transition-all flex justify-center items-center gap-2 font-medium shrink-0",
-                        isFrutigerAero ? "bg-white/60 border-white/40 text-blue-800 hover:bg-white/80" :
-                        theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white hover:bg-zinc-700' : 'bg-white border-zinc-200 text-zinc-800 hover:bg-zinc-50'
+                        'px-3.5 py-2 rounded-lg border text-sm font-medium transition-colors flex items-center gap-2 shrink-0 cursor-pointer',
+                        isFrutigerAero
+                          ? 'bg-white/60 border-white/40 text-blue-800 hover:bg-white/80'
+                          : theme !== 'light'
+                            ? 'bg-[#111315] border-[#262B33] text-[#F3F4F6] hover:bg-[#22262E]'
+                            : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#111315] hover:bg-zinc-200'
                       )}
                     >
                       <Upload className="w-4 h-4" /> Upload
                     </button>
                   </div>
                   <div className="mb-2">
-                    <EmojiPicker 
+                    <EmojiPicker
                       onEmojiClick={(emojiData) => setAvatarUrl(getEmojiAvatar(emojiData.emoji))}
                       theme={theme === 'light' ? Theme.LIGHT : Theme.DARK}
                       lazyLoadEmojis={true}
                       width="100%"
-                      height={350}
+                      height={320}
                     />
                   </div>
                 </div>
 
                 <div>
-                  <label className={clsx("block text-sm font-medium mb-1", isFrutigerAero ? "text-blue-800/80" : "text-zinc-500")}>Region</label>
-                  <select
+                  <label className={clsx('block text-xs font-semibold uppercase tracking-wider mb-1.5', isFrutigerAero ? 'text-blue-800/80' : 'text-[#9CA3AF]')}>
+                    Region
+                  </label>
+                  <CustomSelect
                     value={region}
-                    onChange={(e) => setRegion(e.target.value)}
-                    className={clsx(
-                      "w-full px-4 py-2.5 rounded-xl border focus:outline-none focus:ring-2 transition-all",
-                      isFrutigerAero ? "bg-white/60 border-white/40 text-blue-900 focus:ring-blue-400 shadow-inner" :
-                      theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-white focus:ring-emerald-500/50' : 'bg-zinc-50 border-zinc-200 text-zinc-900 focus:ring-emerald-500/50'
-                    )}
-                  >
-                    <option value="Global">Global</option>
-                    <option value="North America">North America</option>
-                    <option value="Europe">Europe</option>
-                    <option value="Asia">Asia</option>
-                    <option value="South America">South America</option>
-                    <option value="Oceania">Oceania</option>
-                    <option value="Africa">Africa</option>
-                  </select>
+                    onChange={setRegion}
+                    className="w-full"
+                    options={[
+                      { value: 'Global', label: 'Global' },
+                      { value: 'North America', label: 'North America' },
+                      { value: 'Europe', label: 'Europe' },
+                      { value: 'Asia', label: 'Asia' },
+                      { value: 'South America', label: 'South America' },
+                      { value: 'Oceania', label: 'Oceania' },
+                      { value: 'Africa', label: 'Africa' },
+                    ]}
+                  />
                 </div>
 
                 {status && (
-                  <div className={clsx(
-                    "flex items-center gap-2 p-3 rounded-xl text-sm",
-                    status.type === 'success' 
-                      ? (isFrutigerAero ? 'bg-emerald-500/20 text-emerald-700 border border-emerald-500/30' : 'bg-emerald-500/10 text-emerald-500') 
-                      : (isFrutigerAero ? 'bg-red-500/20 text-red-700 border border-red-500/30' : 'bg-red-500/10 text-red-500')
-                  )}>
-                    {status.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
-                    {status.message}
+                  <div
+                    className={clsx(
+                      'flex items-center gap-2 p-3 rounded-lg border text-sm',
+                      status.type === 'success'
+                        ? isFrutigerAero
+                          ? 'bg-emerald-500/20 text-emerald-700 border-emerald-500/30'
+                          : 'bg-[#10B981]/10 border-[#10B981]/30 text-[#10B981]'
+                        : isFrutigerAero
+                          ? 'bg-red-500/20 text-red-700 border-red-500/30'
+                          : 'bg-red-500/10 border-red-500/30 text-red-400'
+                    )}
+                  >
+                    {status.type === 'success' ? <CheckCircle2 className="w-4 h-4 shrink-0" /> : <AlertCircle className="w-4 h-4 shrink-0" />}
+                    <span>{status.message}</span>
                   </div>
                 )}
 
                 <button
                   onClick={handleUpdateProfile}
-                  disabled={isUpdating || (displayName === user.displayName && avatarUrl === (userData?.avatarUrl || user.photoURL || '') && region === (userData?.region || 'Global'))}
+                  disabled={isUpdating || !isDirty}
                   className={clsx(
-                    "w-full flex items-center justify-center gap-2 px-6 py-3 disabled:opacity-50 rounded-xl font-medium transition-all",
-                    isFrutigerAero ? "frutiger-aero-button" : "bg-emerald-500 hover:bg-emerald-600 disabled:hover:bg-emerald-500 text-white"
+                    'w-full flex items-center justify-center gap-2 px-5 py-2.5 disabled:opacity-50 rounded-lg text-sm font-semibold transition-colors cursor-pointer',
+                    isFrutigerAero ? 'frutiger-aero-button' : 'bg-[#10B981] hover:bg-[#059669] disabled:hover:bg-[#10B981] text-[#0A0C0E]'
                   )}
                 >
-                  <Save className="w-5 h-5" />
+                  <Save className="w-4 h-4" />
                   {isUpdating ? 'Updating...' : 'Save Changes'}
                 </button>
               </div>
@@ -506,7 +567,7 @@ export default function SettingsView() {
           )}
 
           {!user && (
-            <div className={clsx("text-center p-8 italic", isFrutigerAero ? "text-blue-800/60" : "text-zinc-500")}>
+            <div className={clsx('text-center p-8 text-sm', isFrutigerAero ? 'text-blue-800/60' : 'text-[#9CA3AF]')}>
               Sign in to access account settings.
             </div>
           )}

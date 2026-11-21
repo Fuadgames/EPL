@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { collection, query, where, getDocs, deleteDoc, doc, onSnapshot } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { collection, query, where, deleteDoc, doc, onSnapshot } from 'firebase/firestore';
+import { db } from '../firebase';
 import { useStore } from '../store/useStore';
+import { confirmAction, notify } from '../store/useDialogStore';
 import { Package, Edit2, Trash2, Plus, Terminal, Lock, Key } from 'lucide-react';
 import { clsx } from 'clsx';
 
@@ -22,14 +23,15 @@ interface AppData {
 export default function MyAppsView() {
   const [apps, setApps] = useState<AppData[]>([]);
   const [loading, setLoading] = useState(true);
-  const theme = useStore(state => state.theme);
-  const isFrutigerAero = useStore(state => state.isFrutigerAero);
-  const setCurrentView = useStore(state => state.setCurrentView);
-  const setEditingAppId = useStore(state => state.setEditingAppId);
-  const setSelectedExtraCategory = useStore(state => state.setSelectedExtraCategory);
-  const user = useStore(state => state.user);
+  const theme = useStore((state) => state.theme);
+  const language = useStore((state) => state.language);
+  const isFrutigerAero = useStore((state) => state.isFrutigerAero);
+  const setCurrentView = useStore((state) => state.setCurrentView);
+  const setEditingAppId = useStore((state) => state.setEditingAppId);
+  const setSelectedExtraCategory = useStore((state) => state.setSelectedExtraCategory);
+  const user = useStore((state) => state.user);
 
-  const [appToDelete, setAppToDelete] = useState<string | null>(null);
+  const isLight = theme === 'light' && !isFrutigerAero;
 
   useEffect(() => {
     if (!user) {
@@ -37,79 +39,77 @@ export default function MyAppsView() {
       return;
     }
     const q = query(collection(db, 'apps'), where('authorId', '==', user.uid));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const appsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as AppData));
-      appsData.sort((a, b) => {
-        const dateA = (a as any).updatedAt ? new Date((a as any).updatedAt).getTime() : 0;
-        const dateB = (b as any).updatedAt ? new Date((b as any).updatedAt).getTime() : 0;
-        return dateB - dateA;
-      });
-      setApps(appsData);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching user apps", error);
-      setLoading(false);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const appsData = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as AppData));
+        appsData.sort((a, b) => {
+          const dateA = (a as any).updatedAt ? new Date((a as any).updatedAt).getTime() : 0;
+          const dateB = (b as any).updatedAt ? new Date((b as any).updatedAt).getTime() : 0;
+          return dateB - dateA;
+        });
+        setApps(appsData);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Error fetching user apps', error);
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, [user]);
 
-  const handleDelete = async () => {
-    if (appToDelete) {
-      try {
-        await deleteDoc(doc(db, 'apps', appToDelete));
-      } catch (error) {
-        console.error("Error deleting app", error);
-      } finally {
-        setAppToDelete(null);
-      }
+  const handleDelete = async (app: AppData) => {
+    const confirmed = await confirmAction({
+      title: language === 'ru' ? 'Удалить проект?' : 'Delete App?',
+      message:
+        language === 'ru'
+          ? `Вы уверены, что хотите удалить «${app.title}»? Это действие необратимо.`
+          : `Delete "${app.title}" permanently? This action cannot be undone.`,
+      confirmText: language === 'ru' ? 'Удалить' : 'Delete',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    try {
+      await deleteDoc(doc(db, 'apps', app.id));
+      notify.success(language === 'ru' ? 'Проект удалён' : 'App deleted');
+    } catch (error) {
+      console.error('Error deleting app', error);
+      notify.error(language === 'ru' ? 'Не удалось удалить проект' : 'Failed to delete app');
     }
   };
 
   if (!user) {
     return (
       <div className="h-full flex flex-col items-center justify-center p-8 text-center">
-        <Package className={clsx("w-16 h-16 mb-4", isFrutigerAero ? "text-blue-500/50" : "text-zinc-500 opacity-50")} />
-        <h2 className={clsx("text-2xl font-bold mb-2", isFrutigerAero ? "text-blue-900" : "")}>Sign in to view your apps</h2>
-        <p className={clsx("max-w-md", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>You need an account to create and publish apps to the EPL Store.</p>
+        <Package className="w-12 h-12 mb-4 opacity-40" />
+        <h2 className="text-xl font-bold mb-1">
+          {language === 'ru' ? 'Войдите для просмотра проектов' : 'Sign in to view your apps'}
+        </h2>
+        <p className="text-sm opacity-70 max-w-md">
+          {language === 'ru'
+            ? 'Войдите в аккаунт, чтобы создавать и публиковать приложения в EPL Studio.'
+            : 'Sign in to create and publish applications to the EPL Store.'}
+        </p>
       </div>
     );
   }
 
   return (
-    <div className={clsx("h-full flex flex-col p-4 sm:p-8 overflow-y-auto", isFrutigerAero ? "frutiger-aero-bg" : "")}>
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
-        <div>
-          <h1 className={clsx("text-3xl font-bold tracking-tight", isFrutigerAero ? "text-blue-900" : "")}>My Apps</h1>
-          <p className={clsx("mt-2", isFrutigerAero ? "text-blue-800/70" : theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>Manage your published EPL applications.</p>
-        </div>
-        <button
-          onClick={() => {
-            setEditingAppId(null);
-            setSelectedExtraCategory('Normal');
-            setCurrentView('editor');
-          }}
-          className={clsx(
-            "flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-colors shadow-lg",
-            isFrutigerAero ? "frutiger-aero-button" : "bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-500/20"
-          )}
-        >
-          <Plus className="w-4 h-4" /> New App
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="flex-1 flex items-center justify-center">
-          <div className={clsx("animate-spin rounded-full h-8 w-8 border-b-2", isFrutigerAero ? "border-blue-500" : "border-emerald-500")}></div>
-        </div>
-      ) : apps.length === 0 ? (
-        <div className={clsx(
-          "flex-1 flex flex-col items-center justify-center text-center border-2 border-dashed rounded-3xl p-12",
-          isFrutigerAero ? "border-white/40 bg-white/20 backdrop-blur-sm" : "border-zinc-800"
-        )}>
-          <Package className={clsx("w-16 h-16 mb-4", isFrutigerAero ? "text-blue-600/50" : "text-zinc-600")} />
-          <h3 className={clsx("text-xl font-semibold mb-2", isFrutigerAero ? "text-blue-900" : "")}>No apps yet</h3>
-          <p className={clsx("mb-6 max-w-sm", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>You haven't published any apps yet. Head over to the Code Editor to create your first EPL program.</p>
+    <div className="h-full flex flex-col p-6 overflow-y-auto">
+      <div className="max-w-7xl mx-auto w-full space-y-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight">
+              {language === 'ru' ? 'Мои проекты' : 'My Apps'}
+            </h1>
+            <p className="text-sm opacity-70 mt-0.5">
+              {language === 'ru'
+                ? 'Управление опубликованными и локальными проектами EPL'
+                : 'Manage your published and draft EPL applications.'}
+            </p>
+          </div>
           <button
             onClick={() => {
               setEditingAppId(null);
@@ -117,139 +117,171 @@ export default function MyAppsView() {
               setCurrentView('editor');
             }}
             className={clsx(
-              "px-6 py-2.5 rounded-xl font-medium transition-colors",
-              isFrutigerAero ? "frutiger-aero-button" : "bg-zinc-800 hover:bg-zinc-700 text-white"
+              'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap shrink-0',
+              isFrutigerAero
+                ? 'frutiger-aero-button'
+                : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
             )}
           >
-            Open Editor
+            <Plus className="w-4 h-4" />
+            <span>{language === 'ru' ? 'Новый проект' : 'New App'}</span>
           </button>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {apps.map(app => (
-            <div key={app.id} className={clsx(
-              "p-6 rounded-2xl border transition-all relative overflow-hidden",
-              isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm" :
-              theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
-            )}>
-              <div className="flex justify-between items-start mb-1">
-                <h3 className={clsx("text-lg font-semibold truncate flex-1", isFrutigerAero ? "text-blue-900" : "")}>{app.title}</h3>
-                <div className="flex gap-1">
-                  {app.isPrivate && (
-                    <div className={clsx("p-1 rounded-md", isFrutigerAero ? "bg-zinc-500/20" : "bg-zinc-800")} title="Private (Local Only)">
-                      <Lock className={clsx("w-3 h-3", isFrutigerAero ? "text-zinc-600" : "text-zinc-400")} />
-                    </div>
-                  )}
-                  {app.isLocked && (
-                    <div className={clsx("p-1 rounded-md", isFrutigerAero ? "bg-emerald-500/20" : "bg-emerald-500/10")} title="Locked with Code">
-                      <Key className={clsx("w-3 h-3", isFrutigerAero ? "text-emerald-600" : "text-emerald-500")} />
-                    </div>
-                  )}
-                  {app.isAiGenerated && (
-                    <div className={clsx("p-1 rounded-md", isFrutigerAero ? "bg-blue-500/20" : "bg-emerald-500/10")} title="AI Generated">
-                      <Terminal className={clsx("w-3 h-3", isFrutigerAero ? "text-blue-600" : "text-emerald-500")} />
-                    </div>
-                  )}
-                </div>
-              </div>
 
-              {/* Moderation Status Banner */}
-              {app.moderationStatus && (
-                <div className="mb-2">
-                  {app.moderationStatus === 'approved' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                      ✓ Одобрено ИИ (Nemotron 3.5)
-                    </span>
-                  )}
-                  {app.moderationStatus === 'rejected' && (
-                    <div className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-xs mb-1">
-                      <div className="font-bold flex items-center gap-1 mb-0.5">
-                        ✕ Отклонено ИИ
-                      </div>
-                      {app.moderationReason && (
-                        <div className="text-[11px] opacity-80 line-clamp-2" title={app.moderationReason}>
-                          {app.moderationReason}
+        {loading ? (
+          <div className="flex items-center justify-center py-20 text-[#10B981]">
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-current border-t-transparent" />
+          </div>
+        ) : apps.length === 0 ? (
+          <div
+            className={clsx(
+              'rounded-xl border p-12 text-center max-w-lg mx-auto my-8',
+              isFrutigerAero
+                ? 'frutiger-aero-glass'
+                : isLight
+                ? 'bg-white border-[#E2E5EA]'
+                : 'bg-[#181B20] border-[#262B33]'
+            )}
+          >
+            <Package className="w-10 h-10 mx-auto mb-3 opacity-40" />
+            <h3 className="text-base font-semibold mb-1">
+              {language === 'ru' ? 'Проектов пока нет' : 'No apps yet'}
+            </h3>
+            <p className="text-sm opacity-70 mb-5">
+              {language === 'ru'
+                ? 'Откройте редактор кода, чтобы создать своё первое приложение.'
+                : 'Open the IDE Editor to build your first EPL program.'}
+            </p>
+            <button
+              onClick={() => {
+                setEditingAppId(null);
+                setSelectedExtraCategory('Normal');
+                setCurrentView('editor');
+              }}
+              className={clsx(
+                'px-4 py-2 rounded-lg text-sm font-semibold transition-colors',
+                isFrutigerAero
+                  ? 'frutiger-aero-button'
+                  : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
+              )}
+            >
+              {language === 'ru' ? 'Открыть редактор' : 'Open Editor'}
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+            {apps.map((app) => (
+              <article
+                key={app.id}
+                className={clsx(
+                  'p-5 rounded-xl border flex flex-col justify-between transition-colors',
+                  isFrutigerAero
+                    ? 'frutiger-aero-glass'
+                    : isLight
+                    ? 'bg-white border-[#E2E5EA] hover:border-[#D1D5DB]'
+                    : 'bg-[#181B20] border-[#262B33] hover:border-[#374151]'
+                )}
+              >
+                <div>
+                  <div className="flex justify-between items-start gap-2 mb-2">
+                    <h3 className="text-base font-semibold truncate flex-1">{app.title}</h3>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {app.isPrivate && (
+                        <span
+                          className="p-1 rounded border border-current/15 opacity-70"
+                          title="Private (Local Only)"
+                        >
+                          <Lock className="w-3 h-3" />
+                        </span>
+                      )}
+                      {app.isLocked && (
+                        <span
+                          className="p-1 rounded border border-[#10B981]/30 text-[#10B981]"
+                          title="Locked with Access Code"
+                        >
+                          <Key className="w-3 h-3" />
+                        </span>
+                      )}
+                      {app.isAiGenerated && (
+                        <span
+                          className="p-1 rounded border border-[#10B981]/30 text-[#10B981]"
+                          title="AI Assisted"
+                        >
+                          <Terminal className="w-3 h-3" />
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {app.moderationStatus && (
+                    <div className="mb-2.5">
+                      {app.moderationStatus === 'approved' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-emerald-500/10 text-[#10B981] border border-emerald-500/30">
+                          AI Verified
+                        </span>
+                      )}
+                      {app.moderationStatus === 'rejected' && (
+                        <div className="p-2.5 rounded-lg bg-[#DC2626]/10 border border-[#DC2626]/30 text-[#DC2626] text-xs">
+                          <div className="font-semibold">Отклонено ИИ</div>
+                          {app.moderationReason && (
+                            <div className="text-[11px] opacity-85 line-clamp-2 mt-0.5">
+                              {app.moderationReason}
+                            </div>
+                          )}
                         </div>
+                      )}
+                      {app.moderationStatus === 'pending' && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-[#D97706]/10 text-[#D97706] border border-[#D97706]/30">
+                          На проверке
+                        </span>
                       )}
                     </div>
                   )}
-                  {app.moderationStatus === 'pending' && (
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                      ⏳ На проверке
-                    </span>
-                  )}
+
+                  <p className="text-sm opacity-75 line-clamp-2 mb-4">
+                    {app.description || (language === 'ru' ? 'Без описания' : 'No description')}
+                  </p>
                 </div>
-              )}
 
-              <p className={clsx("text-sm mb-4 line-clamp-2 h-10", isFrutigerAero ? "text-blue-800/70" : theme !== 'light' ? 'text-zinc-400' : 'text-zinc-500')}>
-                {app.description}
-              </p>
-              
-              <div className={clsx("flex items-center gap-4 text-xs mb-6", isFrutigerAero ? "text-blue-800/60" : "text-zinc-500")}>
-                <span>v{app.version}</span>
-                <span>•</span>
-                <span>{app.downloads} downloads</span>
-              </div>
+                <div>
+                  <div className="flex items-center gap-3 text-xs opacity-60 mb-4 font-mono-num">
+                    <span>v{app.version || '1.0.0'}</span>
+                    <span>·</span>
+                    <span>{app.downloads || 0} downloads</span>
+                  </div>
 
-              <div className="flex items-center gap-2">
-                <button 
-                  onClick={() => {
-                    setEditingAppId(app.id);
-                    setSelectedExtraCategory('Normal');
-                    setCurrentView('editor');
-                  }}
-                  className={clsx(
-                    "flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-                    isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
-                  )}
-                >
-                  <Edit2 className="w-4 h-4" /> Edit
-                </button>
-                <button 
-                  onClick={() => setAppToDelete(app.id)}
-                  className={clsx(
-                    "p-2 rounded-lg transition-colors",
-                    isFrutigerAero ? "bg-red-500/20 text-red-600 hover:bg-red-500 hover:text-white border border-red-500/30" : "bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white"
-                  )}
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Delete Confirmation Modal */}
-      {appToDelete && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className={clsx(
-            "w-full max-w-sm rounded-2xl p-6 shadow-2xl",
-            isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
-            theme !== 'light' ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'
-          )}>
-            <h3 className={clsx("text-xl font-bold mb-2", isFrutigerAero ? "text-blue-900" : "")}>Delete App</h3>
-            <p className={clsx("mb-6", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>Are you sure you want to delete this app? This action cannot be undone.</p>
-            <div className="flex items-center justify-end gap-3">
-              <button
-                onClick={() => setAppToDelete(null)}
-                className={clsx(
-                  "px-4 py-2 rounded-lg text-sm font-medium transition-colors",
-                  isFrutigerAero ? "text-blue-800/60 hover:text-blue-800" : "text-zinc-400 hover:text-zinc-200"
-                )}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDelete}
-                className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors"
-              >
-                Delete
-              </button>
-            </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setEditingAppId(app.id);
+                        setSelectedExtraCategory('Normal');
+                        setCurrentView('editor');
+                      }}
+                      className={clsx(
+                        'flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-colors whitespace-nowrap',
+                        isFrutigerAero
+                          ? 'frutiger-aero-button'
+                          : isLight
+                          ? 'bg-[#F5F6F8] border-[#E2E5EA] hover:bg-[#EBEDF0]'
+                          : 'bg-[#111315] border-[#262B33] hover:bg-[#20242B]'
+                      )}
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                      <span>{language === 'ru' ? 'Открыть в IDE' : 'Edit'}</span>
+                    </button>
+                    <button
+                      onClick={() => handleDelete(app)}
+                      className="p-2 rounded-lg border border-[#DC2626]/30 bg-[#DC2626]/10 text-[#DC2626] hover:bg-[#DC2626]/20 transition-colors shrink-0"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </article>
+            ))}
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

@@ -11,7 +11,6 @@ import {
   UserCheck, 
   Eye, 
   Edit3, 
-  Sparkles, 
   Wifi, 
   WifiOff, 
   ChevronDown, 
@@ -85,26 +84,26 @@ export default function CollabHeader({ onOpenInviteModal, onOpenChatModal }: Col
     )}>
       {/* Left: Together Create Session badge & Status */}
       <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-blue-500/10 text-blue-500 font-bold tracking-wide">
-          <Sparkles className="w-3.5 h-3.5" />
+        <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#10B981]/10 border border-[#10B981]/25 text-[#10B981] font-bold tracking-wide">
+          <Users className="w-3.5 h-3.5" />
           <span className="hidden sm:inline">Together Create:</span>
-          <span className="font-mono text-zinc-100">{session.id}</span>
+          <span className="font-mono text-[#F3F4F6]">{session.id}</span>
         </div>
 
         {/* Connection status indicator */}
         <div 
           className={clsx(
-            "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium transition-colors",
-            status === 'connected' && "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30",
-            status === 'reconnecting' && "bg-amber-500/15 text-amber-400 border border-amber-500/30 animate-pulse",
-            status === 'offline' && "bg-red-500/15 text-red-400 border border-red-500/30"
+            "flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] font-medium transition-colors border",
+            status === 'connected' && "bg-[#10B981]/15 text-[#10B981] border-[#10B981]/30",
+            status === 'reconnecting' && "bg-amber-500/15 text-amber-400 border-amber-500/30",
+            status === 'offline' && "bg-red-500/15 text-red-400 border-red-500/30"
           )}
           title={`Connection status: ${status}`}
         >
           <span className={clsx(
             "w-2 h-2 rounded-full",
-            status === 'connected' && "bg-emerald-400 animate-pulse",
-            status === 'reconnecting' && "bg-amber-400 animate-ping",
+            status === 'connected' && "bg-[#10B981]",
+            status === 'reconnecting' && "bg-amber-400",
             status === 'offline' && "bg-red-500"
           )} />
           <span className="capitalize font-sans font-semibold">
@@ -199,7 +198,7 @@ export default function CollabHeader({ onOpenInviteModal, onOpenChatModal }: Col
                               {isCurrentUser && <span className="text-[9px] text-zinc-400">(You)</span>}
                             </div>
                             <div className="text-[10px] text-zinc-400 flex items-center gap-1">
-                              <span className={clsx("w-1.5 h-1.5 rounded-full", p.isTyping ? "bg-emerald-400 animate-pulse" : "bg-zinc-500")} />
+                              <span className={clsx("w-1.5 h-1.5 rounded-full", p.isTyping ? "bg-[#10B981]" : "bg-zinc-500")} />
                               <span>{p.isTyping ? 'Writing...' : (activeFile ? `Editing: ${activeFile.name}` : 'Viewing')}</span>
                             </div>
                           </div>

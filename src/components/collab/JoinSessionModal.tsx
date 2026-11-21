@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../../store/useStore';
 import { useCollab } from '../../lib/collab/useCollab';
-import { Sparkles, Users, ArrowRight, ShieldCheck, UserCheck, AlertCircle } from 'lucide-react';
+import { Users, ArrowRight, ShieldCheck, UserCheck, AlertCircle } from 'lucide-react';
 import { clsx } from 'clsx';
 
 interface JoinSessionModalProps {
@@ -61,18 +61,17 @@ export default function JoinSessionModal({ sessionId, onClose }: JoinSessionModa
   };
 
   return (
-    <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md animate-in fade-in">
+    <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
       <div className={clsx(
-        "w-full max-w-md rounded-3xl border shadow-2xl overflow-hidden p-6 sm:p-8 text-center transition-all",
+        "w-full max-w-md rounded-xl border shadow-2xl overflow-hidden p-6 text-center transition-all",
         isFrutigerAero ? "bg-white/95 border-white/70 text-zinc-900 backdrop-blur-xl" :
-        theme !== 'light' ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-900"
+        theme !== 'light' ? "bg-[#181B20] border-[#262B33] text-[#F3F4F6]" : "bg-white border-[#E2E5EA] text-[#111315]"
       )}>
-        {/* Glow Icon */}
-        <div className="w-16 h-16 rounded-3xl bg-blue-500/20 text-blue-500 flex items-center justify-center mx-auto mb-5 shadow-lg shadow-blue-500/20">
-          <Sparkles className="w-8 h-8 animate-pulse" />
+        <div className="w-12 h-12 rounded-xl bg-[#10B981]/15 border border-[#10B981]/30 text-[#10B981] flex items-center justify-center mx-auto mb-4">
+          <Users className="w-6 h-6" />
         </div>
 
-        <h2 className="text-2xl font-bold tracking-tight mb-1">Join Together Create</h2>
+        <h2 className="text-xl font-bold tracking-tight mb-1">Join Together Create</h2>
         <p className="text-xs text-zinc-400 mb-6">
           You've been invited to collaborate on a live EPL Studio project in real-time.
         </p>

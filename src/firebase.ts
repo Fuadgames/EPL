@@ -41,16 +41,30 @@ export const signInWithApple = async () => {
     const userSnap = await getDoc(userRef);
     
     if (!userSnap.exists()) {
+      const now = new Date().toISOString();
       await setDoc(userRef, {
         uid: user.uid,
         name: user.displayName || 'User',
         email: user.email,
         photoUrl: user.photoURL,
+        avatarUrl: user.photoURL || '',
+        region: 'Global',
+        friends: [],
         role: 'user',
         eplCoins: 0,
         purchasedItems: [],
-        createdAt: new Date().toISOString()
+        purchasedApps: [],
+        createdAt: now
       });
+      await setDoc(doc(db, 'users_public', user.uid), {
+        uid: user.uid,
+        name: user.displayName || 'User',
+        avatarUrl: user.photoURL || '',
+        region: 'Global',
+        eplCoins: 0,
+        role: 'user',
+        createdAt: now
+      }, { merge: true }).catch(() => {});
     }
     
     return { user, error: null };
@@ -84,17 +98,31 @@ export const signUpWithEmail = async (email: string, password: string, name: str
       }
       
       // Create user document with baseline 'user' role only
+      const now = new Date().toISOString();
       await setDoc(doc(db, 'users', user.uid), {
         uid: user.uid,
         name: name,
         email: user.email,
+        avatarUrl: '',
+        region: 'Global',
+        friends: [],
         role: 'user',
         isPremium: false,
         premiumExpiry: null,
         eplCoins: 0,
         purchasedItems: [],
-        createdAt: new Date().toISOString()
+        purchasedApps: [],
+        createdAt: now
       });
+      await setDoc(doc(db, 'users_public', user.uid), {
+        uid: user.uid,
+        name: name,
+        avatarUrl: '',
+        region: 'Global',
+        eplCoins: 0,
+        role: 'user',
+        createdAt: now
+      }, { merge: true }).catch(() => {});
     }
     
     return { user, error: null };
@@ -114,9 +142,14 @@ export const resetPassword = async (email: string) => {
 
 export const giveCoins = async (userId: string, amount: number) => {
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (auth.currentUser) {
+      const token = await auth.currentUser.getIdToken().catch(() => null);
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    }
     const res = await fetch('/api/admin/give-coins', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ uid: userId, amount, adminUid: auth.currentUser?.uid })
     });
     if (!res.ok) {
@@ -143,9 +176,14 @@ export const sendProjectToVerify = async (projectId: string) => {
 
 export const verifyProject = async (projectId: string) => {
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (auth.currentUser) {
+      const token = await auth.currentUser.getIdToken().catch(() => null);
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    }
     const res = await fetch('/api/admin/manual-review', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({
         appId: projectId,
         action: 'approve',
@@ -164,7 +202,17 @@ export const verifyProject = async (projectId: string) => {
 
 export const subscribeToUserData = (userId: string, callback: (data: any) => void) => {
   const userRef = doc(db, 'users', userId);
-  return onSnapshot(userRef, (doc) => {
-    callback({ id: doc.id, ...doc.data() });
-  });
+  return onSnapshot(
+    userRef,
+    (docSnap) => {
+      if (docSnap.exists()) {
+        callback({ id: docSnap.id, ...docSnap.data() });
+      } else {
+        callback(null);
+      }
+    },
+    (err) => {
+      console.warn('subscribeToUserData listener error:', err);
+    }
+  );
 };

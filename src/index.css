@@ -1,50 +1,73 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *, .theme-dark, .theme-dark *));
+
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Plus Jakarta Sans", "DM Sans", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
-  
-  @keyframes gradient-slow {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-  }
 }
 
 @layer base {
-  .animate-gradient-slow {
-    background-size: 200% 200%;
-    animation: gradient-slow 15s ease infinite;
+  :root,
+  [data-theme="dark"],
+  [data-theme="gradient"] {
+    --bg-canvas: #111315;
+    --bg-surface: #181B20;
+    --bg-elevated: #20242B;
+    --border-hairline: #262B33;
+    --text-primary: #F3F4F6;
+    --text-secondary: #9CA3AF;
+    --text-muted: #6B7280;
+    --accent-emerald: #10B981;
+    --accent-emerald-hover: #059669;
   }
-}
 
-@layer base {
+  [data-theme="light"] {
+    --bg-canvas: #F5F6F8;
+    --bg-surface: #FFFFFF;
+    --bg-elevated: #EBEDF0;
+    --border-hairline: #E2E5EA;
+    --text-primary: #111315;
+    --text-secondary: #4B5563;
+    --text-muted: #6B7280;
+    --accent-emerald: #059669;
+    --accent-emerald-hover: #047857;
+  }
+
+  [data-theme="frutiger-aero"],
+  .frutiger-aero {
+    --bg-canvas: #b8ecfa;
+    --bg-surface: rgba(255, 255, 255, 0.72);
+    --bg-elevated: rgba(255, 255, 255, 0.85);
+    --border-hairline: rgba(255, 255, 255, 0.85);
+    --text-primary: #062038;
+    --text-secondary: #1e4b73;
+    --text-muted: #3b6f9c;
+    --accent-emerald: #0284c7;
+    --accent-emerald-hover: #0369a1;
+  }
+
   html, body, #root {
+    height: 100%;
     min-height: 100%;
     margin: 0;
     padding: 0;
     overflow: hidden;
-    background-color: #09090b;
-    color: #fafafa;
+    font-family: var(--font-sans);
+    background-color: var(--bg-canvas);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
   }
 
-  /* Light Theme Global Text & Background Overrides */
-  [data-theme="light"],
-  .theme-light {
-    background-color: #f8fafc;
-    color: #0f172a;
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
   }
 
   [data-theme="light"] input,
   [data-theme="light"] textarea,
   [data-theme="light"] select {
-    color: #0f172a;
-  }
-
-  /* Frutiger Aero Theme Global Text & Contrast Overrides */
-  [data-theme="frutiger-aero"],
-  .frutiger-aero {
-    color: #062038;
+    color: #111315;
   }
 
   [data-theme="frutiger-aero"] input,
@@ -55,6 +78,11 @@
 }
 
 @layer utilities {
+  .font-mono-num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
   .frutiger-aero-bg {
     background: linear-gradient(135deg, #a0e8f5 0%, #d4f0ff 40%, #87d4f5 60%, #4cb8f5 100%);
     position: relative;
@@ -71,13 +99,11 @@
     z-index: 0;
   }
   .frutiger-aero-glass {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.7) 0%, rgba(255, 255, 255, 0.45) 100%);
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.72) 0%, rgba(255, 255, 255, 0.48) 100%);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
-    border: 1px solid rgba(255, 255, 255, 0.8);
-    border-top: 1px solid rgba(255, 255, 255, 0.95);
-    border-left: 1px solid rgba(255, 255, 255, 0.9);
-    box-shadow: 0 8px 32px rgba(0, 150, 255, 0.15), inset 0 1px 2px rgba(255, 255, 255, 0.9), inset 0 -1px 2px rgba(0, 150, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.85);
+    box-shadow: 0 8px 32px rgba(0, 150, 255, 0.14), inset 0 1px 2px rgba(255, 255, 255, 0.9), inset 0 -1px 2px rgba(0, 150, 255, 0.1);
     color: #062038;
   }
   .frutiger-aero-button {
@@ -108,64 +134,34 @@
   }
 
   .computer-style {
-    font-family: 'Courier New', Courier, monospace;
+    font-family: var(--font-mono);
     background-color: #050505 !important;
     color: #00ff00 !important;
     text-shadow: 0 0 2px rgba(0, 255, 0, 0.5), 0 0 8px rgba(0, 255, 0, 0.3) !important;
     position: relative;
   }
-  
+
   .computer-style::before {
     content: " ";
     display: block;
     position: absolute;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    right: 0;
-    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 255, 0, 0.06));
+    inset: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
     z-index: 50;
     background-size: 100% 3px, 3px 100%;
     pointer-events: none;
   }
-  
-  .computer-style::after {
-    content: " ";
-    display: block;
-    position: absolute;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    right: 0;
-    background: rgba(0, 255, 0, 0.05);
-    opacity: 0;
-    z-index: 50;
-    pointer-events: none;
-    animation: flicker 0.15s infinite;
-  }
 
-  @keyframes flicker {
-    0% { opacity: 0.02; }
-    50% { opacity: 0.05; }
-    100% { opacity: 0.02; }
-  }
-
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
-  }
-  .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
+  .scrollbar-hide::-webkit-scrollbar,
   .no-scrollbar::-webkit-scrollbar {
     display: none;
   }
+  .scrollbar-hide,
   .no-scrollbar {
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
 
-  /* Hide the middle finger emoji in EmojiPicker */
   button[data-unified^="1f595"] {
     display: none !important;
   }

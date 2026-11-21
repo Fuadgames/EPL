@@ -11,7 +11,6 @@ import { useStore } from "../store/useStore";
 export const GOOGLE_CONFIG = {
   clientId: "1032956490388-t7bmuodcijk59u6d8pktu944dbsajdps.apps.googleusercontent.com",
   projectId: "aerial-vehicle-480319-k0",
-  clientSecret: "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",
   redirectUris: ["https://epl-eta.vercel.app/"],
   javascriptOrigins: ["https://epl-eta.vercel.app"]
 };

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useCollab } from '../../lib/collab/useCollab';
 import { useStore } from '../../store/useStore';
-import { X, Copy, Check, QrCode, Share2, Users, Shield, Sparkles } from 'lucide-react';
+import { X, Copy, Check, QrCode, Share2, Users, Shield } from 'lucide-react';
 import { clsx } from 'clsx';
 import QRCode from 'qrcode';
 
@@ -50,11 +50,11 @@ export default function CollabInviteModal({ isOpen, onClose }: CollabInviteModal
   };
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
       <div className={clsx(
-        "w-full max-w-md rounded-3xl border shadow-2xl overflow-hidden flex flex-col transition-all",
+        "w-full max-w-md rounded-xl border shadow-2xl overflow-hidden flex flex-col transition-all",
         isFrutigerAero ? "bg-white/95 border-white/60 text-zinc-900 backdrop-blur-xl" :
-        theme !== 'light' ? "bg-zinc-900 border-zinc-800 text-white" : "bg-white border-zinc-200 text-zinc-900"
+        theme !== 'light' ? "bg-[#181B20] border-[#262B33] text-[#F3F4F6]" : "bg-white border-[#E2E5EA] text-[#111315]"
       )}>
         {/* Header */}
         <div className="p-5 border-b border-zinc-800 flex items-center justify-between">

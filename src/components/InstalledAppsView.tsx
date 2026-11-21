@@ -1,36 +1,48 @@
 import React, { useState, useMemo } from 'react';
 import { useStore, InstalledAppItem } from '../store/useStore';
-import { Play, Trash2, Search, ArrowUpDown, Download, ExternalLink, PackageOpen, Layers, CheckCircle2, AlertTriangle, Monitor, Apple, Terminal, Smartphone } from 'lucide-react';
+import { confirmAction, notify } from '../store/useDialogStore';
+import {
+  Play,
+  Trash2,
+  Search,
+  ArrowUpDown,
+  Download,
+  PackageOpen,
+  Layers,
+  CheckCircle2,
+} from 'lucide-react';
 import { clsx } from 'clsx';
-import { motion, AnimatePresence } from 'framer-motion';
 import BuildDownloadModal from './BuildDownloadModal';
+import CustomSelect from './CustomSelect';
 
 export default function InstalledAppsView() {
-  const theme = useStore(state => state.theme);
-  const isFrutigerAero = useStore(state => state.isFrutigerAero);
-  const language = useStore(state => state.language);
-  const setCurrentView = useStore(state => state.setCurrentView);
-  const setPlayingAppId = useStore(state => state.setPlayingAppId);
-  const setSelectedAppId = useStore(state => state.setSelectedAppId);
-  const installedAppsList = useStore(state => state.installedAppsList);
-  const removeInstalledApp = useStore(state => state.removeInstalledApp);
+  const theme = useStore((state) => state.theme);
+  const isFrutigerAero = useStore((state) => state.isFrutigerAero);
+  const language = useStore((state) => state.language);
+  const setCurrentView = useStore((state) => state.setCurrentView);
+  const setPlayingAppId = useStore((state) => state.setPlayingAppId);
+  const setSelectedAppId = useStore((state) => state.setSelectedAppId);
+  const installedAppsList = useStore((state) => state.installedAppsList);
+  const removeInstalledApp = useStore((state) => state.removeInstalledApp);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'date' | 'name' | 'version'>('date');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-  const [appToRemove, setAppToRemove] = useState<InstalledAppItem | null>(null);
   const [downloadTargetApp, setDownloadTargetApp] = useState<any | null>(null);
+
+  const isLight = theme === 'light' && !isFrutigerAero;
 
   const filteredApps = useMemo(() => {
     let list = [...(installedAppsList || [])];
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
-      list = list.filter(app => 
-        (app.projectName || '').toLowerCase().includes(q) ||
-        (app.description || '').toLowerCase().includes(q) ||
-        (app.authorName || '').toLowerCase().includes(q) ||
-        (app.category || '').toLowerCase().includes(q)
+      list = list.filter(
+        (app) =>
+          (app.projectName || '').toLowerCase().includes(q) ||
+          (app.description || '').toLowerCase().includes(q) ||
+          (app.authorName || '').toLowerCase().includes(q) ||
+          (app.category || '').toLowerCase().includes(q)
       );
     }
 
@@ -73,83 +85,98 @@ export default function InstalledAppsView() {
       id: app.projectId || app.id,
       title: app.projectName,
       version: app.version || '1.0.0',
-      code: code,
+      code,
       iconUrl: app.icon,
       description: app.description,
       authorName: app.authorName,
-      category: app.category
+      category: app.category,
     });
   };
 
-  const handleConfirmRemove = async () => {
-    if (!appToRemove) return;
-    await removeInstalledApp(appToRemove.projectId || appToRemove.id);
-    setAppToRemove(null);
+  const handleRemove = async (app: InstalledAppItem) => {
+    const confirmed = await confirmAction({
+      title: language === 'ru' ? 'Удалить из библиотеки?' : 'Remove this app?',
+      message:
+        language === 'ru'
+          ? `Удалить «${app.projectName}» из установленных приложений? Вы всегда сможете заново получить его в App Store.`
+          : `Remove "${app.projectName}" from Installed Apps? You can get it again from the App Store anytime.`,
+      confirmText: language === 'ru' ? 'Удалить' : 'Remove',
+      tone: 'danger',
+    });
+    if (!confirmed) return;
+    await removeInstalledApp(app.projectId || app.id);
+    notify.info(language === 'ru' ? 'Удалено из установленных' : 'Removed from Installed Apps');
   };
 
   return (
-    <div className="flex-1 h-full overflow-y-auto custom-scrollbar p-4 sm:p-8 max-w-7xl mx-auto w-full">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
-        <div>
+    <div className="flex-1 h-full overflow-y-auto p-6">
+      <div className="max-w-7xl mx-auto w-full space-y-6">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className={clsx(
-              "w-12 h-12 rounded-2xl flex items-center justify-center shadow-lg",
-              isFrutigerAero ? "bg-blue-600 text-white shadow-blue-400/40" : "bg-blue-600 text-white shadow-blue-600/30"
-            )}>
-              <Layers className="w-6 h-6" />
+            <div
+              className={clsx(
+                'w-10 h-10 rounded-lg border flex items-center justify-center shrink-0',
+                isFrutigerAero
+                  ? 'bg-white/60 border-white text-[#0284c7]'
+                  : isLight
+                  ? 'bg-[#FFFFFF] border-[#E2E5EA] text-[#059669]'
+                  : 'bg-[#181B20] border-[#262B33] text-[#10B981]'
+              )}
+            >
+              <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h1 className={clsx(
-                "text-2xl sm:text-3xl font-extrabold tracking-tight",
-                isFrutigerAero ? "text-blue-950" : theme !== 'light' ? "text-white" : "text-zinc-900"
-              )}>
+              <h1 className="text-2xl font-bold tracking-tight">
                 {language === 'ru' ? 'Установленные приложения' : 'Installed Apps'}
               </h1>
-              <p className={clsx("text-xs sm:text-sm", theme !== 'light' ? "text-zinc-400" : "text-zinc-500")}>
+              <p className="text-sm opacity-70 font-mono-num">
                 {language === 'ru'
-                  ? `Ваша персональная библиотека (${installedAppsList?.length || 0})`
-                  : `Your local and cloud library (${installedAppsList?.length || 0})`}
+                  ? `Библиотека приложений (${installedAppsList?.length || 0})`
+                  : `Local & cloud library (${installedAppsList?.length || 0})`}
               </p>
             </div>
           </div>
-        </div>
 
-        {/* Search & Sort Controls */}
-        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-          <div className={clsx(
-            "flex items-center gap-2 px-3.5 py-2 rounded-2xl border flex-1 sm:w-64 transition-all",
-            theme !== 'light' ? "bg-zinc-900/60 border-zinc-800 focus-within:border-blue-500" : "bg-white border-zinc-200 focus-within:border-blue-500"
-          )}>
-            <Search className="w-4 h-4 text-zinc-400 shrink-0" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={language === 'ru' ? 'Поиск приложений...' : 'Search installed apps...'}
-              className="bg-transparent border-none outline-none text-xs sm:text-sm w-full placeholder:text-zinc-500"
-            />
-          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative flex-1 sm:w-64">
+              <Search className="w-4 h-4 text-[#6B7280] absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder={language === 'ru' ? 'Поиск в библиотеке...' : 'Search installed...'}
+                className={clsx(
+                  'w-full pl-9 pr-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2',
+                  isFrutigerAero
+                    ? 'bg-white/60 border-white text-[#062038]'
+                    : isLight
+                    ? 'bg-white border-[#E2E5EA] text-[#111315] focus:ring-[#059669]/40'
+                    : 'bg-[#181B20] border-[#262B33] text-[#F3F4F6] focus:ring-[#10B981]/40'
+                )}
+              />
+            </div>
 
-          <div className="flex items-center gap-2">
-            <select
+            <CustomSelect
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className={clsx(
-                "px-3 py-2 rounded-2xl border text-xs sm:text-sm font-medium outline-none cursor-pointer",
-                theme !== 'light' ? "bg-zinc-900/60 border-zinc-800 text-zinc-200" : "bg-white border-zinc-200 text-zinc-700"
-              )}
-            >
-              <option value="date">{language === 'ru' ? 'По дате' : 'By Date'}</option>
-              <option value="name">{language === 'ru' ? 'По названию' : 'By Name'}</option>
-              <option value="version">{language === 'ru' ? 'По версии' : 'By Version'}</option>
-            </select>
+              onChange={(val) => setSortBy(val as 'date' | 'name' | 'version')}
+              className="min-w-[140px]"
+              options={[
+                { value: 'date', label: language === 'ru' ? 'По дате' : 'By Date' },
+                { value: 'name', label: language === 'ru' ? 'По названию' : 'By Name' },
+                { value: 'version', label: language === 'ru' ? 'По версии' : 'By Version' },
+              ]}
+            />
 
             <button
-              onClick={() => setSortOrder(prev => prev === 'asc' ? 'desc' : 'asc')}
+              onClick={() => setSortOrder((prev) => (prev === 'asc' ? 'desc' : 'asc'))}
               className={clsx(
-                "p-2 rounded-2xl border transition-colors",
-                theme !== 'light' ? "bg-zinc-900/60 border-zinc-800 hover:border-zinc-700 text-zinc-300" : "bg-white border-zinc-200 hover:border-zinc-300 text-zinc-700"
+                'p-2 rounded-lg border transition-colors',
+                isFrutigerAero
+                  ? 'bg-white/60 border-white text-[#062038]'
+                  : isLight
+                  ? 'bg-white border-[#E2E5EA] hover:bg-[#F5F6F8]'
+                  : 'bg-[#181B20] border-[#262B33] hover:bg-[#20242B]'
               )}
               title={sortOrder === 'asc' ? 'Ascending' : 'Descending'}
             >
@@ -157,188 +184,160 @@ export default function InstalledAppsView() {
             </button>
           </div>
         </div>
-      </div>
 
-      {/* Grid or Empty State */}
-      {filteredApps.length === 0 ? (
-        <div className={clsx(
-          "rounded-3xl border p-12 text-center flex flex-col items-center justify-center my-12",
-          isFrutigerAero ? "frutiger-aero-glass border-white/60" :
-          theme !== 'light' ? "bg-zinc-900/30 border-zinc-800/80" : "bg-white border-zinc-200 shadow-sm"
-        )}>
-          <div className="w-16 h-16 rounded-3xl bg-blue-500/10 text-blue-500 flex items-center justify-center mb-4">
-            <PackageOpen className="w-8 h-8" />
-          </div>
-          <h3 className="text-xl font-bold mb-2">
-            {searchQuery ? (language === 'ru' ? 'Ничего не найдено' : 'No matching apps') : (language === 'ru' ? 'Нет установленных приложений' : 'No installed apps')}
-          </h3>
-          <p className="text-sm text-zinc-400 max-w-md mb-6 leading-relaxed">
-            {searchQuery
-              ? (language === 'ru' ? 'Попробуйте изменить поисковый запрос.' : 'Try changing your search keywords.')
-              : (language === 'ru' ? 'Вы можете получить любые игры и приложения в App Store нажав кнопку GET.' : 'You can get any games and applications from the App Store by clicking the GET button.')}
-          </p>
-          <button
-            onClick={() => setCurrentView('store')}
-            className="px-6 py-3.5 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-xl shadow-blue-500/25 transition-all active:scale-[0.98] cursor-pointer"
+        {/* Grid / Empty State */}
+        {filteredApps.length === 0 ? (
+          <div
+            className={clsx(
+              'rounded-xl border p-12 text-center max-w-lg mx-auto my-8',
+              isFrutigerAero
+                ? 'frutiger-aero-glass'
+                : isLight
+                ? 'bg-white border-[#E2E5EA]'
+                : 'bg-[#181B20] border-[#262B33]'
+            )}
           >
-            {language === 'ru' ? 'Перейти в App Store' : 'Browse App Store'}
-          </button>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          <AnimatePresence>
+            <PackageOpen className="w-10 h-10 mx-auto mb-3 opacity-40" />
+            <h3 className="text-base font-semibold mb-1">
+              {searchQuery
+                ? language === 'ru'
+                  ? 'Ничего не найдено'
+                  : 'No matching apps'
+                : language === 'ru'
+                ? 'Нет установленных приложений'
+                : 'No installed apps'}
+            </h3>
+            <p className="text-sm opacity-70 mb-5">
+              {searchQuery
+                ? language === 'ru'
+                  ? 'Попробуйте изменить поисковый запрос.'
+                  : 'Try changing your search query.'
+                : language === 'ru'
+                ? 'Устанавливайте проекты из App Store кнопкой Get.'
+                : 'Install apps from the App Store using the Get button.'}
+            </p>
+            <button
+              onClick={() => setCurrentView('store')}
+              className={clsx(
+                'px-4 py-2 rounded-lg text-sm font-semibold transition-colors',
+                isFrutigerAero
+                  ? 'frutiger-aero-button'
+                  : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
+              )}
+            >
+              {language === 'ru' ? 'Перейти в App Store' : 'Browse App Store'}
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
             {filteredApps.map((app) => (
-              <motion.div
+              <article
                 key={app.id || app.projectId}
-                layout
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
                 className={clsx(
-                  "rounded-3xl p-5 sm:p-6 border flex flex-col justify-between transition-all duration-300 relative group hover:shadow-xl",
-                  isFrutigerAero ? "frutiger-aero-glass border-white/60 hover:-translate-y-1" :
-                  theme !== 'light' ? "bg-zinc-900/40 border-zinc-800 hover:border-zinc-700 hover:bg-zinc-900/70" : "bg-white border-zinc-200 hover:border-zinc-300 shadow-sm"
+                  'rounded-xl p-5 border flex flex-col justify-between transition-colors',
+                  isFrutigerAero
+                    ? 'frutiger-aero-glass'
+                    : isLight
+                    ? 'bg-white border-[#E2E5EA] hover:border-[#D1D5DB]'
+                    : 'bg-[#181B20] border-[#262B33] hover:border-[#374151]'
                 )}
               >
                 <div>
-                  {/* Top Bar with Icon and Metadata */}
-                  <div className="flex items-start gap-4 mb-4">
-                    <div 
+                  <div className="flex items-start gap-3.5 mb-3">
+                    <button
                       onClick={() => setSelectedAppId(app.projectId || app.id)}
-                      className="w-16 h-16 sm:w-18 sm:h-18 rounded-2xl overflow-hidden bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold text-2xl shadow-md shrink-0 cursor-pointer hover:scale-105 transition-transform"
+                      className={clsx(
+                        'w-12 h-12 rounded-xl border flex items-center justify-center font-bold text-lg shrink-0 overflow-hidden cursor-pointer',
+                        isFrutigerAero
+                          ? 'bg-white/70 border-white text-[#0284c7]'
+                          : isLight
+                          ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#059669]'
+                          : 'bg-[#111315] border-[#262B33] text-[#10B981]'
+                      )}
                     >
                       {app.icon ? (
                         <img src={app.icon} alt={app.projectName} className="w-full h-full object-cover" />
                       ) : (
-                        (app.projectName || 'A').charAt(0)
+                        (app.projectName || 'A').charAt(0).toUpperCase()
                       )}
-                    </div>
+                    </button>
 
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                          {app.category || 'App'}
-                        </span>
-                        <span className="text-[10px] text-zinc-400 flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                          Ready
-                        </span>
-                      </div>
-
-                      <h3 
+                      <h3
                         onClick={() => setSelectedAppId(app.projectId || app.id)}
-                        className="font-bold text-base sm:text-lg leading-tight truncate cursor-pointer hover:text-blue-400 transition-colors"
+                        className="font-semibold text-base truncate cursor-pointer hover:text-[#10B981] transition-colors"
                       >
                         {app.projectName}
                       </h3>
-
-                      <p className="text-xs text-zinc-400 truncate mt-0.5">
-                        by {app.authorName || 'EPL Creator'}
-                      </p>
+                      <div className="text-xs opacity-70 truncate mt-0.5">
+                        <span className="capitalize">{app.category || 'App'}</span>
+                        <span className="mx-1.5">·</span>
+                        <span>{app.authorName || 'EPL Creator'}</span>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Details */}
                   {app.description && (
-                    <p className="text-xs text-zinc-400 line-clamp-2 mb-4 leading-relaxed">
-                      {app.description}
-                    </p>
+                    <p className="text-sm opacity-75 line-clamp-2 mb-4">{app.description}</p>
                   )}
 
-                  <div className="flex items-center justify-between text-[11px] text-zinc-500 mb-5 pt-3 border-t border-zinc-800/40">
-                    <span>v{app.version || '1.0.0'}</span>
+                  <div
+                    className={clsx(
+                      'flex items-center justify-between text-xs opacity-70 pt-3 mb-4 border-t font-mono-num',
+                      isLight ? 'border-[#E2E5EA]' : 'border-[#262B33]'
+                    )}
+                  >
+                    <span className="inline-flex items-center gap-1 text-[#10B981]">
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      v{app.version || '1.0.0'}
+                    </span>
                     <span>
-                      {app.installedAt 
-                        ? new Date(app.installedAt).toLocaleDateString()
-                        : 'Installed'}
+                      {app.installedAt ? new Date(app.installedAt).toLocaleDateString() : 'Installed'}
                     </span>
                   </div>
                 </div>
 
-                {/* Actions */}
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => handleLaunch(app)}
-                      className="flex-1 py-3 px-4 rounded-2xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-sm shadow-xl shadow-blue-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
-                    >
-                      <Play className="w-4 h-4 fill-current" />
-                      {language === 'ru' ? 'ЗАПУСТИТЬ' : 'LAUNCH'}
-                    </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleLaunch(app)}
+                    className={clsx(
+                      'flex-1 py-2 px-3 rounded-lg font-semibold text-sm flex items-center justify-center gap-2 whitespace-nowrap transition-colors',
+                      isFrutigerAero
+                        ? 'frutiger-aero-button'
+                        : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
+                    )}
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>{language === 'ru' ? 'Запустить' : 'Launch'}</span>
+                  </button>
 
-                    <button
-                      onClick={() => handleDownloadApp(app)}
-                      className={clsx(
-                        "p-3 rounded-2xl border transition-colors cursor-pointer",
-                        theme !== 'light' ? "bg-zinc-800/60 hover:bg-zinc-700 border-zinc-700 text-zinc-300" : "bg-zinc-100 hover:bg-zinc-200 border-zinc-200 text-zinc-700"
-                      )}
-                      title={language === 'ru' ? 'Собрать и скачать приложение для платформы' : 'Build & download application for platform'}
-                    >
-                      <Download className="w-4 h-4" />
-                    </button>
+                  <button
+                    onClick={() => handleDownloadApp(app)}
+                    className={clsx(
+                      'p-2 rounded-lg border transition-colors shrink-0',
+                      isLight
+                        ? 'border-[#E2E5EA] hover:bg-[#F5F6F8] text-[#4B5563]'
+                        : 'border-[#262B33] hover:bg-[#20242B] text-[#9CA3AF]'
+                    )}
+                    title={language === 'ru' ? 'Сборка и скачивание' : 'Build & download'}
+                  >
+                    <Download className="w-4 h-4" />
+                  </button>
 
-                    <button
-                      onClick={() => setAppToRemove(app)}
-                      className="p-3 rounded-2xl border border-red-500/20 bg-red-500/10 hover:bg-red-500/20 text-red-400 transition-colors cursor-pointer"
-                      title={language === 'ru' ? 'Удалить из установленных' : 'Remove from Installed Apps'}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => handleRemove(app)}
+                    className="p-2 rounded-lg border border-[#DC2626]/30 bg-[#DC2626]/10 hover:bg-[#DC2626]/20 text-[#DC2626] transition-colors shrink-0"
+                    title={language === 'ru' ? 'Удалить' : 'Remove'}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 </div>
-              </motion.div>
+              </article>
             ))}
-          </AnimatePresence>
-        </div>
-      )}
-
-      {/* Confirmation Modal for Remove */}
-      {appToRemove && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className={clsx(
-            "w-full max-w-sm rounded-3xl p-6 border shadow-2xl space-y-4",
-            isFrutigerAero ? "frutiger-aero-glass border-white/60 text-blue-950" :
-            theme !== 'light' ? "bg-zinc-900 border-zinc-800 text-zinc-100" : "bg-white border-zinc-200 text-zinc-900"
-          )}>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-red-500/10 text-red-400 flex items-center justify-center">
-                <AlertTriangle className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-bold text-base">
-                  {language === 'ru' ? 'Удалить приложение?' : 'Remove this app?'}
-                </h3>
-                <p className="text-xs text-zinc-400">
-                  {appToRemove.projectName}
-                </p>
-              </div>
-            </div>
-
-            <p className="text-xs text-zinc-400 leading-relaxed">
-              {language === 'ru'
-                ? 'Приложение будет удалено из вашей библиотеки Installed Apps. Вы всегда сможете снова получить его в App Store.'
-                : 'This app will be removed from your Installed Apps library. You can always get it again from the App Store.'}
-            </p>
-
-            <div className="flex gap-2 justify-end pt-2">
-              <button
-                onClick={() => setAppToRemove(null)}
-                className="px-4 py-2.5 rounded-xl border border-zinc-700/60 bg-zinc-800/40 hover:bg-zinc-800 text-xs font-semibold text-zinc-300 transition-colors"
-              >
-                {language === 'ru' ? 'Отмена' : 'Cancel'}
-              </button>
-              <button
-                onClick={handleConfirmRemove}
-                className="px-4 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition-all shadow-lg shadow-red-600/25"
-              >
-                {language === 'ru' ? 'Удалить' : 'Remove'}
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* Build & Download Modal */}
       <BuildDownloadModal
         isOpen={!!downloadTargetApp}
         app={downloadTargetApp}

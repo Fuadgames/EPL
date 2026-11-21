@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useStore } from '../store/useStore';
+import { notify } from '../store/useDialogStore';
 import { translations } from '../lib/translations';
 import { clsx } from 'clsx';
-import { ShoppingBag, Plus, Search, Coins, CheckCircle, Package } from 'lucide-react';
-import { collection, query, onSnapshot, doc, updateDoc, increment, getDoc, setDoc, where, getDocs } from 'firebase/firestore';
+import { Plus, Search, Coins, CheckCircle, Package } from 'lucide-react';
+import { collection, query, onSnapshot, doc, updateDoc, increment, getDocs, where, setDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { db } from '../firebase';
 import { StoreAsset } from '../types';
@@ -20,20 +21,19 @@ const FRUTIGER_AERO_ASSET: StoreAsset = {
   content: '{"theme": "frutiger-aero"}',
   coverUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop',
   createdAt: '2024-01-01T00:00:00.000Z',
-  visits: 0
+  visits: 0,
 };
 
 export default function AssetStoreView() {
-  const theme = useStore(state => state.theme);
-  const userData = useStore(state => state.userData);
-  const user = useStore(state => state.user);
-  const language = useStore(state => state.language);
-  const simulatedRole = useStore(state => state.simulatedRole);
+  const theme = useStore((state) => state.theme);
+  const userData = useStore((state) => state.userData);
+  const language = useStore((state) => state.language);
+  const simulatedRole = useStore((state) => state.simulatedRole);
   const actualRole = userData?.role || 'user';
-  const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
-  const isFrutigerAero = useStore(state => state.isFrutigerAero);
-  const setIsFrutigerAero = useStore(state => state.setIsFrutigerAero);
-  const setIsAuthModalOpen = useStore(state => state.setIsAuthModalOpen);
+  const effectiveRole = actualRole === 'developer' && simulatedRole ? simulatedRole : actualRole;
+  const isFrutigerAero = useStore((state) => state.isFrutigerAero);
+  const setIsFrutigerAero = useStore((state) => state.setIsFrutigerAero);
+  const setIsAuthModalOpen = useStore((state) => state.setIsAuthModalOpen);
   const [assets, setAssets] = useState<StoreAsset[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -42,17 +42,23 @@ export default function AssetStoreView() {
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [purchasing, setPurchasing] = useState<string | null>(null);
 
+  const isLight = theme === 'light' && !isFrutigerAero;
+
   useEffect(() => {
     setLoading(true);
     const q = query(collection(db, 'assets'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const assetsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as StoreAsset));
-      setAssets(assetsData);
-      setLoading(false);
-    }, (error) => {
-      console.error("Error fetching assets", error);
-      setLoading(false);
-    });
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const assetsData = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as StoreAsset));
+        setAssets(assetsData);
+        setLoading(false);
+      },
+      (error) => {
+        console.error('Error fetching assets', error);
+        setLoading(false);
+      }
+    );
 
     return () => unsubscribe();
   }, []);
@@ -65,24 +71,17 @@ export default function AssetStoreView() {
 
     setPurchasing(asset.id);
     try {
-      // Increment visits only for assets that exist in Firestore
       if (asset.id !== 'frutiger-aero') {
-        try {
-          await updateDoc(doc(db, 'assets', asset.id), {
-            visits: increment(1)
-          });
-        } catch (e) {
-          // Ignore visit increment errors
-        }
+        await updateDoc(doc(db, 'assets', asset.id), {
+          visits: increment(1),
+        }).catch(() => {});
       }
 
       const userRef = doc(db, 'users', userData.uid);
-      
-      // Deduct coins and add to purchased items
       const currentPurchased = Array.isArray(userData.purchasedItems) ? userData.purchasedItems : [];
-      
+
       if (currentPurchased.includes(asset.id)) {
-        console.log(language === 'ru' ? "Вы уже купили этот ассет!" : "You already owned this asset!");
+        notify.info(language === 'ru' ? 'Вы уже владеете этим ассетом' : 'You already own this asset!');
         return;
       }
 
@@ -90,35 +89,33 @@ export default function AssetStoreView() {
       const priceToPay = isFree ? 0 : asset.price;
 
       if (userData.eplCoins < priceToPay) {
-        console.warn(language === 'ru' ? "Недостаточно EPLCoins!" : "Not enough EPLCoins!");
+        notify.error(language === 'ru' ? 'Недостаточно EPLCoins!' : 'Not enough EPLCoins!');
         return;
       }
 
       await updateDoc(userRef, {
         eplCoins: increment(-priceToPay),
-        purchasedItems: [...currentPurchased, asset.id]
+        purchasedItems: [...currentPurchased, asset.id],
       });
 
-      // Update stock if not infinite
       if (asset.stock !== 'infinite') {
         const assetRef = doc(db, 'assets', asset.id);
-        const currentStock = typeof asset.stock === 'string' ? parseInt(asset.stock) : asset.stock;
+        const currentStock = typeof asset.stock === 'string' ? parseInt(asset.stock, 10) : asset.stock;
         if (currentStock > 0) {
           await updateDoc(assetRef, {
-            stock: currentStock - 1
+            stock: currentStock - 1,
           });
         }
       }
 
-      // If it's Frutiger Aero, enable it
       if (asset.id === 'frutiger-aero' || asset.title.toLowerCase() === 'frutiger aero') {
         setIsFrutigerAero(true);
       }
 
-      console.log(language === 'ru' ? "Покупка прошла успешно!" : "Purchase successful!");
+      notify.success(language === 'ru' ? 'Ассет успешно приобретён!' : 'Asset purchased successfully!');
     } catch (error) {
-      const errInfo = handleFirestoreError(error, OperationType.WRITE, `users/${userData.uid}`);
-      console.error("Error purchasing asset", error);
+      handleFirestoreError(error, OperationType.WRITE, `users/${userData.uid}`);
+      notify.error(language === 'ru' ? 'Ошибка при покупке ассета' : 'Error purchasing asset');
     } finally {
       setPurchasing(null);
     }
@@ -126,101 +123,158 @@ export default function AssetStoreView() {
 
   const allAssets = [
     FRUTIGER_AERO_ASSET,
-    ...assets.filter(a => a && a.id !== 'frutiger-aero' && (a.title ? a.title.toLowerCase() !== 'frutiger aero' : true))
+    ...assets.filter(
+      (a) => a && a.id !== 'frutiger-aero' && (a.title ? a.title.toLowerCase() !== 'frutiger aero' : true)
+    ),
   ];
 
-  const filteredAssets = allAssets.filter(asset => {
-    if (!asset) return false;
-    const title = (asset.title || '').toLowerCase();
-    const desc = (asset.description || '').toLowerCase();
-    const query = search.toLowerCase();
-    const matchesSearch = title.includes(query) || desc.includes(query);
-    const matchesTab = activeTab === 'all' || asset.type === activeTab;
-    
-    if (activeSection === 'featured') {
-      return matchesSearch && matchesTab && asset.status === 'verified' && (asset.visits || 0) > 10;
-    }
-    if (activeSection === 'recent') {
-      const oneWeekAgo = new Date();
-      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
-      return matchesSearch && matchesTab && new Date(asset.createdAt || 0) > oneWeekAgo;
-    }
-    
-    return matchesSearch && matchesTab;
-  }).sort((a, b) => {
-    if (activeSection === 'recent') return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
-    if (activeSection === 'featured') return (b.visits || 0) - (a.visits || 0);
-    return 0;
-  });
+  const filteredAssets = allAssets
+    .filter((asset) => {
+      if (!asset) return false;
+      const title = (asset.title || '').toLowerCase();
+      const desc = (asset.description || '').toLowerCase();
+      const queryText = search.toLowerCase();
+      const matchesSearch = title.includes(queryText) || desc.includes(queryText);
+      const matchesTab = activeTab === 'all' || asset.type === activeTab;
 
-  const canPublish = userData?.role === 'admin' || userData?.role === 'developer' || userData?.role === 'shopkeeper';
+      if (activeSection === 'featured') {
+        return matchesSearch && matchesTab && asset.status === 'verified' && (asset.visits || 0) > 10;
+      }
+      if (activeSection === 'recent') {
+        const oneWeekAgo = new Date();
+        oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+        return matchesSearch && matchesTab && new Date(asset.createdAt || 0) > oneWeekAgo;
+      }
+
+      return matchesSearch && matchesTab;
+    })
+    .sort((a, b) => {
+      if (activeSection === 'recent') {
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      }
+      if (activeSection === 'featured') {
+        return (b.visits || 0) - (a.visits || 0);
+      }
+      return 0;
+    });
+
+  const canPublish =
+    userData?.role === 'admin' || userData?.role === 'developer' || userData?.role === 'shopkeeper';
 
   return (
-    <div className={clsx("h-full flex flex-col p-4 sm:p-8 overflow-y-auto", isFrutigerAero ? "bg-gradient-to-br from-cyan-100 to-blue-200" : "bg-zinc-950")}>
-      <div className="max-w-6xl mx-auto w-full">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-8">
-          <h1 className={clsx("text-4xl font-black tracking-tight flex items-center gap-4", isFrutigerAero ? "text-blue-800" : "text-white uppercase italic")}>
-            <Package className={clsx("w-10 h-10", isFrutigerAero ? "text-blue-500" : "text-emerald-500")} />
-            Asset Store
-          </h1>
-          
-          <div className="flex items-center gap-4">
-            <div className={clsx("flex items-center gap-2 px-4 py-2 rounded-xl font-bold", isFrutigerAero ? "bg-white/50 text-blue-800 backdrop-blur-md border border-white/40 shadow-sm" : theme !== 'light' ? "bg-zinc-800 text-emerald-400" : "bg-emerald-100 text-emerald-600")}>
-              <Coins className="w-5 h-5" />
-              {userData?.eplCoins || 0} EPLCoins
+    <div className="h-full flex flex-col overflow-y-auto p-6">
+      <div className="max-w-7xl mx-auto w-full space-y-6">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div
+              className={clsx(
+                'w-10 h-10 rounded-lg border flex items-center justify-center shrink-0',
+                isFrutigerAero
+                  ? 'bg-white/60 border-white text-[#0284c7]'
+                  : isLight
+                  ? 'bg-white border-[#E2E5EA] text-[#059669]'
+                  : 'bg-[#181B20] border-[#262B33] text-[#10B981]'
+              )}
+            >
+              <Package className="w-5 h-5" />
             </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">Asset Store</h1>
+              <p className="text-sm opacity-70">
+                {language === 'ru'
+                  ? 'Стили оформления, моды, модули редактора и объекты'
+                  : 'UI themes, editor modules, mods, and scene inventory'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div
+              className={clsx(
+                'flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-mono-num font-semibold',
+                isFrutigerAero
+                  ? 'bg-white/60 border-white text-[#062038]'
+                  : isLight
+                  ? 'bg-white border-[#E2E5EA] text-[#111315]'
+                  : 'bg-[#181B20] border-[#262B33] text-[#F3F4F6]'
+              )}
+            >
+              <Coins className="w-4 h-4 text-[#D97706]" />
+              <span>{userData?.eplCoins || 0} Coins</span>
+            </div>
+
             {canPublish && (
               <button
                 onClick={() => setShowPublishModal(true)}
-                className={clsx("flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-colors", isFrutigerAero ? "bg-blue-500 hover:bg-blue-600 text-white shadow-md" : "bg-emerald-500 hover:bg-emerald-600 text-white")}
+                className={clsx(
+                  'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap',
+                  isFrutigerAero
+                    ? 'frutiger-aero-button'
+                    : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
+                )}
               >
-                <Plus className="w-5 h-5" />
-                Publish
+                <Plus className="w-4 h-4" />
+                <span>{language === 'ru' ? 'Опубликовать' : 'Publish'}</span>
               </button>
             )}
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-4 mb-8">
+        {/* Search + Filter Controls */}
+        <div className="flex flex-col lg:flex-row gap-3">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6B7280]" />
             <input
               type="text"
-              placeholder="Search assets..."
+              placeholder={language === 'ru' ? 'Поиск ассетов...' : 'Search assets...'}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className={clsx(
-                "w-full pl-10 pr-4 py-3 rounded-xl border focus:outline-none focus:ring-2",
-                isFrutigerAero ? "bg-white/60 border-white/40 text-blue-900 placeholder-blue-400 focus:ring-blue-400 backdrop-blur-md shadow-inner" : theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-zinc-100 focus:ring-emerald-500' : 'bg-white border-zinc-200 text-zinc-900 focus:ring-emerald-500'
+                'w-full pl-9 pr-4 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2',
+                isFrutigerAero
+                  ? 'bg-white/60 border-white text-[#062038]'
+                  : isLight
+                  ? 'bg-white border-[#E2E5EA] text-[#111315] focus:ring-[#059669]/40'
+                  : 'bg-[#181B20] border-[#262B33] text-[#F3F4F6] focus:ring-[#10B981]/40'
               )}
             />
           </div>
-          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 sm:pb-0">
+
+          <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
             {['all', 'featured', 'recent'].map((section) => (
               <button
                 key={section}
                 onClick={() => setActiveSection(section as any)}
                 className={clsx(
-                  "px-4 py-2 rounded-xl font-medium capitalize whitespace-nowrap transition-colors",
-                  activeSection === section 
-                    ? isFrutigerAero ? 'bg-blue-500 text-white shadow-md' : 'bg-emerald-500 text-white' 
-                    : isFrutigerAero ? 'bg-white/40 text-blue-800 hover:bg-white/60 backdrop-blur-sm' : theme !== 'light' ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700' : 'bg-zinc-200 text-zinc-600 hover:bg-zinc-300'
+                  'px-3 py-2 rounded-lg text-xs font-medium capitalize border transition-colors whitespace-nowrap shrink-0',
+                  activeSection === section
+                    ? isFrutigerAero
+                      ? 'frutiger-aero-button'
+                      : 'bg-[#10B981] text-[#09120E] border-[#10B981] font-semibold'
+                    : isLight
+                    ? 'bg-white border-[#E2E5EA] text-[#4B5563]'
+                    : 'bg-[#181B20] border-[#262B33] text-[#9CA3AF]'
                 )}
               >
                 {(translations[language] as any)[section] || section}
               </button>
             ))}
           </div>
-          <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2 sm:pb-0">
+
+          <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
             {['all', 'style', 'mod', 'editor', 'inventory'].map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab as any)}
                 className={clsx(
-                  "px-4 py-2 rounded-xl font-medium capitalize whitespace-nowrap transition-colors",
-                  activeTab === tab 
-                    ? isFrutigerAero ? 'bg-blue-500 text-white shadow-md' : 'bg-emerald-500 text-white' 
-                    : isFrutigerAero ? 'bg-white/40 text-blue-800 hover:bg-white/60 backdrop-blur-sm' : theme !== 'light' ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700' : 'bg-zinc-200 text-zinc-600 hover:bg-zinc-300'
+                  'px-3 py-2 rounded-lg text-xs font-medium capitalize border transition-colors whitespace-nowrap shrink-0',
+                  activeTab === tab
+                    ? isLight
+                      ? 'bg-[#111315] text-white border-[#111315]'
+                      : 'bg-[#262B33] text-[#F3F4F6] border-[#374151]'
+                    : isLight
+                    ? 'bg-white border-[#E2E5EA] text-[#4B5563]'
+                    : 'bg-[#181B20] border-[#262B33] text-[#9CA3AF]'
                 )}
               >
                 {tab}
@@ -229,65 +283,113 @@ export default function AssetStoreView() {
           </div>
         </div>
 
+        {/* Grid */}
         {loading ? (
-          <div className="flex justify-center p-12">
-            <div className={clsx("animate-spin rounded-full h-8 w-8 border-b-2", isFrutigerAero ? "border-blue-500" : "border-emerald-500")}></div>
+          <div className="flex justify-center py-20 text-[#10B981]">
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-current border-t-transparent" />
           </div>
         ) : filteredAssets.length === 0 ? (
-          <div className="text-center p-12">
-            <Package className="w-16 h-16 mx-auto mb-4 opacity-20" />
-            <h3 className="text-xl font-bold mb-2">No assets found</h3>
-            <p className="text-zinc-500">Try adjusting your search or filters.</p>
+          <div
+            className={clsx(
+              'rounded-xl border p-12 text-center max-w-lg mx-auto my-8',
+              isFrutigerAero
+                ? 'frutiger-aero-glass'
+                : isLight
+                ? 'bg-white border-[#E2E5EA]'
+                : 'bg-[#181B20] border-[#262B33]'
+            )}
+          >
+            <Package className="w-10 h-10 mx-auto mb-3 opacity-35" />
+            <h3 className="text-base font-semibold mb-1">No assets found</h3>
+            <p className="text-sm opacity-70">Try adjusting your search or filters.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredAssets.map(asset => {
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {filteredAssets.map((asset) => {
               if (!asset) return null;
-              const assetId = asset.id || Math.random().toString();
+              const assetId = asset.id;
               const hasPurchased = userData?.purchasedItems?.includes(assetId);
-              const isOutOfStock = asset.stock !== 'infinite' && (typeof asset.stock === 'string' ? parseInt(asset.stock) : asset.stock) <= 0;
+              const isOutOfStock =
+                asset.stock !== 'infinite' &&
+                (typeof asset.stock === 'string' ? parseInt(asset.stock, 10) : asset.stock) <= 0;
               const assetTitle = asset.title || (language === 'ru' ? 'Без названия' : 'Untitled Asset');
               const assetDesc = asset.description || '';
               const assetType = asset.type || 'style';
               const assetPrice = typeof asset.price === 'number' ? asset.price : 0;
-              
+
               return (
-                <div key={assetId} className={clsx(
-                  "rounded-2xl border overflow-hidden flex flex-col transition-transform hover:scale-[1.02]",
-                  isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-[0_8px_32px_rgba(0,0,0,0.1)]" : theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200 shadow-sm'
-                )}>
-                  {asset.coverUrl ? (
-                    <img src={asset.coverUrl} alt={assetTitle} className="w-full h-48 object-cover" referrerPolicy="no-referrer" />
-                  ) : (
-                    <div className={clsx("w-full h-48 flex items-center justify-center", isFrutigerAero ? "bg-gradient-to-br from-blue-200 to-cyan-200" : theme !== 'light' ? "bg-zinc-800" : "bg-zinc-100")}>
-                      <Package className="w-12 h-12 opacity-20" />
-                    </div>
+                <article
+                  key={assetId}
+                  className={clsx(
+                    'rounded-xl border overflow-hidden flex flex-col transition-colors',
+                    isFrutigerAero
+                      ? 'frutiger-aero-glass'
+                      : isLight
+                      ? 'bg-white border-[#E2E5EA] hover:border-[#D1D5DB]'
+                      : 'bg-[#181B20] border-[#262B33] hover:border-[#374151]'
                   )}
+                >
+                  <div
+                    className={clsx(
+                      'aspect-[16/9] w-full border-b overflow-hidden flex items-center justify-center',
+                      isLight ? 'bg-[#F5F6F8] border-[#E2E5EA]' : 'bg-[#111315] border-[#262B33]'
+                    )}
+                  >
+                    {asset.coverUrl ? (
+                      <img
+                        src={asset.coverUrl}
+                        alt={assetTitle}
+                        className="w-full h-full object-cover"
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <Package className="w-10 h-10 opacity-25" />
+                    )}
+                  </div>
+
                   <div className="p-5 flex-1 flex flex-col">
-                    <div className="flex justify-between items-start mb-2">
-                      <h3 className={clsx("font-bold text-lg line-clamp-1", isFrutigerAero ? "text-blue-900" : "")}>{assetTitle}</h3>
-                      <span className={clsx("text-xs px-2 py-1 rounded-md capitalize font-medium", isFrutigerAero ? "bg-blue-100 text-blue-700" : theme !== 'light' ? "bg-zinc-800 text-zinc-300" : "bg-zinc-100 text-zinc-600")}>
+                    <div className="flex justify-between items-start gap-2 mb-1">
+                      <h3 className="font-semibold text-base line-clamp-1">{assetTitle}</h3>
+                      <span className="text-[11px] font-mono uppercase tracking-wider opacity-65 shrink-0">
                         {assetType}
                       </span>
                     </div>
-                    <p className={clsx("text-sm mb-4 line-clamp-2 flex-1", isFrutigerAero ? "text-blue-700/80" : "text-zinc-500")}>{assetDesc}</p>
-                    
-                    <div className="flex items-center justify-between mt-auto pt-4 border-t border-zinc-500/20">
-                      <div className="flex flex-col">
-                        <span className={clsx("font-bold flex items-center gap-1", isFrutigerAero ? "text-blue-600" : "text-emerald-500")}>
-                          <Coins className="w-4 h-4" /> {effectiveRole === 'admin' ? 0 : assetPrice}
-                        </span>
-                        <span className="text-xs text-zinc-500">
-                          {asset.visits || 0} {language === 'ru' ? 'визитов' : 'visits'} • {asset.stock === 'infinite' ? 'Infinite stock' : `${asset.stock ?? 0} left`}
-                        </span>
+
+                    <p className="text-sm opacity-75 mb-4 line-clamp-2 flex-1">{assetDesc}</p>
+
+                    <div
+                      className={clsx(
+                        'flex items-center justify-between pt-3 border-t text-xs',
+                        isLight ? 'border-[#E2E5EA]' : 'border-[#262B33]'
+                      )}
+                    >
+                      <div className="font-mono-num">
+                        <div className="font-semibold text-[#D97706] flex items-center gap-1 text-sm">
+                          <Coins className="w-3.5 h-3.5" />
+                          <span>{effectiveRole === 'admin' ? 0 : assetPrice}</span>
+                        </div>
+                        <div className="opacity-60 mt-0.5">
+                          {asset.visits || 0} {language === 'ru' ? 'визитов' : 'visits'} ·{' '}
+                          {asset.stock === 'infinite' ? '∞' : `${asset.stock ?? 0} left`}
+                        </div>
                       </div>
-                      
+
                       {hasPurchased ? (
-                        <button disabled className={clsx("px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2", isFrutigerAero ? "bg-white/50 text-blue-800" : theme !== 'light' ? "bg-zinc-800 text-emerald-500" : "bg-zinc-100 text-emerald-600")}>
-                          <CheckCircle className="w-4 h-4" /> Owned
+                        <button
+                          disabled
+                          className={clsx(
+                            'px-3.5 py-2 rounded-lg text-xs font-semibold border flex items-center gap-1.5 text-[#10B981]',
+                            isLight ? 'bg-[#F5F6F8] border-[#E2E5EA]' : 'bg-[#111315] border-[#262B33]'
+                          )}
+                        >
+                          <CheckCircle className="w-3.5 h-3.5" />
+                          <span>Owned</span>
                         </button>
                       ) : isOutOfStock ? (
-                        <button disabled className="px-4 py-2 rounded-xl text-sm font-medium bg-red-500/10 text-red-500">
+                        <button
+                          disabled
+                          className="px-3.5 py-2 rounded-lg text-xs font-semibold bg-[#DC2626]/10 text-[#DC2626] border border-[#DC2626]/30"
+                        >
                           Out of Stock
                         </button>
                       ) : (
@@ -295,9 +397,10 @@ export default function AssetStoreView() {
                           onClick={() => handlePurchase(asset)}
                           disabled={purchasing === asset.id || (userData?.eplCoins || 0) < assetPrice}
                           className={clsx(
-                            "px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2",
-                            purchasing === asset.id ? "opacity-50 cursor-not-allowed" : "",
-                            (userData?.eplCoins || 0) < assetPrice ? "opacity-50 cursor-not-allowed bg-zinc-500 text-white" : isFrutigerAero ? "bg-blue-500 hover:bg-blue-600 text-white shadow-md" : "bg-emerald-500 hover:bg-emerald-600 text-white"
+                            'px-4 py-2 rounded-lg text-xs font-semibold transition-colors disabled:opacity-50 whitespace-nowrap',
+                            isFrutigerAero
+                              ? 'frutiger-aero-button'
+                              : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
                           )}
                         >
                           {purchasing === asset.id ? 'Purchasing...' : 'Purchase'}
@@ -305,25 +408,23 @@ export default function AssetStoreView() {
                       )}
                     </div>
                   </div>
-                </div>
+                </article>
               );
             })}
           </div>
         )}
       </div>
 
-      {showPublishModal && (
-        <PublishModal onClose={() => setShowPublishModal(false)} />
-      )}
+      {showPublishModal && <PublishModal onClose={() => setShowPublishModal(false)} />}
     </div>
   );
 }
 
 function PublishModal({ onClose }: { onClose: () => void }) {
-  const theme = useStore(state => state.theme);
-  const userData = useStore(state => state.userData);
-  const language = useStore(state => state.language);
-  const isFrutigerAero = useStore(state => state.isFrutigerAero);
+  const theme = useStore((state) => state.theme);
+  const userData = useStore((state) => state.userData);
+  const language = useStore((state) => state.language);
+  const isFrutigerAero = useStore((state) => state.isFrutigerAero);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [isFree, setIsFree] = useState(true);
@@ -338,6 +439,8 @@ function PublishModal({ onClose }: { onClose: () => void }) {
   const [fetchingApps, setFetchingApps] = useState(false);
   const [showAppSelector, setShowAppSelector] = useState(false);
 
+  const isLight = theme === 'light' && !isFrutigerAero;
+
   const fetchUserApps = async () => {
     if (!userData?.uid) return;
     setFetchingApps(true);
@@ -346,10 +449,10 @@ function PublishModal({ onClose }: { onClose: () => void }) {
     try {
       const q = query(collection(db, 'apps'), where('authorId', '==', userData.uid));
       const snapshot = await getDocs(q);
-      const appsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const appsData = snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() }));
       setUserApps(appsData);
     } catch (error) {
-      console.error("Error fetching user apps:", error);
+      console.error('Error fetching user apps:', error);
     } finally {
       setFetchingApps(false);
     }
@@ -357,7 +460,7 @@ function PublishModal({ onClose }: { onClose: () => void }) {
 
   const handlePublish = async () => {
     if (!title || !description || !content || !userData?.uid) return;
-    
+
     setPublishing(true);
     const newAssetRef = doc(collection(db, 'assets'));
     try {
@@ -366,49 +469,58 @@ function PublishModal({ onClose }: { onClose: () => void }) {
         title,
         description,
         price: isFree ? 0 : price,
-        stock: stock === 'infinite' ? 'infinite' : (typeof stock === 'string' ? parseInt(stock) : stock) || 0,
+        stock: stock === 'infinite' ? 'infinite' : (typeof stock === 'string' ? parseInt(stock, 10) : stock) || 0,
         type,
         content,
         coverUrl,
         authorId: userData.uid,
         authorName: userData.name || 'Unknown',
         createdAt: new Date().toISOString(),
-        visits: 0
+        visits: 0,
       };
 
       await setDoc(newAssetRef, newAsset);
       onClose();
-      alert(language === 'ru' ? "Ассет опубликован!" : "Asset published!");
+      notify.success(language === 'ru' ? 'Ассет опубликован!' : 'Asset published!');
     } catch (error) {
       const errInfo = handleFirestoreError(error, OperationType.WRITE, `assets/${newAssetRef.id}`);
-      console.error("Error publishing asset", error);
-      alert(language === 'ru' ? `Ошибка при публикации: ${errInfo.error}` : `Error publishing asset: ${errInfo.error}`);
+      notify.error(
+        language === 'ru' ? `Ошибка при публикации: ${errInfo.error}` : `Error publishing asset: ${errInfo.error}`
+      );
     } finally {
       setPublishing(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className={clsx(
-        "w-full max-w-2xl rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto",
-        isFrutigerAero ? "bg-white/80 backdrop-blur-xl border border-white/50" : theme !== 'light' ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'
-      )}>
-        <h2 className={clsx("text-2xl font-bold mb-6", isFrutigerAero ? "text-blue-900" : "")}>Publish New Asset</h2>
-        
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-xs">
+      <div
+        className={clsx(
+          'w-full max-w-2xl rounded-xl p-6 border shadow-2xl max-h-[90vh] overflow-y-auto',
+          isFrutigerAero
+            ? 'frutiger-aero-glass'
+            : isLight
+            ? 'bg-white border-[#E2E5EA] text-[#111315]'
+            : 'bg-[#181B20] border-[#262B33] text-[#F3F4F6]'
+        )}
+      >
+        <h2 className="text-xl font-bold mb-5">Publish New Asset</h2>
+
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium mb-1 opacity-70">Asset Type</label>
+            <label className="block text-xs font-medium mb-1.5 opacity-70">Asset Type</label>
             <div className="flex gap-2 flex-wrap">
               {['style', 'mod', 'editor', 'inventory'].map((t) => (
                 <button
                   key={t}
                   onClick={() => setType(t as any)}
                   className={clsx(
-                    "flex-1 py-2 rounded-xl text-sm font-medium capitalize transition-colors",
-                    type === t 
-                      ? isFrutigerAero ? 'bg-blue-500 text-white' : 'bg-emerald-500 text-white' 
-                      : isFrutigerAero ? 'bg-white/50 text-blue-800 hover:bg-white/80' : theme !== 'light' ? 'bg-zinc-800 text-zinc-400 hover:bg-zinc-700' : 'bg-zinc-100 text-zinc-600 hover:bg-zinc-200'
+                    'flex-1 py-2 rounded-lg text-sm font-medium capitalize border transition-colors',
+                    type === t
+                      ? 'bg-[#10B981] border-[#10B981] text-[#09120E] font-semibold'
+                      : isLight
+                      ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#4B5563]'
+                      : 'bg-[#111315] border-[#262B33] text-[#9CA3AF]'
                   )}
                 >
                   {t}
@@ -418,27 +530,31 @@ function PublishModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1 opacity-70">Title</label>
+            <label className="block text-xs font-medium mb-1 opacity-70">Title</label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className={clsx(
-                "w-full px-4 py-2 rounded-xl border focus:outline-none focus:ring-2",
-                isFrutigerAero ? "bg-white/60 border-white/40 focus:ring-blue-400" : theme !== 'light' ? 'bg-zinc-800 border-zinc-700 focus:ring-emerald-500' : 'bg-zinc-50 border-zinc-200 focus:ring-emerald-500'
+                'w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2',
+                isLight
+                  ? 'bg-[#F5F6F8] border-[#E2E5EA] focus:ring-[#059669]/40'
+                  : 'bg-[#111315] border-[#262B33] focus:ring-[#10B981]/40'
               )}
-              placeholder="e.g., Neon Cyberpunk Theme"
+              placeholder="e.g., Graphite Shader Pack"
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1 opacity-70">Description</label>
+            <label className="block text-xs font-medium mb-1 opacity-70">Description</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className={clsx(
-                "w-full px-4 py-2 rounded-xl border focus:outline-none focus:ring-2 min-h-[100px]",
-                isFrutigerAero ? "bg-white/60 border-white/40 focus:ring-blue-400" : theme !== 'light' ? 'bg-zinc-800 border-zinc-700 focus:ring-emerald-500' : 'bg-zinc-50 border-zinc-200 focus:ring-emerald-500'
+                'w-full px-3 py-2 rounded-lg border text-sm focus:outline-none focus:ring-2 min-h-[90px]',
+                isLight
+                  ? 'bg-[#F5F6F8] border-[#E2E5EA] focus:ring-[#059669]/40'
+                  : 'bg-[#111315] border-[#262B33] focus:ring-[#10B981]/40'
               )}
               placeholder="Describe your asset..."
             />
@@ -446,27 +562,49 @@ function PublishModal({ onClose }: { onClose: () => void }) {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1 opacity-70">Price</label>
-              <div className="flex bg-zinc-800 rounded-xl p-1 mb-2">
-                <button onClick={() => setIsFree(true)} className={clsx("flex-1 py-1 rounded-lg text-sm transition-colors", isFree ? "bg-emerald-500 text-white" : "")}>Free</button>
-                <button onClick={() => setIsFree(false)} className={clsx("flex-1 py-1 rounded-lg text-sm transition-colors", !isFree ? "bg-emerald-500 text-white" : "")}>Paid</button>
+              <label className="block text-xs font-medium mb-1 opacity-70">Price</label>
+              <div
+                className={clsx(
+                  'flex rounded-lg p-1 mb-2 border',
+                  isLight ? 'bg-[#F5F6F8] border-[#E2E5EA]' : 'bg-[#111315] border-[#262B33]'
+                )}
+              >
+                <button
+                  onClick={() => setIsFree(true)}
+                  className={clsx(
+                    'flex-1 py-1 rounded text-xs font-semibold transition-colors',
+                    isFree ? 'bg-[#10B981] text-[#09120E]' : 'opacity-70'
+                  )}
+                >
+                  Free
+                </button>
+                <button
+                  onClick={() => setIsFree(false)}
+                  className={clsx(
+                    'flex-1 py-1 rounded text-xs font-semibold transition-colors',
+                    !isFree ? 'bg-[#10B981] text-[#09120E]' : 'opacity-70'
+                  )}
+                >
+                  Paid
+                </button>
               </div>
               {!isFree && (
                 <input
                   type="number"
                   min="0"
                   value={price}
-                  onChange={(e) => setPrice(parseInt(e.target.value) || 0)}
+                  onChange={(e) => setPrice(parseInt(e.target.value, 10) || 0)}
                   className={clsx(
-                    "w-full px-4 py-2 rounded-xl border focus:outline-none focus:ring-2",
-                    isFrutigerAero ? "bg-white/60 border-white/40 focus:ring-blue-400" : theme !== 'light' ? 'bg-zinc-800 border-zinc-700 focus:ring-emerald-500' : 'bg-zinc-50 border-zinc-200 focus:ring-emerald-500'
+                    'w-full px-3 py-2 rounded-lg border text-sm focus:outline-none',
+                    isLight ? 'bg-[#F5F6F8] border-[#E2E5EA]' : 'bg-[#111315] border-[#262B33]'
                   )}
-                  placeholder="Price (EPLCoins)"
+                  placeholder="EPLCoins"
                 />
               )}
             </div>
+
             <div>
-              <label className="block text-sm font-medium mb-1 opacity-70">Stock</label>
+              <label className="block text-xs font-medium mb-1 opacity-70">Stock</label>
               <div className="flex gap-2">
                 <input
                   type={stock === 'infinite' ? 'text' : 'number'}
@@ -475,19 +613,20 @@ function PublishModal({ onClose }: { onClose: () => void }) {
                   onChange={(e) => setStock(e.target.value)}
                   disabled={stock === 'infinite'}
                   className={clsx(
-                    "w-full px-4 py-2 rounded-xl border focus:outline-none focus:ring-2",
-                    stock === 'infinite' ? "opacity-50" : "",
-                    isFrutigerAero ? "bg-white/60 border-white/40 focus:ring-blue-400" : theme !== 'light' ? 'bg-zinc-800 border-zinc-700 focus:ring-emerald-500' : 'bg-zinc-50 border-zinc-200 focus:ring-emerald-500'
+                    'w-full px-3 py-2 rounded-lg border text-sm focus:outline-none',
+                    stock === 'infinite' && 'opacity-50',
+                    isLight ? 'bg-[#F5F6F8] border-[#E2E5EA]' : 'bg-[#111315] border-[#262B33]'
                   )}
-                  placeholder="Quantity"
                 />
                 <button
                   onClick={() => setStock(stock === 'infinite' ? '100' : 'infinite')}
                   className={clsx(
-                    "px-4 py-2 rounded-xl font-medium transition-colors whitespace-nowrap",
-                    stock === 'infinite' 
-                      ? isFrutigerAero ? 'bg-blue-500 text-white' : 'bg-emerald-500 text-white'
-                      : isFrutigerAero ? 'bg-white/50 text-blue-800' : theme !== 'light' ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-200 text-zinc-600'
+                    'px-3 py-2 rounded-lg text-xs font-semibold border whitespace-nowrap',
+                    stock === 'infinite'
+                      ? 'bg-[#10B981] border-[#10B981] text-[#09120E]'
+                      : isLight
+                      ? 'border-[#E2E5EA]'
+                      : 'border-[#262B33]'
                   )}
                 >
                   Infinite
@@ -497,52 +636,60 @@ function PublishModal({ onClose }: { onClose: () => void }) {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1 opacity-70">Cover Image URL (Optional)</label>
+            <label className="block text-xs font-medium mb-1 opacity-70">Cover Image URL (Optional)</label>
             <input
               type="text"
               value={coverUrl}
               onChange={(e) => setCoverUrl(e.target.value)}
               className={clsx(
-                "w-full px-4 py-2 rounded-xl border focus:outline-none focus:ring-2",
-                isFrutigerAero ? "bg-white/60 border-white/40 focus:ring-blue-400" : theme !== 'light' ? 'bg-zinc-800 border-zinc-700 focus:ring-emerald-500' : 'bg-zinc-50 border-zinc-200 focus:ring-emerald-500'
+                'w-full px-3 py-2 rounded-lg border text-sm focus:outline-none',
+                isLight ? 'bg-[#F5F6F8] border-[#E2E5EA]' : 'bg-[#111315] border-[#262B33]'
               )}
               placeholder="https://..."
             />
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1 opacity-70">Content (EPL Code or JSON)</label>
+            <label className="block text-xs font-medium mb-1 opacity-70">Content (EPL Code or JSON)</label>
             {showAppSelector ? (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm">Select an app to import code from:</span>
-                  <button onClick={() => { setShowAppSelector(false); setShowCodeInput(true); }} className="text-sm text-emerald-500 hover:text-emerald-600">Enter Manually</button>
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span>Select an app to import code from:</span>
+                  <button
+                    onClick={() => {
+                      setShowAppSelector(false);
+                      setShowCodeInput(true);
+                    }}
+                    className="text-[#10B981] hover:underline"
+                  >
+                    Enter Manually
+                  </button>
                 </div>
                 {fetchingApps ? (
-                  <div className="p-4 text-center opacity-50">Loading your apps...</div>
+                  <div className="p-3 text-center text-xs opacity-60">Loading apps...</div>
                 ) : userApps.length === 0 ? (
-                  <div className="p-4 text-center opacity-50 text-sm">No apps found.</div>
+                  <div className="p-3 text-center text-xs opacity-60">No apps found.</div>
                 ) : (
-                  <div className="max-h-48 overflow-y-auto space-y-2 pr-2">
-                    {userApps.map(app => (
+                  <div className="max-h-44 overflow-y-auto space-y-1.5">
+                    {userApps.map((app) => (
                       <button
                         key={app.id}
                         onClick={() => {
-                          let code = app.code || '';
+                          let codeStr = app.code || '';
                           if (app.components && app.components.length > 0) {
-                            code += '\n' + app.components.map((c: any) => c.code).join('\n');
+                            codeStr += '\n' + app.components.map((c: any) => c.code).join('\n');
                           }
-                          setContent(code);
+                          setContent(codeStr);
                           setShowAppSelector(false);
-                          setShowCodeInput(true); // Switch to text area so they can edit
+                          setShowCodeInput(true);
                         }}
                         className={clsx(
-                          "w-full text-left p-3 rounded-lg border transition-colors flex items-center justify-between",
-                          isFrutigerAero ? "bg-white/50 border-white/60 hover:bg-white/80" : theme !== 'light' ? "bg-zinc-800/50 border-zinc-700 hover:bg-zinc-700" : "bg-zinc-50 border-zinc-200 hover:bg-zinc-100"
+                          'w-full text-left px-3 py-2 rounded-lg border text-sm flex items-center justify-between',
+                          isLight ? 'bg-[#F5F6F8] border-[#E2E5EA]' : 'bg-[#111315] border-[#262B33]'
                         )}
                       >
                         <span className="font-medium">{app.title || 'Untitled App'}</span>
-                        <span className="text-xs opacity-50">Select</span>
+                        <span className="text-xs opacity-60">Select</span>
                       </button>
                     ))}
                   </div>
@@ -553,42 +700,48 @@ function PublishModal({ onClose }: { onClose: () => void }) {
                 value={content}
                 onChange={(e) => setContent(e.target.value)}
                 className={clsx(
-                  "w-full px-4 py-2 rounded-xl border focus:outline-none focus:ring-2 min-h-[150px] font-mono text-sm",
-                  isFrutigerAero ? "bg-white/60 border-white/40 focus:ring-blue-400" : theme !== 'light' ? 'bg-zinc-800 border-zinc-700 focus:ring-emerald-500' : 'bg-zinc-50 border-zinc-200 focus:ring-emerald-500'
+                  'w-full px-3 py-2 rounded-lg border min-h-[140px] font-mono text-xs focus:outline-none',
+                  isLight ? 'bg-[#F5F6F8] border-[#E2E5EA]' : 'bg-[#111315] border-[#262B33]'
                 )}
                 placeholder="Paste your EPL code here..."
               />
             ) : content ? (
-              <div className={clsx(
-                "w-full px-4 py-2 rounded-xl border font-mono text-sm min-h-fit flex items-center justify-between",
-                isFrutigerAero ? "bg-white/60 border-white/40" : theme !== 'light' ? 'bg-zinc-800 border-zinc-700' : 'bg-zinc-50 border-zinc-200'
-              )}>
-                <span className="truncate">EPL Code Added ({content.length} chars)</span>
-                <div className="flex items-center gap-2">
-                  <button onClick={() => setShowCodeInput(true)} className="text-emerald-500 hover:text-emerald-600">Edit</button>
-                  <button onClick={() => setContent('')} className="text-red-500 hover:text-red-600">Remove</button>
+              <div
+                className={clsx(
+                  'w-full px-3 py-2 rounded-lg border font-mono text-xs flex items-center justify-between',
+                  isLight ? 'bg-[#F5F6F8] border-[#E2E5EA]' : 'bg-[#111315] border-[#262B33]'
+                )}
+              >
+                <span>EPL Code Added ({content.length} chars)</span>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => setShowCodeInput(true)} className="text-[#10B981]">
+                    Edit
+                  </button>
+                  <button onClick={() => setContent('')} className="text-[#DC2626]">
+                    Remove
+                  </button>
                 </div>
               </div>
             ) : (
               <button
                 onClick={fetchUserApps}
                 className={clsx(
-                  "w-full px-4 py-4 rounded-xl border-2 border-dashed font-medium transition-colors",
-                  isFrutigerAero ? "bg-white/30 border-blue-400 text-blue-900 hover:bg-white/50" : theme !== 'light' ? 'bg-zinc-800 border-zinc-700 text-zinc-300 hover:bg-zinc-700' : 'bg-zinc-50 border-zinc-200 text-zinc-600 hover:bg-zinc-100'
+                  'w-full px-4 py-3 rounded-lg border border-dashed text-sm font-medium',
+                  isLight ? 'border-[#D1D5DB] hover:bg-[#F5F6F8]' : 'border-[#374151] hover:bg-[#20242B]'
                 )}
               >
-                Add EPL Code
+                Import from My Apps or Enter EPL Code
               </button>
             )}
           </div>
         </div>
 
-        <div className="flex justify-end gap-3 mt-8">
+        <div className="flex justify-end gap-2 mt-6">
           <button
             onClick={onClose}
             className={clsx(
-              "px-6 py-2 rounded-xl font-medium transition-colors",
-              isFrutigerAero ? "bg-white/50 text-blue-800 hover:bg-white/80" : theme !== 'light' ? 'bg-zinc-800 text-zinc-300 hover:bg-zinc-700' : 'bg-zinc-200 text-zinc-600 hover:bg-zinc-300'
+              'px-4 py-2 rounded-lg text-sm font-medium border',
+              isLight ? 'border-[#E2E5EA]' : 'border-[#262B33]'
             )}
           >
             Cancel
@@ -596,11 +749,7 @@ function PublishModal({ onClose }: { onClose: () => void }) {
           <button
             onClick={handlePublish}
             disabled={publishing || !title || !description || !content}
-            className={clsx(
-              "px-6 py-2 rounded-xl font-medium text-white transition-colors flex items-center gap-2",
-              publishing || !title || !description || !content ? "opacity-50 cursor-not-allowed" : "",
-              isFrutigerAero ? "bg-blue-500 hover:bg-blue-600 shadow-md" : "bg-emerald-500 hover:bg-emerald-600"
-            )}
+            className="px-4 py-2 rounded-lg text-sm font-semibold bg-[#10B981] hover:bg-[#059669] disabled:opacity-50 text-[#09120E]"
           >
             {publishing ? 'Publishing...' : 'Publish Asset'}
           </button>

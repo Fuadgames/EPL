@@ -265,7 +265,7 @@ export default function CollabCodeEditor({
                 <span className="font-medium text-zinc-300">{p.name}</span>
                 <span className={clsx(
                   "text-[10px] px-1.5 py-0.2 rounded font-medium",
-                  p.isTyping ? "bg-emerald-500/20 text-emerald-400 animate-pulse font-semibold" : "text-zinc-500"
+                  p.isTyping ? "bg-[#10B981]/20 text-[#10B981] font-semibold" : "text-zinc-500"
                 )}>
                   {p.isTyping ? 'writing...' : 'viewing'}
                 </span>
@@ -334,7 +334,7 @@ export default function CollabCodeEditor({
               >
                 {/* Vertical Caret */}
                 <div 
-                  className="w-[2.5px] rounded-full animate-pulse shadow-sm"
+                  className="w-[2.5px] rounded-full shadow-sm"
                   style={{ 
                     height: `${charDim.height}px`, 
                     backgroundColor: participant.color,
@@ -359,7 +359,7 @@ export default function CollabCodeEditor({
                   >
                     <span>{participant.name}</span>
                     {participant.isTyping && (
-                      <span className="text-[9px] bg-black/25 px-1 py-0.2 rounded font-normal animate-pulse">
+                      <span className="text-[9px] bg-black/25 px-1 py-0.2 rounded font-normal">
                         typing...
                       </span>
                     )}

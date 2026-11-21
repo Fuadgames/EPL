@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Sparkles, Send, Loader2, Clock } from 'lucide-react';
+import { Terminal, Send, Loader2, Clock } from 'lucide-react';
 import { generateWithAI } from '../lib/gemini';
 import { useStore } from '../store/useStore';
+import { notify } from '../store/useDialogStore';
 import clsx from 'clsx';
+import CustomSelect from './CustomSelect';
 
 interface AIAgentProps {
   onCodeGenerated: (code: string) => void;
@@ -22,7 +24,9 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
   const setLastResetTime = useStore(state => state.setLastResetTime);
   const language = useStore(state => state.language);
   const computerStyle = useStore(state => state.computerStyle);
+  const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const unlockAchievement = useStore(state => state.unlockAchievement);
+
   const [prompt, setPrompt] = useState('');
   const [lastPrompt, setLastPrompt] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -32,7 +36,7 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
   const [pendingCode, setPendingCode] = useState('');
   const [pendingShouldSave, setPendingShouldSave] = useState(false);
   const [loadingStatus, setLoadingStatus] = useState<string>('');
-  const [chatMessages, setChatMessages] = useState<{role: 'user' | 'ai', text: string}[]>([]);
+  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'ai'; text: string }[]>([]);
 
   const lastResetTimeRef = useRef(lastResetTime);
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -47,12 +51,12 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
 
   useEffect(() => {
     if (isPremium) return;
-    
+
     const updateTimer = () => {
       const now = new Date();
       const lastReset = new Date(lastResetTimeRef.current);
       const timeDiff = now.getTime() - lastReset.getTime();
-      
+
       if (timeDiff > 24 * 60 * 60 * 1000) {
         setRequestCount(0);
         setLastResetTime(now.toISOString());
@@ -68,13 +72,13 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
     };
 
     updateTimer();
-    const interval = setInterval(updateTimer, 60000); // Update every minute
+    const interval = setInterval(updateTimer, 60000);
     return () => clearInterval(interval);
   }, [isPremium, language, setRequestCount, setLastResetTime]);
 
   const checkLimit = () => {
     if (isPremium) return true;
-    
+
     const now = new Date();
     const lastReset = new Date(lastResetTime);
     if (now.getTime() - lastReset.getTime() > 24 * 60 * 60 * 1000) {
@@ -82,12 +86,16 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
       setLastResetTime(now.toISOString());
       return true;
     }
-    
+
     if (requestCount >= 10) {
-      alert(language === 'ru' ? "Лимит запросов исчерпан. Обновитесь до Premium для безлимитного доступа!" : "Free limit reached. Upgrade to Premium for unlimited access!");
+      notify.error(
+        language === 'ru'
+          ? 'Лимит запросов исчерпан. Обновитесь до Premium для безлимитного доступа!'
+          : 'Free limit reached. Upgrade to Premium for unlimited access!'
+      );
       return false;
     }
-    
+
     setRequestCount(requestCount + 1);
     return true;
   };
@@ -97,12 +105,14 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
       const refined = await generateWithAI(
         `Refine this programming prompt for an AI agent to be more detailed and clear: "${originalPrompt}"`,
         {
-          systemInstruction: "You are an AI expert in Easy Programming Language (EPL). When refining prompts, ensure they are detailed and clear, following the EPL rules: every entity must have its properties configured inline using curly braces {}, including name, x, y, width, height, and color."
+          systemInstruction:
+            'You are an AI expert in Easy Programming Language (EPL). When refining prompts, ensure they are detailed and clear, following the EPL rules: every entity must have its properties configured inline using curly braces {}, including name, x, y, width, height, and color.',
+          model: 'gemini-4-hydrogen',
         }
       );
       return refined?.trim() || originalPrompt;
     } catch (error) {
-      console.error("Prompt refinement error:", error);
+      console.error('Prompt refinement error:', error);
       return originalPrompt;
     }
   };
@@ -114,18 +124,19 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
     if (typeof refinedPrompt !== 'string') {
       setLastPrompt(prompt);
     }
-    
+
     setIsLoading(true);
     setLoadingStatus(language === 'ru' ? 'Анализ запроса...' : 'Analyzing request...');
 
-    let statusInterval: any;
+    let statusInterval: ReturnType<typeof setInterval> | undefined;
     if (aiMode === 'thinking' || aiMode === 'pro') {
-      const statuses = language === 'ru' 
-        ? ['Анализ запроса...', 'Подбор вариантов кода...', 'Внутреннее тестирование...', 'Оптимизация...', 'Финальная проверка...']
-        : ['Analyzing request...', 'Selecting code variants...', 'Internal testing...', 'Optimizing...', 'Final checks...'];
-      
+      const statuses =
+        language === 'ru'
+          ? ['Анализ запроса...', 'Подбор вариантов кода...', 'Внутреннее тестирование...', 'Оптимизация...', 'Финальная проверка...']
+          : ['Analyzing request...', 'Selecting code variants...', 'Internal testing...', 'Optimizing...', 'Final checks...'];
+
       let step = 0;
-      const speed = aiMode === 'pro' ? 800 : 1500; 
+      const speed = aiMode === 'pro' ? 800 : 1500;
       statusInterval = setInterval(() => {
         step = Math.min(step + 1, statuses.length - 1);
         setLoadingStatus(statuses[step]);
@@ -137,7 +148,11 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
         const systemInstruction = `
           You are an elite AI expert in Easy Programming Language (EPL).
           
-          ${aiMode === 'fast' ? "You are in FAST mode. Your goal is to be EXTREMELY fast and direct. Give ONLY the essential code with minimal processing. Do not be overly verbose, just get the code done and delivered instantly." : "You are in a high-creativity and high-precision mode. Your goal is to deliver the most creative, optimized, and robust solutions possible. Take your time to think through the design, interactivity, and aesthetics of the user's request."}
+          ${
+            aiMode === 'fast'
+              ? 'You are in FAST mode. Your goal is to be EXTREMELY fast and direct. Give ONLY the essential code with minimal processing. Do not be overly verbose, just get the code done and delivered instantly.'
+              : "You are in a high-creativity and high-precision mode. Your goal is to deliver the most creative, optimized, and robust solutions possible. Take your time to think through the design, interactivity, and aesthetics of the user's request."
+          }
 
           VALID KEYWORDS:
           - Control: if, else, then, end, check, return, stop, repeat, forever, wait, control, compare, variable_activated?
@@ -181,7 +196,7 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
 
         const fullCode = await generateWithAI(promptToUse, {
           systemInstruction,
-          model: aiMode === 'fast' ? "gemini-2.5-flash" : "gemini-2.5-flash"
+          model: 'gemini-4-hydrogen',
         });
 
         if (statusInterval) clearInterval(statusInterval);
@@ -192,21 +207,18 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
         const codeBlockMatch = fullCode.match(/```(?:epl)?\n([\s\S]*?)```?/i);
         if (codeBlockMatch && codeBlockMatch[1]) {
           currentCleanCode = codeBlockMatch[1].trim();
-        } else {
-          if (fullCode.includes('create ') || fullCode.includes('{')) {
-            currentCleanCode = fullCode.replace(/```[a-z]*\n?/gi, '').replace(/```/gi, '').trim();
-          }
+        } else if (fullCode.includes('create ') || fullCode.includes('{')) {
+          currentCleanCode = fullCode.replace(/```[a-z]*\n?/gi, '').replace(/```/gi, '').trim();
         }
 
         if (currentCleanCode) {
           const stripped = currentCleanCode.replace('[SAVE]', '').trim();
           onCodeGenerated(stripped);
         }
-        
+
         setIsTyping(false);
         setIsLoading(false);
 
-        // Process final commands
         let cleanedFinal = fullCode;
         let aiMessage = '';
         const finalMatch = fullCode.match(/```(?:epl)?\n([\s\S]*?)```/i);
@@ -240,7 +252,6 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
 
         unlockAchievement('vibe_coding');
         setPrompt('');
-
       } catch (error: any) {
         const isQuotaError = error?.message?.includes('429') || error?.message?.includes('RESOURCE_EXHAUSTED');
         if (isQuotaError && retryCount < 3) {
@@ -258,63 +269,56 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
     } catch (error: any) {
       if (statusInterval) clearInterval(statusInterval);
       setLoadingStatus('');
-      console.error("AI Generation Error:", error);
+      console.error('AI Generation Error:', error);
       const isQuotaError = error?.message?.includes('429') || error?.message?.includes('RESOURCE_EXHAUSTED');
       if (isQuotaError) {
-        alert(language === 'ru' 
-          ? "Лимит запросов ИИ исчерпан. Пожалуйста, подождите немного или попробуйте позже." 
-          : "AI quota exhausted. Please wait a moment or try again later.");
+        notify.error(
+          language === 'ru'
+            ? 'Лимит запросов ИИ исчерпан. Пожалуйста, подождите немного или попробуйте позже.'
+            : 'AI quota exhausted. Please wait a moment or try again later.'
+        );
       } else {
-        alert(language === 'ru' 
-          ? "Не удалось сгенерировать код. Пожалуйста, попробуйте еще раз." 
-          : "Failed to generate code. Please try again.");
+        notify.error(
+          language === 'ru'
+            ? 'Не удалось сгенерировать код. Пожалуйста, попробуйте еще раз.'
+            : 'Failed to generate code. Please try again.'
+        );
       }
     } finally {
       setIsLoading(false);
     }
   };
 
-  const typeCode = (code: string, shouldSave: boolean = false) => {
-    setIsTyping(true);
-    let i = 0;
-    // Ускоряем печать для длинного кода
-    const intervalTime = code.length > 1000 ? 2 : 10; 
-    const interval = setInterval(() => {
-      onCodeGenerated(code.slice(0, i));
-      i++;
-      if (i > code.length) {
-        clearInterval(interval);
-        setIsTyping(false);
-        if (isPremium) {
-          setIsAwaitingConfirmation(true);
-        } else {
-          if (shouldSave && onSave) {
-            onSave();
-          }
-        }
-      }
-    }, intervalTime);
-  };
-
   return (
-    <div className={clsx(
-      "p-4 border-t",
-      computerStyle ? "bg-transparent border-emerald-500/30" : (theme !== 'light' ? 'bg-zinc-900 border-zinc-800' : 'bg-white border-zinc-200')
-    )}>
+    <div
+      className={clsx(
+        'p-4 border-t',
+        computerStyle
+          ? 'bg-transparent border-emerald-500/30'
+          : isFrutigerAero
+          ? 'frutiger-aero-glass border-white/60'
+          : theme !== 'light'
+          ? 'bg-[#181B20] border-[#262B33]'
+          : 'bg-white border-[#E2E5EA]'
+      )}
+    >
       <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wider text-zinc-500">
-          <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
-          AI Assistant
+        <div
+          className={clsx(
+            'flex items-center gap-2 text-xs font-semibold uppercase tracking-wider',
+            computerStyle ? 'text-emerald-500' : theme !== 'light' ? 'text-[#9BA1A6]' : 'text-[#5C636E]'
+          )}
+        >
+          <Terminal className={clsx('w-3.5 h-3.5', isFrutigerAero ? 'text-blue-600' : 'text-[#10B981]')} />
+          <span>EPL AI Assistant</span>
         </div>
         {!isPremium && (
-          <div className="flex items-center gap-2 text-xs font-medium">
-            <span className={clsx(
-              requestCount >= 10 ? "text-red-500" : "text-zinc-500"
-            )}>
+          <div className="flex items-center gap-2 text-xs font-medium font-mono-num">
+            <span className={clsx(requestCount >= 10 ? 'text-red-500' : 'text-[#9BA1A6]')}>
               {Math.max(0, 10 - requestCount)} / 10 {language === 'ru' ? 'запросов' : 'requests'}
             </span>
             {requestCount >= 10 && timeUntilReset && (
-              <span className="flex items-center gap-1 text-orange-500">
+              <span className="flex items-center gap-1 text-amber-500">
                 <Clock className="w-3 h-3" />
                 {language === 'ru' ? 'Восст. через' : 'Resets in'} {timeUntilReset}
               </span>
@@ -324,18 +328,32 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
       </div>
 
       {chatMessages.length > 0 && (
-        <div className={clsx(
-          "mb-3 max-h-40 overflow-y-auto rounded-lg p-2 space-y-2 text-sm",
-          theme !== 'light' ? 'bg-zinc-950/50' : 'bg-zinc-50',
-          computerStyle && "bg-transparent border border-emerald-500/30"
-        )}>
+        <div
+          className={clsx(
+            'mb-3 max-h-40 overflow-y-auto rounded-lg p-2 space-y-2 text-sm border',
+            computerStyle
+              ? 'bg-black border-emerald-500/30'
+              : theme !== 'light'
+              ? 'bg-[#111315] border-[#262B33]'
+              : 'bg-[#F5F6F8] border-[#E2E5EA]'
+          )}
+        >
           {chatMessages.map((msg, idx) => (
-            <div key={idx} className={clsx(
-              "p-2 rounded-lg max-w-[90%] w-fit",
-              msg.role === 'user' 
-                ? (computerStyle ? "ml-auto bg-emerald-900/30 border border-emerald-500/50 text-emerald-500" : "ml-auto bg-emerald-500/10 text-emerald-600 dark:text-emerald-400") 
-                : (computerStyle ? "mr-auto bg-black border border-emerald-500/30 text-emerald-500" : "mr-auto bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200")
-            )}>
+            <div
+              key={idx}
+              className={clsx(
+                'p-2.5 rounded-lg max-w-[90%] w-fit text-xs leading-relaxed',
+                msg.role === 'user'
+                  ? computerStyle
+                    ? 'ml-auto bg-emerald-900/30 border border-emerald-500/50 text-emerald-400'
+                    : 'ml-auto bg-[#10B981]/15 border border-[#10B981]/30 text-emerald-400'
+                  : computerStyle
+                  ? 'mr-auto bg-black border border-emerald-500/30 text-emerald-400'
+                  : theme !== 'light'
+                  ? 'mr-auto bg-[#181B20] border border-[#262B33] text-[#F1F3F5]'
+                  : 'mr-auto bg-white border border-[#E2E5EA] text-[#111315]'
+              )}
+            >
               {msg.text}
             </div>
           ))}
@@ -344,72 +362,102 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
       )}
 
       <div className="flex gap-2">
-        <select
+        <CustomSelect
           value={aiMode}
-          onChange={(e) => setAiMode(e.target.value as 'fast' | 'thinking' | 'pro')}
-          className={clsx(
-            "px-2 py-2 rounded-lg text-xs outline-none transition-all",
-            theme !== 'light' 
-              ? 'bg-zinc-950 border border-zinc-800 text-zinc-200' 
-              : 'bg-zinc-50 border border-zinc-200 text-zinc-800',
-            computerStyle && "bg-black border-emerald-500/50 text-emerald-500 focus:border-emerald-400"
-          )}
-        >
-          <option value="fast">Fast</option>
-          <option value="thinking" disabled={!isPremium}>Thinking {!isPremium && '🔒'}</option>
-          <option value="pro" disabled={!isPremium}>Pro {!isPremium && '🔒'}</option>
-        </select>
+          onChange={(val) => setAiMode(val as 'fast' | 'thinking' | 'pro')}
+          size="sm"
+          placement="top"
+          computerStyleOverride={computerStyle}
+          className="shrink-0 min-w-[106px]"
+          options={[
+            { value: 'fast', label: 'Fast' },
+            { value: 'thinking', label: `Thinking${!isPremium ? ' (Pro)' : ''}`, disabled: !isPremium },
+            { value: 'pro', label: `Pro${!isPremium ? ' (Pro)' : ''}`, disabled: !isPremium },
+          ]}
+        />
         <input
           type="text"
           value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleGenerate()}
-          placeholder="Ask AI to create something (e.g. 'Make a red block that moves when clicked')"
+          onChange={e => setPrompt(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleGenerate()}
+          placeholder={
+            language === 'ru'
+              ? 'Опишите, что нужно создать в EPL (например: «Сделай красный блок»)'
+              : "Ask AI to create something (e.g. 'Make a red block that moves when clicked')"
+          }
           className={clsx(
-            "flex-1 px-3 py-2 rounded-lg text-sm outline-none transition-all",
-            theme !== 'light' 
-              ? 'bg-zinc-950 border border-zinc-800 focus:border-emerald-500 text-zinc-200' 
-              : 'bg-zinc-50 border border-zinc-200 focus:border-emerald-500 text-zinc-800',
-            computerStyle && "bg-black border-emerald-500/50 text-emerald-500 focus:border-emerald-400 placeholder-emerald-800"
+            'flex-1 px-3 py-2 rounded-lg text-sm outline-none transition-colors border',
+            computerStyle
+              ? 'bg-black border-emerald-500/50 text-emerald-500 focus:border-emerald-400 placeholder-emerald-800'
+              : theme !== 'light'
+              ? 'bg-[#111315] border-[#262B33] focus:border-[#10B981] text-[#F1F3F5] placeholder-[#6B7280]'
+              : 'bg-[#F5F6F8] border-[#E2E5EA] focus:border-[#059669] text-[#111315] placeholder-[#8A94A6]'
           )}
         />
         <button
           onClick={() => handleGenerate()}
           disabled={isLoading || isTyping || !prompt.trim() || isAwaitingConfirmation}
           className={clsx(
-            "px-4 py-2 rounded-lg flex items-center justify-center transition-all",
+            'px-4 py-2 rounded-lg flex items-center justify-center transition-colors shrink-0 whitespace-nowrap',
             isLoading || isTyping || !prompt.trim() || isAwaitingConfirmation
-              ? (computerStyle ? 'bg-black border border-emerald-900 text-emerald-900 cursor-not-allowed' : 'bg-zinc-800 text-zinc-500 cursor-not-allowed')
-              : (computerStyle ? 'bg-emerald-900 border border-emerald-500 text-emerald-400 hover:bg-emerald-800 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-lg shadow-emerald-500/20')
+              ? computerStyle
+                ? 'bg-black border border-emerald-900 text-emerald-900 cursor-not-allowed'
+                : theme !== 'light'
+                ? 'bg-[#21252C] text-[#6B7280] cursor-not-allowed'
+                : 'bg-[#E2E5EA] text-[#8A94A6] cursor-not-allowed'
+              : computerStyle
+              ? 'bg-emerald-900 border border-emerald-500 text-emerald-400 hover:bg-emerald-800'
+              : isFrutigerAero
+              ? 'frutiger-aero-button text-white'
+              : 'bg-[#10B981] hover:bg-[#059669] text-[#111315] font-semibold'
           )}
         >
           {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         </button>
       </div>
-      
+
       {isLoading && loadingStatus && (
-        <div className="mt-3 flex items-center gap-2 text-xs text-emerald-500 font-medium animate-pulse">
-          <Loader2 className="w-3 h-3 animate-spin" />
-          {loadingStatus}
+        <div className="mt-2.5 flex items-center gap-2 text-xs text-[#10B981] font-medium">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          <span>{loadingStatus}</span>
         </div>
       )}
 
       {isAwaitingConfirmation && (
-        <div className={clsx(
-          "mt-4 p-4 rounded-lg border flex flex-col gap-3",
-          theme !== 'light' ? 'bg-zinc-950 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
-        )}>
-          <p className="text-sm text-zinc-500">{language === 'ru' ? 'Оставить этот код или переделать?' : 'Keep this code or re-generate?'}</p>
-          <div className="flex gap-3">
-            <button onClick={async () => {
-              setIsAwaitingConfirmation(false);
-              const refined = await refinePrompt(lastPrompt);
-              handleGenerate(refined);
-            }} className="flex-1 px-4 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 transition-colors text-sm">{language === 'ru' ? 'Переделать' : 'Re-generate'}</button>
-            <button onClick={() => {
-              setIsAwaitingConfirmation(false);
-              if (pendingShouldSave && onSave) onSave();
-            }} className="flex-1 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 transition-colors text-white text-sm">{language === 'ru' ? 'Оставить' : 'Keep'}</button>
+        <div
+          className={clsx(
+            'mt-3 p-3.5 rounded-lg border flex flex-col gap-3',
+            theme !== 'light' ? 'bg-[#111315] border-[#262B33]' : 'bg-[#F5F6F8] border-[#E2E5EA]'
+          )}
+        >
+          <p className={clsx('text-sm', theme !== 'light' ? 'text-[#9BA1A6]' : 'text-[#5C636E]')}>
+            {language === 'ru' ? 'Оставить этот код или переделать?' : 'Keep this code or re-generate?'}
+          </p>
+          <div className="flex gap-2.5">
+            <button
+              onClick={async () => {
+                setIsAwaitingConfirmation(false);
+                const refined = await refinePrompt(lastPrompt);
+                handleGenerate(refined);
+              }}
+              className={clsx(
+                'flex-1 px-4 py-2 rounded-lg text-sm font-medium border transition-colors whitespace-nowrap',
+                theme !== 'light'
+                  ? 'bg-[#21252C] border-[#262B33] text-[#F1F3F5] hover:bg-[#2A2F38]'
+                  : 'bg-white border-[#E2E5EA] text-[#111315] hover:bg-[#EBEEF2]'
+              )}
+            >
+              {language === 'ru' ? 'Переделать' : 'Re-generate'}
+            </button>
+            <button
+              onClick={() => {
+                setIsAwaitingConfirmation(false);
+                if (pendingShouldSave && onSave) onSave();
+              }}
+              className="flex-1 px-4 py-2 rounded-lg bg-[#10B981] hover:bg-[#059669] transition-colors text-[#111315] font-semibold text-sm whitespace-nowrap"
+            >
+              {language === 'ru' ? 'Оставить' : 'Keep'}
+            </button>
           </div>
         </div>
       )}

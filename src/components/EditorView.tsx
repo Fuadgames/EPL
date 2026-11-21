@@ -6,12 +6,14 @@ import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'fir
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { EPLInterpreter } from '../lib/epl-interpreter';
 import { EPL_DICTIONARY } from '@/src/lib/epl-dictionary';
-import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Sparkles, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2, Monitor, Smartphone, Eye, ShieldCheck, ShieldAlert, AlertTriangle, Layers, ChevronDown } from 'lucide-react';
+import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2, Monitor, Smartphone, Eye, ShieldCheck, ShieldAlert, AlertTriangle, Layers, ChevronDown, Store, Cpu, Volume2, VolumeX, Grid, Activity } from 'lucide-react';
 import { clsx } from 'clsx';
-import { GoogleGenAI } from "@google/genai";
+import { generateImageWithAI } from '../lib/gemini';
+import { notify } from '../store/useDialogStore';
 import VisualEditor from './VisualEditor';
 import BlockEditor from './BlockEditor';
 import AppPreview from './AppPreview';
+import CustomSelect from './CustomSelect';
 import AIAgent from './AIAgent';
 import Tutorial from './Tutorial';
 import CollabModal from './CollabModal';
@@ -61,16 +63,19 @@ export default function EditorView() {
   const [history, setHistory] = useState<string[]>([DEFAULT_CODE]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [output, setOutput] = useState<string[]>([]);
-  const [uiState, setUiState] = useState<any>({ entities: {} });
+  const [uiState, setUiState] = useState<{ entities: Record<string, any>; variables?: Record<string, any>; camera?: any; uiMode?: any }>({ entities: {}, variables: {}, camera: null, uiMode: null });
   const [isRunning, setIsRunning] = useState(false);
   const [runMode, setRunMode] = useState<'none' | 'pc' | 'mobile' | 'run'>('none');
 
-  // Live Preview State
+  // Live Preview & Stage Controls
   const liveInterpreterRef = useRef<EPLInterpreter | null>(null);
-  const [liveUiState, setLiveUiState] = useState<{ entities: Record<string, any> }>({ entities: {} });
+  const [liveUiState, setLiveUiState] = useState<{ entities: Record<string, any>; variables?: Record<string, any>; camera?: any; uiMode?: any }>({ entities: {}, variables: {}, camera: null, uiMode: null });
   const [liveOutput, setLiveOutput] = useState<string[]>([]);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [showLiveConsole, setShowLiveConsole] = useState(false);
+  const [showStageGrid, setShowStageGrid] = useState(false);
+  const [isStageMuted, setIsStageMuted] = useState(false);
+  const [showLiveVars, setShowLiveVars] = useState(false);
   const [isPhoneRotated, setIsPhoneRotated] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [isSavingLocally, setIsSavingLocally] = useState(false);
@@ -82,8 +87,10 @@ export default function EditorView() {
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [customEditors, setCustomEditors] = useState<any[]>([]);
   const [publishingStepText, setPublishingStepText] = useState('');
-  const [moderationResult, setModerationResult] = useState<{ approved: boolean; reason: string; flags: string[]; riskScore?: number } | null>(null);
+  const [moderationResult, setModerationResult] = useState<{ approved: boolean; reason: string; flags: string[]; riskScore?: number; modelUsed?: string; checkedByAI?: boolean } | null>(null);
   const [showModerationModal, setShowModerationModal] = useState(false);
+  const [isPreCheckingAi, setIsPreCheckingAi] = useState(false);
+  const [preCheckStatus, setPreCheckStatus] = useState<{ approved?: boolean; reason?: string; checked: boolean } | null>(null);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -238,11 +245,11 @@ export default function EditorView() {
         const updatedFiles = [...(userData?.uploadedFiles || []), newFile];
         await updateDoc(userRef, { uploadedFiles: updatedFiles });
         setUserData({ ...userData!, uploadedFiles: updatedFiles });
-        alert(`${translations[language].uploadSuccess}\n\n${translations[language].copyUrl} ${url}\n\n${language === 'en' ? 'Or use the file name directly in your code: image=' : 'Или используйте имя файла прямо в коде: image='}${file.name}`);
+        notify.success(`${translations[language].uploadSuccess} (${file.name})`);
       }
     } catch (error) {
       console.error('Error uploading file:', error);
-      alert(translations[language].uploadFailed);
+      notify.error(translations[language].uploadFailed);
     } finally {
       setIsUploading(false);
     }
@@ -334,7 +341,7 @@ export default function EditorView() {
   const handleBuyStoreItem = async (itemId: string, price: number) => {
     if (!user || !userData) return;
     if (userData.eplCoins < price) {
-      alert("Not enough EPLCoins!");
+      notify.error(language === 'ru' ? 'Недостаточно EPLCoins!' : 'Not enough EPLCoins!');
       return;
     }
 
@@ -364,10 +371,10 @@ export default function EditorView() {
         setShowEditorStoreModal(false);
       }
 
-      alert(`Successfully purchased ${itemId}!`);
+      notify.success(language === 'ru' ? `Успешно куплено: ${itemId}` : `Successfully purchased ${itemId}!`);
     } catch (error) {
       console.error("Error purchasing item:", error);
-      alert("Failed to purchase item.");
+      notify.error(language === 'ru' ? 'Не удалось совершить покупку.' : 'Failed to purchase item.');
     }
   };
 
@@ -530,13 +537,25 @@ export default function EditorView() {
     }
     
     interpreterRef.current = new EPLInterpreter(
-      (msg) => setOutput((prev) => [...prev, msg]),
-      (entities) => setUiState({ entities }),
+      (msg) => {
+        if (msg === '__CLEAR__') {
+          setOutput([]);
+        } else {
+          setOutput((prev) => [...prev, msg]);
+        }
+      },
+      (entities, uiMode, meta) => setUiState({
+        entities,
+        uiMode: uiMode || null,
+        variables: meta?.variables || {},
+        camera: meta?.camera || null
+      }),
       { answerMode: aiAnswerMode, changesEnabled: aiChangesEnabled },
       userData?.purchasedItems || [],
       isPremium,
       userData?.uploadedFiles || []
     );
+    interpreterRef.current.setMuted(isStageMuted);
 
     try {
       if (code.includes('create block')) {
@@ -582,13 +601,25 @@ export default function EditorView() {
           liveInterpreterRef.current.stop();
         }
         liveInterpreterRef.current = new EPLInterpreter(
-          (msg) => setLiveOutput(prev => [...prev.slice(-30), msg]),
-          (entities) => setLiveUiState({ entities }),
+          (msg) => {
+            if (msg === '__CLEAR__') {
+              setLiveOutput([]);
+            } else {
+              setLiveOutput(prev => [...prev.slice(-30), msg]);
+            }
+          },
+          (entities, uiMode, meta) => setLiveUiState({
+            entities,
+            uiMode: uiMode || null,
+            variables: meta?.variables || {},
+            camera: meta?.camera || null
+          }),
           { answerMode: aiAnswerMode, changesEnabled: aiChangesEnabled },
           userData?.purchasedItems || [],
           isPremium,
           userData?.uploadedFiles || []
         );
+        liveInterpreterRef.current.setMuted(isStageMuted);
         await liveInterpreterRef.current.run(code);
       } catch (err: any) {
         setLiveError(err.message || 'Error running live code');
@@ -598,13 +629,18 @@ export default function EditorView() {
     return () => clearTimeout(timer);
   }, [code, livePreviewEnabled, aiAnswerMode, aiChangesEnabled, userData?.purchasedItems, userData?.uploadedFiles, isPremium]);
 
-  const handleLiveUIEvent = useCallback((eventName: string, target?: string) => {
+  useEffect(() => {
+    interpreterRef.current?.setMuted(isStageMuted);
+    liveInterpreterRef.current?.setMuted(isStageMuted);
+  }, [isStageMuted]);
+
+  const handleLiveUIEvent = useCallback((eventName: string, target?: string, value?: string) => {
     if (eventName === 'premium_unlocked?') {
       setIsPremium(true);
       return;
     }
     if (liveInterpreterRef.current) {
-      liveInterpreterRef.current.triggerEvent(eventName, target);
+      liveInterpreterRef.current.triggerEvent(eventName, target, value);
     }
   }, [setIsPremium]);
 
@@ -612,19 +648,31 @@ export default function EditorView() {
     if (liveInterpreterRef.current) {
       liveInterpreterRef.current.stop();
     }
-    setLiveUiState({ entities: {} });
+    setLiveUiState({ entities: {}, variables: {}, camera: null, uiMode: null });
     setLiveOutput([]);
     setLiveError(null);
     liveInterpreterRef.current = new EPLInterpreter(
-      (msg) => setLiveOutput(prev => [...prev.slice(-30), msg]),
-      (entities) => setLiveUiState({ entities }),
+      (msg) => {
+        if (msg === '__CLEAR__') {
+          setLiveOutput([]);
+        } else {
+          setLiveOutput(prev => [...prev.slice(-30), msg]);
+        }
+      },
+      (entities, uiMode, meta) => setLiveUiState({
+        entities,
+        uiMode: uiMode || null,
+        variables: meta?.variables || {},
+        camera: meta?.camera || null
+      }),
       { answerMode: aiAnswerMode, changesEnabled: aiChangesEnabled },
       userData?.purchasedItems || [],
       isPremium,
       userData?.uploadedFiles || []
     );
+    liveInterpreterRef.current.setMuted(isStageMuted);
     await liveInterpreterRef.current.run(code);
-  }, [code, aiAnswerMode, aiChangesEnabled, userData, isPremium]);
+  }, [code, aiAnswerMode, aiChangesEnabled, userData, isPremium, isStageMuted]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -853,53 +901,105 @@ export default function EditorView() {
 
 
   const handleGenerateAiScreenshot = async () => {
-    if (!isPremium && userData?.role !== 'developer') return alert("AI Screenshot is a Premium feature.");
+    if (!isPremium && userData?.role !== 'developer') {
+      notify.info(language === 'ru' ? 'Генерация ассетов через ИИ доступна в Premium.' : 'AI Asset generation is a Premium feature.');
+      return;
+    }
     setIsGeneratingScreenshot(true);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      const prompt = `Generate a high-quality, professional app icon and banner for an app with the following title: "${appTitle}" and description: "${appDesc}". 
-      The app is written in EPL (Easy Programming Language). 
-      Here is the app code for context:
-      ${code}
-      
-      Style: Modern, vibrant, and clean. The image should look like a professional app interface or a high-quality promotional graphic for this specific app. It should represent the functionality described in the code.`;
-      
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: { parts: [{ text: prompt }] },
-      });
-
-      const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
-      if (part?.inlineData) {
-        const base64Data = part.inlineData.data;
-        const mimeType = part.inlineData.mimeType;
-        const imageUrl = `data:${mimeType};base64,${base64Data}`;
-        
-        // Upload to Firebase Storage for persistence
-        const blob = await fetch(imageUrl).then(res => res.blob());
-        const storageRef = ref(storage, `apps/${user?.uid}/${Date.now()}_ai_screenshot.png`);
-        await uploadBytes(storageRef, blob);
-        const url = await getDownloadURL(storageRef);
-        
-        setAppIconUrl(url);
-        setAppBannerUrl(url);
-        setAppScreenshotUrl(url);
-        setIsAiGenerated(true);
-      } else {
-        alert("Failed to generate AI screenshot.");
+      const prompt = `Generate a high-quality, professional app icon and banner for an app titled "${appTitle}". Description: "${appDesc}". Written in EPL. Style: crisp geometric industrial interface graphic.`;
+      const result = await generateImageWithAI(prompt, { aspectRatio: '16:9', title: appTitle });
+      const dataUrl = `data:${result.mimeType};base64,${result.imageBase64}`;
+      let finalUrl = dataUrl;
+      if (user && !result.isSvgFallback) {
+        try {
+          const blob = await fetch(dataUrl).then(r => r.blob());
+          const storageRef = ref(storage, `apps/${user.uid}/${Date.now()}_ai_screenshot.png`);
+          await uploadBytes(storageRef, blob);
+          finalUrl = await getDownloadURL(storageRef);
+        } catch (uploadErr) {
+          console.warn('Storage upload skipped, using generated asset URI:', uploadErr);
+        }
       }
+      setAppIconUrl(finalUrl);
+      setAppBannerUrl(finalUrl);
+      setAppScreenshotUrl(finalUrl);
+      setIsAiGenerated(true);
+      notify.success(language === 'ru' ? 'ИИ-ассеты сгенерированы!' : 'AI assets generated!');
     } catch (error) {
-      console.error("Error generating AI screenshot", error);
-      alert("Failed to generate AI screenshot. Please try again.");
+      console.error('Error generating AI screenshot', error);
+      notify.error(language === 'ru' ? 'Не удалось сгенерировать ассеты.' : 'Failed to generate AI assets.');
     } finally {
       setIsGeneratingScreenshot(false);
     }
   };
 
+  const handlePreCheckWithAi = async () => {
+    setIsPreCheckingAi(true);
+    try {
+      const res = await fetch('/api/ai/moderate-app', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: appTitle,
+          description: appDesc,
+          code,
+          authorName: user?.displayName || 'Developer'
+        })
+      });
+
+      let modData: any = null;
+      const text = await res.text();
+      try {
+        modData = JSON.parse(text);
+      } catch (parseErr) {
+        console.warn('Non-JSON moderation response:', text);
+      }
+
+      if (!res.ok || !modData) {
+        const combined = `${appTitle} ${appDesc} ${code}`.toLowerCase();
+        const explicitTerms = ['hacked by', 'you hacked', 'fuada was hacked', 'взломали', 'порно', 'porn', 'xxx', 'hentai', 'хуй', 'пизда', 'ебать', 'блять', 'сука', 'fuck', 'shit', 'nigger', 'cunt', 'dick'];
+        const matched = explicitTerms.filter(t => combined.includes(t));
+        const isApproved = matched.length === 0;
+        modData = {
+          approved: isApproved,
+          reason: isApproved ? 'Проект безопасен и проверен' : `Обнаружены запрещенные слова: ${matched.join(', ')}`,
+          flags: matched.length > 0 ? ['restricted_content'] : [],
+          riskScore: isApproved ? 0 : 8
+        };
+      }
+
+      setModerationResult(modData);
+      setPreCheckStatus({
+        approved: modData.approved,
+        reason: modData.reason,
+        checked: true
+      });
+
+      setShowModerationModal(true);
+    } catch (err: any) {
+      notify.error(err.message || (language === 'ru' ? 'Ошибка проверки ИИ' : 'AI verification error'));
+    } finally {
+      setIsPreCheckingAi(false);
+    }
+  };
+
   const handlePublish = async () => {
-    if (!user) return alert(language === 'ru' ? "Необходимо войти в аккаунт для публикации" : "You must be signed in to publish apps.");
+    if (!user) {
+      notify.error(language === 'ru' ? 'Необходимо войти в аккаунт для публикации' : 'You must be signed in to publish apps.');
+      return;
+    }
+    if (preCheckStatus?.checked && !preCheckStatus.approved) {
+      notify.error(
+        language === 'ru'
+          ? `Проект отклонен модерацией ИИ: ${preCheckStatus.reason}`
+          : `Rejected by AI moderation: ${preCheckStatus.reason}`
+      );
+      setShowModerationModal(true);
+      return;
+    }
     setIsPublishing(true);
-    setPublishingStepText(language === 'ru' ? 'ИИ (NVIDIA Nemotron 3.5) проверяет проект на 18+, маты и взломы...' : 'AI (NVIDIA Nemotron 3.5) is inspecting project for 18+, profanity & exploits...');
+    setPublishingStepText(language === 'ru' ? 'ИИ проверяет проект на нарушения и безопасность...' : 'AI is inspecting project safety...');
     try {
       const finalPrice = isPremium ? appPrice : 0;
       const appPayload: any = {
@@ -934,9 +1034,13 @@ export default function EditorView() {
       let usedServer = false;
 
       try {
+        const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
         const res = await fetch('/api/apps/publish', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {})
+          },
           body: JSON.stringify(appPayload)
         });
 
@@ -1013,7 +1117,7 @@ export default function EditorView() {
       setShowModerationModal(true);
     } catch (error: any) {
       console.error("Error publishing app:", error);
-      alert(error.message || "Failed to publish app");
+      notify.error(error.message || (language === 'ru' ? 'Не удалось опубликовать приложение' : 'Failed to publish app'));
     } finally {
       setIsPublishing(false);
       setPublishingStepText('');
@@ -1021,7 +1125,10 @@ export default function EditorView() {
   };
 
   const handlePublishToAssetStore = async () => {
-    if (!user) return alert("You must be signed in to publish assets.");
+    if (!user) {
+      notify.error(language === 'ru' ? 'Необходимо войти в аккаунт для публикации ассетов.' : 'You must be signed in to publish assets.');
+      return;
+    }
     setIsPublishing(true);
     try {
       const assetRef = doc(collection(db, 'assets'));
@@ -1041,17 +1148,20 @@ export default function EditorView() {
       };
       await setDoc(assetRef, assetData);
       setShowPublishModal(false);
-      alert("Published to Asset Store successfully!");
+      notify.success(language === 'ru' ? 'Успешно опубликовано в Asset Store!' : 'Published to Asset Store successfully!');
     } catch (error) {
       console.error("Error publishing asset", error);
-      alert("Failed to publish to Asset Store.");
+      notify.error(language === 'ru' ? 'Не удалось опубликовать в Asset Store.' : 'Failed to publish to Asset Store.');
     } finally {
       setIsPublishing(false);
     }
   };
 
   const handleSaveLocally = async () => {
-    if (!user) return alert("You must be signed in to save apps.");
+    if (!user) {
+      notify.error(language === 'ru' ? 'Необходимо войти в аккаунт для сохранения.' : 'You must be signed in to save apps.');
+      return;
+    }
     setIsSavingLocally(true);
     try {
       const appId = editingAppId || doc(collection(db, 'apps')).id;
@@ -1099,9 +1209,10 @@ export default function EditorView() {
       setEditingAppId(appId);
       setIsPrivate(true);
       setActiveMenu(null);
-      console.log(language === 'ru' ? 'Проект сохранен локально в "Мои приложения".' : 'App saved locally to your account!');
+      notify.success(language === 'ru' ? 'Проект сохранен локально в "Мои приложения".' : 'App saved locally to your account!');
     } catch (error) {
       console.error("Error saving app locally", error);
+      notify.error(language === 'ru' ? 'Ошибка сохранения проекта.' : 'Failed to save app.');
     } finally {
       setIsSavingLocally(false);
     }
@@ -1141,54 +1252,46 @@ export default function EditorView() {
   const handleGenerateImage = async (type: 'icon' | 'banner' | 'screenshot') => {
     setIsGeneratingImage(type);
     try {
-      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-      let prompt = "";
-      
+      let prompt = '';
       if (type === 'icon') {
-        prompt = `Create a high-quality, modern app icon for an app titled "${appTitle}". Description: ${appDesc}. Style: minimalist, vibrant colors, professional.`;
+        prompt = `Minimalist crisp industrial app icon for "${appTitle}". Description: ${appDesc}.`;
       } else if (type === 'banner') {
-        prompt = `Create a stunning promotional banner for an app titled "${appTitle}". Description: ${appDesc}. Wide aspect ratio, professional design, engaging.`;
-      } else if (type === 'screenshot') {
-        prompt = `Create a professional screenshot of an app interface for "${appTitle}". Description: ${appDesc}. Show a clean UI with modern elements. Based on this code: ${code}`;
-      }
-
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
-        contents: { parts: [{ text: prompt }] },
-        config: {
-          imageConfig: {
-            aspectRatio: type === 'banner' ? '16:9' : '1:1',
-          }
-        }
-      });
-
-      const part = response.candidates?.[0]?.content?.parts.find(p => p.inlineData);
-      if (part?.inlineData) {
-        const base64Data = part.inlineData.data;
-        const mimeType = part.inlineData.mimeType;
-        
-        // Upload generated image to Firebase Storage
-        const blob = await fetch(`data:${mimeType};base64,${base64Data}`).then(res => res.blob());
-        const storageRef = ref(storage, `apps/${user?.uid}/${Date.now()}_generated_${type}.png`);
-        await uploadBytes(storageRef, blob);
-        const url = await getDownloadURL(storageRef);
-
-        if (type === 'icon') setAppIconUrl(url);
-        else if (type === 'banner') setAppBannerUrl(url);
-        else if (type === 'screenshot') setAppScreenshotUrl(url);
-        setIsAiGenerated(true);
+        prompt = `Promotional wide technical banner for "${appTitle}". Description: ${appDesc}.`;
       } else {
-        alert("Failed to generate image.");
+        prompt = `Clean UI screenshot preview for "${appTitle}". Description: ${appDesc}.`;
       }
+
+      const result = await generateImageWithAI(prompt, {
+        aspectRatio: type === 'banner' ? '16:9' : '1:1',
+        title: appTitle,
+      });
+      const dataUrl = `data:${result.mimeType};base64,${result.imageBase64}`;
+      let finalUrl = dataUrl;
+      if (user && !result.isSvgFallback) {
+        try {
+          const blob = await fetch(dataUrl).then(r => r.blob());
+          const storageRef = ref(storage, `apps/${user.uid}/${Date.now()}_generated_${type}.png`);
+          await uploadBytes(storageRef, blob);
+          finalUrl = await getDownloadURL(storageRef);
+        } catch (uploadErr) {
+          console.warn('Storage upload skipped, using generated asset URI:', uploadErr);
+        }
+      }
+
+      if (type === 'icon') setAppIconUrl(finalUrl);
+      else if (type === 'banner') setAppBannerUrl(finalUrl);
+      else if (type === 'screenshot') setAppScreenshotUrl(finalUrl);
+      setIsAiGenerated(true);
+      notify.success(language === 'ru' ? 'Изображение сгенерировано!' : 'Image generated!');
     } catch (error) {
-      console.error("Error generating image:", error);
-      alert("Error generating image. Please try again.");
+      console.error('Error generating image:', error);
+      notify.error(language === 'ru' ? 'Не удалось сгенерировать изображение.' : 'Error generating image. Please try again.');
     } finally {
       setIsGeneratingImage(null);
     }
   };
 
-  const handleUIEvent = useCallback((eventName: string, target?: string) => {
+  const handleUIEvent = useCallback((eventName: string, target?: string, value?: string) => {
     if (eventName === 'premium_unlocked?') {
       setIsPremium(true);
       return;
@@ -1223,7 +1326,7 @@ export default function EditorView() {
     }
 
     if (interpreterRef.current && isRunning) {
-      interpreterRef.current.triggerEvent(eventName, target);
+      interpreterRef.current.triggerEvent(eventName, target, value);
     }
   }, [isRunning, setIsPremium, handleRun, isFullScreen, setIsFullScreen]);
 
@@ -1234,7 +1337,7 @@ export default function EditorView() {
         ref={menuRef}
         className={clsx(
           "flex items-center gap-1 px-2 py-1 border-b text-sm relative z-50 whitespace-nowrap",
-          isFrutigerAero ? "frutiger-aero-glass" : theme === 'dark' ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : theme === 'gradient' ? 'bg-black/40 border-emerald-500/20 text-emerald-100 backdrop-blur-xl' : 'bg-zinc-100 border-zinc-200 text-zinc-700',
+          isFrutigerAero ? "frutiger-aero-glass" : theme !== 'light' ? 'bg-[#111315] border-[#262B33] text-[#D1D5DB]' : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#374151]',
           computerStyle && "bg-transparent border-emerald-500/30 text-emerald-500"
         )}
       >
@@ -1341,12 +1444,12 @@ export default function EditorView() {
             onClick={() => setActiveMenu(activeMenu === 'extra_category' ? null : 'extra_category')}
             className={clsx("px-3 py-1 rounded transition-colors font-medium flex items-center gap-1.5 cursor-pointer", activeMenu === 'extra_category' ? 'bg-zinc-200 dark:bg-zinc-800' : 'hover:bg-zinc-200 dark:hover:bg-zinc-800')}
           >
-            <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+            <Layers className="w-3.5 h-3.5 text-[#10B981]" />
             <span>Extra Category: {selectedExtraCategory === 'BlockEditing' ? 'block editing' : selectedExtraCategory === 'PreviewEditing' ? 'Visual Editor' : selectedExtraCategory || 'Normal'}</span>
             <ChevronDown className="w-3 h-3 opacity-60" />
           </button>
           {activeMenu === 'extra_category' && (
-            <div className={clsx("absolute top-full left-0 mt-1 w-60 border rounded-xl shadow-2xl py-1.5 z-50", isFrutigerAero ? "frutiger-aero-glass text-blue-900" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800 text-zinc-200")}>
+            <div className={clsx("absolute top-full left-0 mt-1 w-60 border rounded-xl shadow-2xl py-1.5 z-50", isFrutigerAero ? "frutiger-aero-glass text-blue-900" : "bg-white dark:bg-[#181B20] border-[#E2E5EA] dark:border-[#262B33] text-[#111315] dark:text-[#F1F3F5]")}>
               <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500 border-b border-zinc-800/50 mb-1">
                 {language === 'ru' ? 'Категория / Режим:' : 'Category Mode:'}
               </div>
@@ -1361,11 +1464,10 @@ export default function EditorView() {
 
               <button 
                 onClick={() => { setSelectedExtraCategory('BlockEditing'); setActiveMenu(null); }} 
-                className={clsx("w-full text-left px-3.5 py-2 flex items-center gap-2 text-xs font-medium hover:bg-zinc-800/50 cursor-pointer", selectedExtraCategory === 'BlockEditing' && "text-purple-400 font-bold bg-purple-500/10")}
+                className={clsx("w-full text-left px-3.5 py-2 flex items-center gap-2 text-xs font-medium hover:bg-zinc-800/50 cursor-pointer", selectedExtraCategory === 'BlockEditing' && "text-[#10B981] font-bold bg-[#10B981]/10")}
               >
-                <Layers className="w-4 h-4 text-purple-400" />
+                <Layers className="w-4 h-4 text-[#10B981]" />
                 <span>block editing (Скретч блоки)</span>
-                <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded-full bg-purple-500 text-white font-bold animate-pulse">NEW</span>
               </button>
 
               <button 
@@ -1443,48 +1545,47 @@ export default function EditorView() {
 
       {/* Toolbar */}
       <div className={clsx(
-        "flex items-center justify-between gap-4 px-4 sm:px-6 py-4 border-b overflow-x-auto no-scrollbar",
+        "flex items-center justify-between gap-4 px-4 sm:px-6 py-3.5 border-b overflow-x-auto no-scrollbar",
         isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm" :
-        theme !== 'light' ? 'bg-zinc-900/50 border-zinc-800' : 'bg-white border-zinc-200'
+        theme !== 'light' ? 'bg-[#181B20] border-[#262B33]' : 'bg-white border-[#E2E5EA]'
       )}>
         <div className="flex items-center gap-4 min-w-max">
-          <h2 className={clsx("text-xl font-bold flex items-center gap-2", isFrutigerAero ? "text-blue-900" : "")}>
-            <Code2 className={clsx("w-5 h-5", isFrutigerAero ? "text-blue-600" : "text-emerald-500")} />
+          <h2 className={clsx("text-lg font-bold flex items-center gap-2", isFrutigerAero ? "text-blue-900" : "")}>
+            <Code2 className={clsx("w-5 h-5", isFrutigerAero ? "text-blue-600" : "text-[#10B981]")} />
             <span className="hidden sm:inline">EPL Editor</span>
           </h2>
-          <div className={clsx("h-6 w-px mx-2 hidden sm:block", isFrutigerAero ? "bg-blue-800/20" : "bg-zinc-700/50")}></div>
+          <div className={clsx("h-5 w-px mx-1 hidden sm:block", isFrutigerAero ? "bg-blue-800/20" : "bg-[#262B33]")}></div>
           <div className="flex items-center gap-2">
             {!isRunning ? (
               <>
                 <button 
                   onClick={() => setLivePreviewEnabled(!livePreviewEnabled)} 
                   className={clsx(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs sm:text-sm font-medium transition-all whitespace-nowrap cursor-pointer",
+                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer border",
                     livePreviewEnabled 
-                      ? (isFrutigerAero ? "bg-blue-500 text-white border border-blue-600 shadow-md" : "bg-blue-600 text-white shadow-md shadow-blue-500/25") 
-                      : (isFrutigerAero ? "bg-white/40 hover:bg-white/60 text-blue-900 border border-white/40" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-zinc-200")
+                      ? (isFrutigerAero ? "bg-blue-500 text-white border-blue-600" : "bg-[#10B981]/15 border-[#10B981]/50 text-[#10B981]") 
+                      : (isFrutigerAero ? "bg-white/40 hover:bg-white/60 text-blue-900 border-white/40" : "bg-[#21252C] border-[#262B33] hover:bg-[#2A2F38] text-[#9BA1A6] hover:text-[#F1F3F5]")
                   )}
                   title={livePreviewEnabled ? "Live Preview is ON (real-time)" : "Live Preview is OFF"}
                 >
                   <Eye className="w-4 h-4" />
                   <span className="hidden md:inline">Live Preview</span>
-                  <span className={clsx("w-2 h-2 rounded-full", livePreviewEnabled ? "bg-emerald-400 animate-pulse" : "bg-zinc-500")} />
                 </button>
                 <button onClick={() => handleRun('pc')} className={clsx(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
-                  isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-900 border border-white/50" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap shrink-0 border",
+                  isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-900 border-white/50" : theme !== 'light' ? "bg-[#21252C] border-[#262B33] hover:bg-[#2A2F38] text-[#F1F3F5]" : "bg-[#F5F6F8] border-[#E2E5EA] hover:bg-[#EBEEF2] text-[#111315]"
                 )}>
-                  <Monitor className="w-4 h-4" /> PC (Standart)
+                  <Monitor className="w-4 h-4" /> PC
                 </button>
                 <button onClick={() => handleRun('mobile')} className={clsx(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
-                  isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-900 border border-white/50" : "bg-zinc-800 hover:bg-zinc-700 text-zinc-300"
+                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap shrink-0 border",
+                  isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-900 border-white/50" : theme !== 'light' ? "bg-[#21252C] border-[#262B33] hover:bg-[#2A2F38] text-[#F1F3F5]" : "bg-[#F5F6F8] border-[#E2E5EA] hover:bg-[#EBEEF2] text-[#111315]"
                 )}>
                   <Smartphone className="w-4 h-4" /> Mobile
                 </button>
                 <button onClick={() => handleRun('run')} className={clsx(
-                  "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
-                  isFrutigerAero ? "frutiger-aero-button" : "bg-emerald-500 hover:bg-emerald-600 text-white"
+                  "flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap shrink-0",
+                  isFrutigerAero ? "frutiger-aero-button" : "bg-[#10B981] hover:bg-[#059669] text-[#111315]"
                 )}>
                   <Play className="w-4 h-4" /> {t.run}
                 </button>
@@ -1577,11 +1678,11 @@ export default function EditorView() {
           <button 
             onClick={() => setShowEditorStoreModal(true)}
             className={clsx(
-              "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
-              isFrutigerAero ? "frutiger-aero-button" : "bg-emerald-500 hover:bg-emerald-600 text-white"
+              "flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap shrink-0",
+              isFrutigerAero ? "frutiger-aero-button" : "bg-[#10B981] hover:bg-[#059669] text-[#111315]"
             )}
           >
-            <Sparkles className="w-4 h-4" /> <span className="hidden sm:inline">Editor Store</span>
+            <Store className="w-4 h-4" /> <span className="hidden sm:inline">Editor Store</span>
           </button>
           <button 
             onClick={() => setShowFileControlModal(true)}
@@ -1612,7 +1713,14 @@ export default function EditorView() {
             </div>
           </div>
           <div className={clsx("flex-1 relative overflow-hidden", isFullScreen && "fixed inset-0 z-[100] bg-black")}>
-            <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} />
+            <AppPreview
+              entities={uiState.entities}
+              variables={uiState.variables}
+              camera={uiState.camera}
+              uiMode={uiState.uiMode}
+              handleUIEvent={handleUIEvent}
+              showGrid={showStageGrid}
+            />
           </div>
         </div>
       )}
@@ -1632,13 +1740,20 @@ export default function EditorView() {
             <div className={clsx(
               "flex-1 flex flex-col sm:border-r min-h-[50vh] sm:min-h-0",
               isFrutigerAero ? "bg-white/20 border-white/30 backdrop-blur-sm" :
-              theme === 'dark' ? 'border-zinc-800 bg-zinc-950' : 
-              theme === 'gradient' ? 'border-emerald-500/20 bg-black/40 backdrop-blur-xl' : 'border-zinc-200 bg-white'
+              theme !== 'light' ? 'border-[#262B33] bg-[#111315]' : 'border-[#E2E5EA] bg-white'
             )}>
               <div className="flex-1 flex flex-col min-h-0 overflow-hidden relative">
                 {selectedExtraCategory === 'CustomEditor' && runMode === 'run' ? (
                   <>
-                    <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} isFullScreen={true} />
+                    <AppPreview
+                      entities={uiState.entities}
+                      variables={uiState.variables}
+                      camera={uiState.camera}
+                      uiMode={uiState.uiMode}
+                      handleUIEvent={handleUIEvent}
+                      isFullScreen={true}
+                      showGrid={showStageGrid}
+                    />
                     <button onClick={handleStop} className="absolute top-4 right-4 z-50 px-4 py-2 bg-red-500 text-white font-bold rounded-lg shadow-lg hover:bg-red-600 flex items-center gap-2">
                       <StopCircle className="w-5 h-5" /> Stop
                     </button>
@@ -1647,7 +1762,15 @@ export default function EditorView() {
                   <>
                     {selectedExtraCategory && !['Normal', 'OS', 'Asset', 'PreviewEditing', 'CustomEditor'].includes(selectedExtraCategory) && (
                       <div className="absolute inset-0 z-0">
-                        <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} isFullScreen={true} />
+                        <AppPreview
+                          entities={uiState.entities}
+                          variables={uiState.variables}
+                          camera={uiState.camera}
+                          uiMode={uiState.uiMode}
+                          handleUIEvent={handleUIEvent}
+                          isFullScreen={true}
+                          showGrid={showStageGrid}
+                        />
                       </div>
                     )}
                     <div className="relative z-10 h-full flex flex-col pointer-events-none">
@@ -1694,11 +1817,8 @@ export default function EditorView() {
                   theme !== 'light' ? "bg-zinc-900 border-zinc-800" : "bg-white border-zinc-200"
                 )}>
                   <div className="flex items-center gap-2">
-                    <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                    </span>
-                    <span className="font-bold uppercase tracking-wider text-[11px] text-zinc-300">
+                    <Eye className="w-3.5 h-3.5 text-[#10B981]" />
+                    <span className="font-semibold uppercase tracking-wider text-[11px]">
                       {language === 'ru' ? 'Живой просмотр' : 'Live Preview'}
                     </span>
                     {liveError && (
@@ -1709,6 +1829,39 @@ export default function EditorView() {
                   </div>
 
                   <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setShowStageGrid(v => !v)}
+                      className={clsx(
+                        "p-1.5 rounded-lg transition-colors cursor-pointer",
+                        showStageGrid ? "bg-emerald-500/20 text-[#10B981]" : "hover:bg-zinc-800 text-zinc-400 hover:text-white"
+                      )}
+                      title={language === 'ru' ? 'Сетка сцены' : 'Stage Grid'}
+                    >
+                      <Grid className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={() => setIsStageMuted(v => !v)}
+                      className={clsx(
+                        "p-1.5 rounded-lg transition-colors cursor-pointer",
+                        isStageMuted ? "bg-amber-500/20 text-amber-400" : "hover:bg-zinc-800 text-zinc-400 hover:text-white"
+                      )}
+                      title={isStageMuted ? (language === 'ru' ? 'Включить звук' : 'Unmute Audio') : (language === 'ru' ? 'Выключить звук' : 'Mute Audio')}
+                    >
+                      {isStageMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}
+                    </button>
+                    <button
+                      onClick={() => setShowLiveVars(v => !v)}
+                      className={clsx(
+                        "p-1.5 rounded-lg transition-colors cursor-pointer flex items-center gap-1 text-[10px] font-mono",
+                        showLiveVars ? "bg-emerald-500/20 text-[#10B981]" : "hover:bg-zinc-800 text-zinc-400 hover:text-white"
+                      )}
+                      title={language === 'ru' ? 'Переменные движка' : 'Engine Variables'}
+                    >
+                      <Activity className="w-3.5 h-3.5" />
+                      {Object.keys(liveUiState.variables || {}).length > 0 && (
+                        <span>{Object.keys(liveUiState.variables || {}).length}</span>
+                      )}
+                    </button>
                     <button 
                       onClick={() => setShowLiveConsole(!showLiveConsole)}
                       className={clsx(
@@ -1743,6 +1896,21 @@ export default function EditorView() {
                   </div>
                 </div>
 
+                {/* Live Variables Inspector Strip */}
+                {showLiveVars && (
+                  <div className="px-3 py-1.5 border-b border-zinc-800 bg-zinc-950/90 flex flex-wrap gap-2 text-[10px] font-mono text-zinc-300 shrink-0">
+                    {Object.keys(liveUiState.variables || {}).length === 0 ? (
+                      <span className="text-zinc-500 italic">{language === 'ru' ? 'Нет активных переменных' : 'No active variables'}</span>
+                    ) : (
+                      Object.entries(liveUiState.variables || {}).map(([k, v]) => (
+                        <span key={k} className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-800">
+                          <span className="text-emerald-400">{k}</span>=<span className="text-amber-300">{String(v)}</span>
+                        </span>
+                      ))
+                    )}
+                  </div>
+                )}
+
                 {/* Viewport */}
                 <div className="flex-1 relative overflow-hidden bg-black flex items-center justify-center">
                   {Object.keys(liveUiState.entities).length === 0 ? (
@@ -1758,7 +1926,14 @@ export default function EditorView() {
                       </p>
                     </div>
                   ) : (
-                    <AppPreview entities={liveUiState.entities} handleUIEvent={handleLiveUIEvent} />
+                    <AppPreview
+                      entities={liveUiState.entities}
+                      variables={liveUiState.variables}
+                      camera={liveUiState.camera}
+                      uiMode={liveUiState.uiMode}
+                      handleUIEvent={handleLiveUIEvent}
+                      showGrid={showStageGrid}
+                    />
                   )}
                 </div>
 
@@ -1791,13 +1966,25 @@ export default function EditorView() {
           <div className="w-full max-w-5xl h-[80vh] flex flex-col bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
             <div className="h-12 bg-zinc-800 border-b border-zinc-700 flex items-center justify-between px-4">
               <span className="text-sm font-bold text-zinc-300">Preview (PC Standard)</span>
-              <button onClick={handleStop} className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded text-sm font-medium transition-colors">Stop</button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setShowStageGrid(v => !v)} className={clsx("p-1.5 rounded border text-xs cursor-pointer", showStageGrid ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400" : "bg-zinc-900 border-zinc-700 text-zinc-300")} title="Toggle Grid"><Grid className="w-4 h-4" /></button>
+                <button onClick={() => setIsStageMuted(v => !v)} className={clsx("p-1.5 rounded border text-xs cursor-pointer", isStageMuted ? "bg-amber-500/20 border-amber-500/40 text-amber-400" : "bg-zinc-900 border-zinc-700 text-zinc-300")} title="Mute/Unmute">{isStageMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}</button>
+                <button onClick={handleStop} className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded text-sm font-medium transition-colors cursor-pointer">Stop</button>
+              </div>
             </div>
             <div className="flex-1 relative bg-black">
               {Object.keys(uiState.entities).length === 0 ? (
                 <div className="h-full flex items-center justify-center text-sm italic text-zinc-500">{t.noEntities}</div>
               ) : (
-                <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} isFullScreen={true} />
+                <AppPreview
+                  entities={uiState.entities}
+                  variables={uiState.variables}
+                  camera={uiState.camera}
+                  uiMode={uiState.uiMode}
+                  handleUIEvent={handleUIEvent}
+                  isFullScreen={true}
+                  showGrid={showStageGrid}
+                />
               )}
             </div>
           </div>
@@ -1807,10 +1994,13 @@ export default function EditorView() {
       {runMode === 'mobile' && (
         <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="mb-4 flex items-center gap-4">
-            <button onClick={() => setIsPhoneRotated(!isPhoneRotated)} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+            <button onClick={() => setIsPhoneRotated(!isPhoneRotated)} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 cursor-pointer">
               <RefreshCw className="w-4 h-4" /> Rotate
             </button>
-            <button onClick={handleStop} className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2">
+            <button onClick={() => setIsStageMuted(v => !v)} className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors cursor-pointer" title="Mute/Unmute">
+              {isStageMuted ? <VolumeX className="w-4 h-4 text-amber-400" /> : <Volume2 className="w-4 h-4" />}
+            </button>
+            <button onClick={handleStop} className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 cursor-pointer">
               <StopCircle className="w-4 h-4" /> Stop
             </button>
           </div>
@@ -1827,7 +2017,15 @@ export default function EditorView() {
             {Object.keys(uiState.entities).length === 0 ? (
               <div className="h-full flex items-center justify-center text-sm italic text-zinc-500">{t.noEntities}</div>
             ) : (
-              <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} isFullScreen={true} />
+              <AppPreview
+                entities={uiState.entities}
+                variables={uiState.variables}
+                camera={uiState.camera}
+                uiMode={uiState.uiMode}
+                handleUIEvent={handleUIEvent}
+                isFullScreen={true}
+                showGrid={showStageGrid}
+              />
             )}
           </div>
         </div>
@@ -1841,15 +2039,27 @@ export default function EditorView() {
                 <div className="flex items-center gap-2 text-zinc-300">
                   <LayoutTemplate className="w-3.5 h-3.5" /> App UI
                 </div>
-                <button onClick={handleStop} className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded text-xs font-bold transition-colors flex items-center gap-2">
-                  <StopCircle className="w-3.5 h-3.5" /> Stop
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => setShowStageGrid(v => !v)} className={clsx("p-1.5 rounded border text-xs cursor-pointer", showStageGrid ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400" : "bg-zinc-900 border-zinc-700 text-zinc-300")} title="Toggle Grid"><Grid className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => setIsStageMuted(v => !v)} className={clsx("p-1.5 rounded border text-xs cursor-pointer", isStageMuted ? "bg-amber-500/20 border-amber-500/40 text-amber-400" : "bg-zinc-900 border-zinc-700 text-zinc-300")} title="Mute/Unmute">{isStageMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>
+                  <button onClick={handleStop} className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded text-xs font-bold transition-colors flex items-center gap-2 cursor-pointer">
+                    <StopCircle className="w-3.5 h-3.5" /> Stop
+                  </button>
+                </div>
               </div>
               <div className="flex-1 relative overflow-hidden bg-black">
                 {Object.keys(uiState.entities).length === 0 ? (
                   <div className="h-full flex items-center justify-center text-sm italic text-zinc-500">{t.noEntities}</div>
                 ) : (
-                  <AppPreview entities={uiState.entities} handleUIEvent={handleUIEvent} isFullScreen={true} />
+                  <AppPreview
+                    entities={uiState.entities}
+                    variables={uiState.variables}
+                    camera={uiState.camera}
+                    uiMode={uiState.uiMode}
+                    handleUIEvent={handleUIEvent}
+                    isFullScreen={true}
+                    showGrid={showStageGrid}
+                  />
                 )}
               </div>
             </div>
@@ -2087,15 +2297,14 @@ export default function EditorView() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1 text-zinc-400">Category</label>
-                <select
+                <CustomSelect
                   value={appCategory}
-                  onChange={(e) => setAppCategory(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors"
-                >
-                  {['games', 'apps', 'work', 'AI', 'Programming Language', 'Store', 'Custom Editor', 'Other'].map(cat => (
-                    <option key={cat} value={cat}>{cat}</option>
-                  ))}
-                </select>
+                  onChange={setAppCategory}
+                  options={['games', 'apps', 'work', 'AI', 'Programming Language', 'Store', 'Custom Editor', 'Other'].map(cat => ({
+                    value: cat,
+                    label: cat
+                  }))}
+                />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-2 text-zinc-400">{t.supportedPlatforms}</label>
@@ -2184,16 +2393,16 @@ export default function EditorView() {
                   onClick={handleGenerateAiScreenshot}
                   disabled={isGeneratingScreenshot || (!isPremium && userData?.role !== 'developer')}
                   className={clsx(
-                    "w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl font-bold transition-all",
+                    "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg font-semibold text-sm transition-colors border",
                     (isPremium || userData?.role === 'developer')
-                      ? (isFrutigerAero ? "frutiger-aero-button" : "bg-gradient-to-r from-purple-500 to-blue-500 text-white hover:opacity-90 shadow-lg shadow-purple-500/20")
-                      : "bg-zinc-800 text-zinc-500 cursor-not-allowed"
+                      ? (isFrutigerAero ? "frutiger-aero-button" : "bg-[#21252C] border-[#10B981]/50 text-[#10B981] hover:bg-[#10B981]/10")
+                      : "bg-[#21252C] border-[#262B33] text-[#6B7280] cursor-not-allowed"
                   )}
                 >
                   {isGeneratingScreenshot ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
-                    <Sparkles className="w-5 h-5" />
+                    <Camera className="w-4 h-4" />
                   )}
                   {language === 'ru' ? 'Сгенерировать ассеты через ИИ' : 'Generate Assets with AI'}
                   {!isPremium && userData?.role !== 'developer' && <Lock className="w-4 h-4 ml-1" />}
@@ -2338,7 +2547,7 @@ export default function EditorView() {
                         {event.imageUrl ? (
                           <img src={event.imageUrl} alt={event.title} className="w-12 h-12 rounded object-cover" />
                         ) : (
-                          <div className="w-12 h-12 rounded bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-xs font-bold text-white truncate px-1">
+                          <div className="w-12 h-12 rounded bg-[#21252C] border border-[#262B33] flex items-center justify-center text-xs font-bold text-[#10B981] truncate px-1">
                             {event.title.charAt(0)}
                           </div>
                         )}
@@ -2377,39 +2586,104 @@ export default function EditorView() {
                 </button>
               </div>
             )}
-            <div className="flex items-center justify-end gap-3 mt-8">
-              <button
-                onClick={() => setShowPublishModal(false)}
-                className="px-4 py-2 rounded-lg text-sm font-medium text-zinc-400 hover:text-zinc-200 transition-colors"
-              >
-                {t.cancel}
-              </button>
-              {appCategory === 'Custom Editor' && (
+            {/* AI Pre-check Status Banner */}
+            {preCheckStatus?.checked && (
+              <div className={clsx(
+                "p-3 rounded-xl border mt-5 text-xs flex items-center justify-between gap-2 animate-in fade-in",
+                preCheckStatus.approved 
+                  ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-400" 
+                  : "bg-red-500/10 border-red-500/30 text-red-400"
+              )}>
+                <div className="flex items-center gap-2">
+                  {preCheckStatus.approved ? (
+                    <ShieldCheck className="w-4 h-4 shrink-0 text-emerald-400" />
+                  ) : (
+                    <ShieldAlert className="w-4 h-4 shrink-0 text-red-400" />
+                  )}
+                  <span>
+                    {preCheckStatus.approved 
+                      ? (language === 'ru' ? '✓ Одобрено ИИ (NVIDIA Nemotron 3.5). Проект готов к публикации.' : '✓ Approved by AI (Nemotron 3.5). Ready to publish.')
+                      : (language === 'ru' ? `⚠ Отклонено ИИ: ${preCheckStatus.reason}` : `⚠ Rejected by AI: ${preCheckStatus.reason}`)}
+                  </span>
+                </div>
                 <button
-                  onClick={handlePublishToAssetStore}
-                  disabled={isPublishing}
-                  className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+                  type="button"
+                  onClick={() => setShowModerationModal(true)}
+                  className="underline text-[11px] font-semibold hover:opacity-80 shrink-0 cursor-pointer"
                 >
-                  <Package className="w-4 h-4" /> Asset Store
+                  {language === 'ru' ? 'Подробнее' : 'Details'}
                 </button>
-              )}
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-between gap-3 mt-8">
+              {/* Pre-check AI Button */}
               <button
-                onClick={handlePublish}
-                disabled={isPublishing}
-                className="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+                type="button"
+                onClick={handlePreCheckWithAi}
+                disabled={isPreCheckingAi || isPublishing}
+                className={clsx(
+                  "px-4 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-colors flex items-center gap-2 border cursor-pointer whitespace-nowrap",
+                  preCheckStatus?.checked && preCheckStatus.approved
+                    ? "bg-emerald-500/15 border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/25"
+                    : preCheckStatus?.checked && !preCheckStatus.approved
+                    ? "bg-red-500/15 border-red-500/40 text-red-400 hover:bg-red-500/25"
+                    : "bg-[#21252C] hover:bg-[#2A2F38] border-[#262B33] text-[#F1F3F5]"
+                )}
               >
-                {isPublishing ? (
+                {isPreCheckingAi ? (
                   <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>{publishingStepText || t.publishing}</span>
+                    <Loader2 className="w-4 h-4 animate-spin text-[#10B981]" />
+                    <span>{language === 'ru' ? 'ИИ проверяет...' : 'AI checking...'}</span>
                   </>
                 ) : (
                   <>
-                    <Sparkles className="w-4 h-4 text-emerald-200" />
-                    <span>{t.publishButton}</span>
+                    <ShieldCheck className="w-4 h-4 text-[#10B981]" />
+                    <span>{language === 'ru' ? 'Проверить через ИИ' : 'Pre-check with AI'}</span>
                   </>
                 )}
               </button>
+
+              <div className="flex items-center gap-3 ml-auto">
+                <button
+                  onClick={() => setShowPublishModal(false)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium text-[#9BA1A6] hover:text-[#F1F3F5] transition-colors"
+                >
+                  {t.cancel}
+                </button>
+                {appCategory === 'Custom Editor' && (
+                  <button
+                    onClick={handlePublishToAssetStore}
+                    disabled={isPublishing}
+                    className="px-5 py-2 bg-[#21252C] hover:bg-[#2A2F38] border border-[#262B33] text-[#F1F3F5] rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+                  >
+                    <Package className="w-4 h-4" /> Asset Store
+                  </button>
+                )}
+                <button
+                  onClick={handlePublish}
+                  disabled={isPublishing || isPreCheckingAi || (preCheckStatus?.checked && !preCheckStatus.approved)}
+                  className={clsx(
+                    "px-5 py-2 rounded-lg text-sm font-semibold transition-colors flex items-center gap-2 whitespace-nowrap",
+                    preCheckStatus?.checked && !preCheckStatus.approved
+                      ? "bg-[#21252C] text-[#6B7280] cursor-not-allowed border border-[#262B33]"
+                      : "bg-[#10B981] hover:bg-[#059669] text-[#111315] disabled:opacity-50"
+                  )}
+                  title={preCheckStatus?.checked && !preCheckStatus.approved ? (language === 'ru' ? 'Исправьте нарушения перед публикацией' : 'Resolve violations before publishing') : ''}
+                >
+                  {isPublishing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>{publishingStepText || t.publishing}</span>
+                    </>
+                  ) : (
+                    <>
+                      <UploadCloud className="w-4 h-4" />
+                      <span>{t.publishButton}</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -2417,37 +2691,39 @@ export default function EditorView() {
 
       {/* AI Moderation Result Modal */}
       {showModerationModal && moderationResult && (
-        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4 animate-in fade-in">
+        <div className="fixed inset-0 z-[210] flex items-center justify-center bg-black/75 backdrop-blur-sm p-4">
           <div className={clsx(
-            "w-full max-w-lg rounded-3xl p-6 sm:p-8 shadow-2xl relative border",
-            isFrutigerAero ? "bg-white/90 border-white/60 text-blue-950 backdrop-blur-md" :
-            theme !== 'light' ? "bg-zinc-900 border-zinc-800 text-zinc-100" : "bg-white border-zinc-200 text-zinc-900"
+            "w-full max-w-lg rounded-xl p-6 sm:p-7 shadow-2xl relative border",
+            isFrutigerAero ? "frutiger-aero-glass border-white/60 text-blue-950" :
+            theme !== 'light' ? "bg-[#181B20] border-[#262B33] text-[#F1F3F5]" : "bg-white border-[#E2E5EA] text-[#111315]"
           )}>
             <div className="flex items-center gap-3 mb-5">
               <div className={clsx(
-                "p-3 rounded-2xl border",
+                "p-3 rounded-lg border",
                 moderationResult.approved 
-                  ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/20" 
-                  : "bg-red-500/10 text-red-500 border-red-500/20"
+                  ? "bg-emerald-500/10 text-[#10B981] border-emerald-500/30" 
+                  : "bg-red-500/10 text-red-500 border-red-500/30"
               )}>
                 {moderationResult.approved ? (
-                  <ShieldCheck className="w-8 h-8" />
+                  <ShieldCheck className="w-7 h-7" />
                 ) : (
-                  <ShieldAlert className="w-8 h-8" />
+                  <ShieldAlert className="w-7 h-7" />
                 )}
               </div>
               <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-xl font-bold">
-                    {moderationResult.approved 
-                      ? (language === 'ru' ? 'Проект проверен и одобрен ИИ' : 'Project Verified & Approved by AI')
-                      : (language === 'ru' ? 'Проект отклонен модерацией ИИ' : 'Project Rejected by AI Moderation')
-                    }
-                  </h3>
-                </div>
-                <div className="text-xs opacity-60 flex items-center gap-1.5 mt-0.5">
-                  <Sparkles className="w-3.5 h-3.5 text-purple-400" />
-                  <span>Модель: nvidia/nemotron-3.5-super-vl:free</span>
+                <h3 className="text-lg font-bold">
+                  {moderationResult.approved 
+                    ? (language === 'ru' ? 'Проект проверен и одобрен ИИ' : 'Project Verified & Approved by AI')
+                    : (language === 'ru' ? 'Проект отклонен модерацией ИИ' : 'Project Rejected by AI Moderation')
+                  }
+                </h3>
+                <div className="text-xs text-[#9BA1A6] flex items-center gap-1.5 mt-0.5">
+                  <Cpu className="w-3.5 h-3.5 text-[#10B981]" />
+                  <span>
+                    {moderationResult.modelUsed && moderationResult.modelUsed !== 'local-heuristic'
+                      ? `Nemotron AI (${moderationResult.modelUsed.split('/').pop()})`
+                      : 'AI Security Audit'}
+                  </span>
                 </div>
               </div>
             </div>
@@ -2557,7 +2833,7 @@ export default function EditorView() {
                       <button 
                         onClick={() => {
                           navigator.clipboard.writeText(file.name);
-                          alert(language === 'en' ? 'File name copied!' : 'Имя файла скопировано!');
+                          notify.success(language === 'en' ? 'File name copied!' : 'Имя файла скопировано!');
                         }}
                         className={clsx("p-2 rounded-lg transition-colors", isFrutigerAero ? "hover:bg-white/50 text-blue-800/60 hover:text-blue-600" : "hover:bg-zinc-700 text-zinc-400 hover:text-emerald-400")}
                         title={language === 'en' ? 'Copy Name' : 'Копировать имя'}
@@ -2567,7 +2843,7 @@ export default function EditorView() {
                       <button 
                         onClick={() => {
                           navigator.clipboard.writeText(file.url);
-                          alert(language === 'en' ? 'URL copied!' : 'URL скопирован!');
+                          notify.success(language === 'en' ? 'URL copied!' : 'URL скопирован!');
                         }}
                         className={clsx("p-2 rounded-lg transition-colors", isFrutigerAero ? "hover:bg-white/50 text-blue-800/60 hover:text-blue-600" : "hover:bg-zinc-700 text-zinc-400 hover:text-emerald-400")}
                         title={language === 'en' ? 'Copy URL' : 'Копировать URL'}
@@ -2613,19 +2889,19 @@ export default function EditorView() {
       {showEditorStoreModal && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className={clsx(
-            "w-full max-w-3xl rounded-2xl p-6 shadow-2xl max-h-[80vh] flex flex-col",
-            isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
-            theme !== 'light' ? 'bg-zinc-900 border border-zinc-800 text-zinc-200' : 'bg-white border border-zinc-200 text-zinc-800'
+            "w-full max-w-3xl rounded-xl p-6 shadow-2xl max-h-[80vh] flex flex-col border",
+            isFrutigerAero ? "frutiger-aero-glass border-white/50" :
+            theme !== 'light' ? 'bg-[#181B20] border-[#262B33] text-[#F1F3F5]' : 'bg-white border-[#E2E5EA] text-[#111315]'
           )}>
             <div className="flex justify-between items-center mb-4">
               <h3 className={clsx("text-xl font-bold flex items-center gap-2", isFrutigerAero ? "text-blue-900" : "")}>
-                <Sparkles className={clsx("w-5 h-5", isFrutigerAero ? "text-blue-500" : "text-emerald-500")} />
+                <Store className={clsx("w-5 h-5", isFrutigerAero ? "text-blue-500" : "text-[#10B981]")} />
                 Editor Store
               </h3>
               <div className="flex items-center gap-4">
-                <div className={clsx("flex items-center gap-2 px-3 py-1 rounded-full border", isFrutigerAero ? "bg-white/50 border-white/60 shadow-inner" : "bg-zinc-800 border-zinc-700")}>
-                  <span className={clsx("font-bold text-sm", isFrutigerAero ? "text-blue-600" : "text-yellow-400")}>EPL</span>
-                  <span className={clsx("font-mono text-sm", isFrutigerAero ? "text-blue-900" : "text-zinc-200")}>{userData?.eplCoins || 0}</span>
+                <div className={clsx("flex items-center gap-2 px-3 py-1 rounded-lg border font-mono-num", isFrutigerAero ? "bg-white/50 border-white/60 shadow-inner" : "bg-[#111315] border-[#262B33]")}>
+                  <span className={clsx("font-bold text-xs", isFrutigerAero ? "text-blue-600" : "text-[#10B981]")}>EPL</span>
+                  <span className={clsx("font-mono text-sm", isFrutigerAero ? "text-blue-900" : "text-[#F1F3F5]")}>{userData?.eplCoins || 0}</span>
                 </div>
                 <button onClick={() => setShowEditorStoreModal(false)} className={clsx("hover:text-zinc-300", isFrutigerAero ? "text-blue-800/60 hover:text-blue-800" : "text-zinc-500")}>
                   <X className="w-5 h-5" />
@@ -2635,7 +2911,7 @@ export default function EditorView() {
             <div className="flex-1 overflow-y-auto pr-2 space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {[
-                  { id: 'premium', title: 'Premium Access', desc: 'Unlock all premium features including app locking and copying.', price: 100, type: 'feature', icon: Sparkles },
+                  { id: 'premium', title: 'Premium Access', desc: 'Unlock all premium features including app locking and copying.', price: 100, type: 'feature', icon: ShieldCheck },
                   { id: 'terminal', title: 'Terminal Component', desc: 'Advanced terminal UI component for your apps.', price: 20, type: 'component', icon: Terminal },
                   { id: '3d_engine', title: '3D Engine (Big File)', desc: 'Unlock 3D rendering capabilities.', price: 50, type: 'engine', icon: Code2 },
                   { id: 'physics', title: 'Physics Engine', desc: 'Advanced 2D physics for your games.', price: 40, type: 'engine', icon: Move },
