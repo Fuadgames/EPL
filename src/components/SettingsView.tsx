@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useStore } from '../store/useStore';
 import { auth } from '../firebase';
 import { updateProfile } from 'firebase/auth';
-import { Sun, Moon, User, Save, CheckCircle2, AlertCircle, Bot, ShieldCheck, Upload, Code2, Eye, Layers } from 'lucide-react';
+import { Sun, Moon, User, Save, CheckCircle2, AlertCircle, Bot, ShieldCheck, Upload, Code2, Eye, Layers, MonitorDown, Download, Sparkles } from 'lucide-react';
 import { clsx } from 'clsx';
 import { getEmojiAvatar } from '../lib/avatar';
 import EmojiPicker, { Theme } from 'emoji-picker-react';
@@ -571,6 +571,69 @@ export default function SettingsView() {
               Sign in to access account settings.
             </div>
           )}
+
+          {/* Download Desktop App Section */}
+          <section
+            className={clsx(
+              'p-6 rounded-xl border relative overflow-hidden',
+              isFrutigerAero
+                ? 'bg-white/55 border-white/80 backdrop-blur-md shadow-sm'
+                : theme !== 'light'
+                  ? 'bg-gradient-to-br from-[#181B20] via-[#132420] to-[#111922] border-[#10B981]/35'
+                  : 'bg-gradient-to-br from-emerald-50 via-teal-50/70 to-sky-50 border-emerald-200'
+            )}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-3.5">
+                <div
+                  className={clsx(
+                    'w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border',
+                    isFrutigerAero
+                      ? 'bg-blue-500/20 border-blue-400/30 text-blue-600'
+                      : theme !== 'light'
+                        ? 'bg-gradient-to-br from-[#10B981] to-[#06B6D4] text-[#09120E] border-transparent shadow-md shadow-emerald-500/20'
+                        : 'bg-[#059669] text-white border-transparent shadow-sm'
+                  )}
+                >
+                  <MonitorDown className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2
+                    className={clsx(
+                      'text-base font-bold flex items-center gap-1.5',
+                      isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]'
+                    )}
+                  >
+                    <span>EPL Studio Desktop App</span>
+                    <Sparkles className="w-4 h-4 text-[#10B981]" />
+                  </h2>
+                  <p className={clsx('text-xs mt-1 max-w-md', isFrutigerAero ? 'text-blue-800/75' : theme !== 'light' ? 'text-[#9CA3AF]' : 'text-[#4B5563]')}>
+                    {language === 'ru'
+                      ? 'Скачайте десктопную версию EPL Studio для максимально быстрой работы IDE и 3D/2D рендера прямо на вашем компьютере.'
+                      : 'Get the standalone desktop build of EPL Studio for fast local execution and full IDE performance.'}
+                  </p>
+                </div>
+              </div>
+
+              <a
+                href="https://drive.google.com/uc?export=download&id=122nysFUK_GBpxPBcwfV0kMSGhbNuRoSy"
+                download
+                target="_blank"
+                rel="noopener noreferrer"
+                className={clsx(
+                  'group inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all shrink-0 shadow-md hover:-translate-y-0.5',
+                  isFrutigerAero
+                    ? 'frutiger-aero-button'
+                    : theme !== 'light'
+                      ? 'bg-gradient-to-r from-[#10B981] to-[#06B6D4] hover:brightness-110 text-[#09120E] shadow-emerald-500/20'
+                      : 'bg-gradient-to-r from-[#059669] to-[#0284C7] hover:brightness-110 text-white shadow-emerald-600/20'
+                )}
+              >
+                <Download className="w-4 h-4 transition-transform group-hover:translate-y-0.5" />
+                <span>Download Desktop App</span>
+              </a>
+            </div>
+          </section>
         </div>
       </div>
     </div>

@@ -46,6 +46,7 @@ const AssetStoreView = safeLazy(() => import('./components/AssetStoreView'));
 const DonatePage = safeLazy(() => import('./components/DonatePage'));
 const LeaderboardsView = safeLazy(() => import('./components/LeaderboardsView'));
 const InstalledAppsView = safeLazy(() => import('./components/InstalledAppsView'));
+const NewsView = safeLazy(() => import('./components/NewsView'));
 
 function ViewRenderer() {
   const currentView = useStore(state => state.currentView);
@@ -73,6 +74,7 @@ function ViewRenderer() {
       }
       return <StoreView />;
     case 'leaderboards': return <LeaderboardsView />;
+    case 'news': return <NewsView />;
     default: return <StoreView />;
   }
 }

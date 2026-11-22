@@ -178,6 +178,24 @@
         "status": { "type": "string", "enum": ["ready", "installed", "updating"], "description": "Installation status." }
       },
       "required": ["userId", "projectId", "projectName", "version", "installedAt", "status"]
+    },
+    "News": {
+      "title": "News",
+      "description": "Platform news and announcements published exclusively by developers.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "The news post unique ID." },
+        "title": { "type": "string", "description": "The headline of the news post." },
+        "content": { "type": "string", "description": "Formatted rich-text body supporting bold, italic/curve, underline, and code highlights." },
+        "font": { "type": "string", "enum": ["sans", "serif", "mono", "display", "cursive"], "description": "Typography family selected for the post." },
+        "images": { "type": "array", "items": { "type": "string" }, "description": "Optional attached image URLs or compressed data URLs." },
+        "authorId": { "type": "string", "description": "The UID of the developer who authored the post." },
+        "authorName": { "type": "string", "description": "The display name of the author." },
+        "authorAvatar": { "type": "string", "description": "Optional avatar URL of the author." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "When the news post was published." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "When the news post was last updated." }
+      },
+      "required": ["id", "title", "content", "font", "images", "authorId", "authorName", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -216,6 +234,10 @@
     "/collabSessions/{sessionId}": {
       "schema": { "$ref": "#/entities/CollabSession" },
       "description": "Stores real-time collaboration sessions."
+    },
+    "/news/{newsId}": {
+      "schema": { "$ref": "#/entities/News" },
+      "description": "Stores developer-authored news and announcements."
     }
   }
 }

@@ -39,6 +39,36 @@ service cloud.firestore {
       return isAdmin() || (signedIn() && callerRole() in ['moderator', 'admin', 'developer']);
     }
 
+    function isDeveloper() {
+      return isBootstrappedDev() || (signedIn() && callerRole() == 'developer');
+    }
+
+    function isValidNewsImages(imgs) {
+      return imgs is list
+        && imgs.size() <= 6
+        && (imgs.size() < 1 || (imgs[0] is string && imgs[0].size() > 0 && imgs[0].size() <= 150000))
+        && (imgs.size() < 2 || (imgs[1] is string && imgs[1].size() > 0 && imgs[1].size() <= 150000))
+        && (imgs.size() < 3 || (imgs[2] is string && imgs[2].size() > 0 && imgs[2].size() <= 150000))
+        && (imgs.size() < 4 || (imgs[3] is string && imgs[3].size() > 0 && imgs[3].size() <= 150000))
+        && (imgs.size() < 5 || (imgs[4] is string && imgs[4].size() > 0 && imgs[4].size() <= 150000))
+        && (imgs.size() < 6 || (imgs[5] is string && imgs[5].size() > 0 && imgs[5].size() <= 150000));
+    }
+
+    function isValidNews(data, expectedId) {
+      return data.keys().hasAll(['id', 'title', 'content', 'font', 'images', 'authorId', 'authorName', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'title', 'content', 'font', 'images', 'authorId', 'authorName', 'authorAvatar', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == expectedId
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 200
+        && data.content is string && data.content.size() > 0 && data.content.size() <= 25000
+        && data.font in ['sans', 'serif', 'mono', 'display', 'cursive']
+        && isValidNewsImages(data.images)
+        && data.authorId is string && data.authorId.size() > 0 && data.authorId.size() <= 128
+        && data.authorName is string && data.authorName.size() > 0 && data.authorName.size() <= 100
+        && (!('authorAvatar' in data) || (data.authorAvatar is string && data.authorAvatar.size() <= 2048))
+        && data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 64
+        && data.updatedAt is string && data.updatedAt.size() > 0 && data.updatedAt.size() <= 64;
+    }
+
     // ---------- users ----------
     match /users/{userId} {
       allow get: if isValidId(userId);
@@ -160,6 +190,20 @@ service cloud.firestore {
     match /audit/{auditId} {
       allow read: if isAdmin();
       allow write: if isAdmin();
+    }
+
+    // ---------- news ----------
+    match /news/{newsId} {
+      allow get: if isValidId(newsId);
+      allow list: if true;
+      allow create: if isValidId(newsId) && isDeveloper()
+                    && isValidNews(request.resource.data, newsId)
+                    && request.resource.data.authorId == request.auth.uid;
+      allow update: if isValidId(newsId) && isDeveloper()
+                    && isValidNews(request.resource.data, newsId)
+                    && request.resource.data.authorId == resource.data.authorId
+                    && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if isValidId(newsId) && isDeveloper();
     }
   }
 }

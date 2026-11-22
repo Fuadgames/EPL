@@ -6,7 +6,7 @@ import { ACHIEVEMENTS_DB, AchievementData } from '../lib/achievements';
 import { updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 
-export type View = 'store' | 'installed-apps' | 'editor' | 'my-apps' | 'profile' | 'public-profile' | 'settings' | 'player' | 'premium' | 'control' | 'asset-store' | 'leaderboards' | 'donate';
+export type View = 'store' | 'installed-apps' | 'editor' | 'my-apps' | 'profile' | 'public-profile' | 'settings' | 'player' | 'premium' | 'control' | 'asset-store' | 'leaderboards' | 'donate' | 'news';
 
 export interface ProjectFileItem {
   name: string;
@@ -156,6 +156,11 @@ interface AppState {
   setProjectFiles: (files: ProjectFileItem[]) => void;
   addProjectFile: (file: ProjectFileItem) => void;
   removeProjectFile: (name: string) => void;
+  hiddenTabs: string[];
+  hideTab: (tabId: string) => void;
+  showTab: (tabId: string) => void;
+  toggleTabVisibility: (tabId: string) => void;
+  restoreAllTabs: () => void;
 }
 
 export const useStore = create<AppState>()(persist((set, get) => ({
@@ -425,6 +430,27 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   removeProjectFile: (name) => set((state) => ({
     projectFiles: (state.projectFiles || []).filter((f) => f.name !== name),
   })),
+  hiddenTabs: [],
+  hideTab: (tabId) => set((state) => {
+    if (!tabId || tabId === 'settings') return state;
+    const current = state.hiddenTabs || [];
+    const nextHidden = current.includes(tabId) ? current : [...current, tabId];
+    const nextView = state.currentView === tabId ? 'settings' : state.currentView;
+    return { hiddenTabs: nextHidden, currentView: nextView };
+  }),
+  showTab: (tabId) => set((state) => ({
+    hiddenTabs: (state.hiddenTabs || []).filter((id) => id !== tabId),
+  })),
+  toggleTabVisibility: (tabId) => {
+    const state = get();
+    if (!tabId || tabId === 'settings') return;
+    if ((state.hiddenTabs || []).includes(tabId)) {
+      state.showTab(tabId);
+    } else {
+      state.hideTab(tabId);
+    }
+  },
+  restoreAllTabs: () => set({ hiddenTabs: [] }),
 }), {
   name: 'app-storage',
   partialize: (state) => ({ 
@@ -447,6 +473,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     code: state.code,
     installedAppsList: state.installedAppsList,
     livePreviewEnabled: state.livePreviewEnabled,
-    projectFiles: state.projectFiles
+    projectFiles: state.projectFiles,
+    hiddenTabs: state.hiddenTabs
   }),
 }));
