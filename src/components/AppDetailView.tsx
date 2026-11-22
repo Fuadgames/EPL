@@ -35,6 +35,7 @@ import {
   CheckCircle2,
   Layers,
   Coins,
+  FileCode,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { AppData } from '../types';
@@ -538,6 +539,7 @@ export default function AppDetailView() {
                   {activeTab === 'downloads' && (
                     <section className="space-y-2.5">
                       {[
+                        { id: 'epl', name: 'Direct EPL App', ext: '.epl.html', icon: FileCode, desc: language === 'ru' ? 'Прямой автономный EPL-файл с иконкой и кодом' : 'Direct standalone EPL project app with icon' },
                         { id: 'windows', name: 'Windows', ext: '.exe', icon: Monitor, desc: 'Portable Executable' },
                         { id: 'macos', name: 'macOS', ext: '.dmg', icon: Apple, desc: 'macOS Application' },
                         { id: 'linux', name: 'Linux', ext: '.AppImage', icon: Terminal, desc: 'Universal AppImage' },

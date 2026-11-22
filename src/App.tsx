@@ -1,7 +1,7 @@
 import React, { useEffect, Suspense, lazy } from 'react';
 import Layout from './components/Layout';
 import { useStore } from './store/useStore';
-import { auth, subscribeToUserData, db } from './firebase';
+import { auth, subscribeToUserData, db, logOut } from './firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import { setDoc, doc, getDocs, collection, query, where } from 'firebase/firestore';
 import { AchievementNotifications } from './components/AchievementNotifications';
@@ -204,6 +204,10 @@ export default function App() {
             }
           }
         });
+      } else {
+        setUserData(null);
+        setIsPremium(false);
+        setPremiumExpiry(null);
       }
     });
 
@@ -230,7 +234,20 @@ export default function App() {
             </span>
           </p>
           <button
-            onClick={() => auth.signOut()}
+            onClick={async () => {
+              try {
+                await logOut();
+              } catch (e) {
+                console.warn('Banned sign-out Firebase warning:', e);
+                try {
+                  await auth.signOut();
+                } catch {}
+              }
+              setUser(null);
+              setUserData(null);
+              setIsPremium(false);
+              setPremiumExpiry(null);
+            }}
             className="w-full py-2.5 px-4 bg-[#DC2626] hover:bg-red-700 text-white rounded-lg font-medium text-sm transition-colors inline-flex items-center justify-center gap-2"
           >
             <LogOut className="w-4 h-4" />

@@ -14,6 +14,7 @@ import {
   Layers,
   Terminal,
   Coins,
+  ShoppingBag,
 } from 'lucide-react';
 import { logOut } from '../firebase';
 import { clsx } from 'clsx';
@@ -77,7 +78,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { id: 'leaderboards', label: language === 'ru' ? 'Рейтинги' : 'Leaderboards', icon: Trophy },
     { id: 'editor', label: translations[language].editor, icon: Code2, permission: 'publishApps' },
     { id: 'my-apps', label: translations[language].myApps, icon: Package },
-    { id: 'asset-store', label: 'Asset Store', icon: Package, permission: 'accessAssetStore' },
+    { id: 'asset-store', label: 'Asset Store', icon: ShoppingBag, permission: 'accessAssetStore' },
     { id: 'donate', label: language === 'ru' ? 'Поддержать' : 'Donate', icon: Coins },
     { id: 'premium', label: translations[language].premium, icon: Star, permission: 'accessPremium' },
     { id: 'profile', label: translations[language].profile, icon: User },

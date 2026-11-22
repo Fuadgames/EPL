@@ -9,6 +9,9 @@ import AppPreview from './AppPreview';
 import Gradient from './Gradient';
 import TwoDEditor from './TwoDEditor';
 import ThreeDEditor from './ThreeDEditor';
+import DifrenoptConfigModal from './DifrenoptConfigModal';
+import CustomSelect from './CustomSelect';
+import { extractDifrenoptBlock, upsertDifrenoptInCode, DRPL_TEMPLATES } from '@/src/lib/drpl-catalog';
 
 interface VisualEditorProps {
   code: string;
@@ -161,6 +164,8 @@ export default function VisualEditor({ code, onChange, entities = {} }: VisualEd
             }
           }}
           entities={entities}
+          fullCode={code}
+          onReplaceCode={onChange}
         />
       ))}
     </div>
@@ -181,11 +186,13 @@ interface VisualLineProps {
   onFocus: () => void;
   onBlur: () => void;
   entities: any;
+  fullCode: string;
+  onReplaceCode: (nextCode: string) => void;
 }
 
 function VisualLine({ 
   text, index, entityNames, isFocused, initialCursorPos,
-  onChange, onSplit, onMerge, onMoveFocus, onFocus, onBlur, entities
+  onChange, onSplit, onMerge, onMoveFocus, onFocus, onBlur, entities, fullCode, onReplaceCode
 }: VisualLineProps) {
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const collabSessionId = useStore(state => state.collabSessionId);
@@ -478,6 +485,9 @@ function VisualLine({
                   settingsStr={settingsStr} 
                   entityNames={entityNames}
                   entities={entities}
+                  lineIndex={index}
+                  fullCode={fullCode}
+                  onReplaceCode={onReplaceCode}
                   onUpdateSettings={(newSettings) => {
                     const newParts = [...parts];
                     newParts[i + 1] = newSettings;
@@ -519,18 +529,53 @@ function VisualLine({
   );
 }
 
-function Token({ keyword, settingsStr, entityNames, entities, onUpdateSettings }: { keyword: string, settingsStr: string | undefined, entityNames: string[], entities: any, onUpdateSettings: (s: string | undefined) => void, key?: React.Key }) {
+function Token({
+  keyword,
+  settingsStr,
+  entityNames,
+  entities,
+  lineIndex,
+  fullCode,
+  onReplaceCode,
+  onUpdateSettings
+}: {
+  keyword: string;
+  settingsStr: string | undefined;
+  entityNames: string[];
+  entities: any;
+  lineIndex: number;
+  fullCode: string;
+  onReplaceCode: (nextCode: string) => void;
+  onUpdateSettings: (s: string | undefined) => void;
+  key?: React.Key;
+}) {
   const [showPopover, setShowPopover] = useState(false);
   const [showHelpModal, setShowHelpModal] = useState(false);
+  const [showDrplStudio, setShowDrplStudio] = useState(false);
   const [editorMode, setEditorMode] = useState<'2d' | '3d' | 'position' | null>(null);
   const def = EPL_DICTIONARY[keyword];
   
-  // Parse settings string into object
+  const userUploadedFiles = useStore(state => state.userData?.uploadedFiles);
+  const projectFiles = useStore(state => state.projectFiles);
+
+  const availableFiles = React.useMemo(() => {
+    const merged = new Map<string, { name: string; url: string }>();
+    [...(userUploadedFiles || []), ...(projectFiles || [])].forEach(f => {
+      if (f?.name) merged.set(f.name, { name: f.name, url: f.url });
+    });
+    return Array.from(merged.values());
+  }, [userUploadedFiles, projectFiles]);
+
+  // Parse settings string into object (preserving '=' in URLs / expressions)
   const settingsObj: Record<string, string> = {};
   if (settingsStr) {
     settingsStr.split(',').forEach(pair => {
-      const [k, v] = pair.split('=');
-      if (k && v) settingsObj[k.trim()] = v.trim();
+      const eqIdx = pair.indexOf('=');
+      if (eqIdx !== -1) {
+        const k = pair.slice(0, eqIdx).trim();
+        const v = pair.slice(eqIdx + 1).trim();
+        if (k) settingsObj[k] = v;
+      }
     });
   }
 
@@ -541,6 +586,14 @@ function Token({ keyword, settingsStr, entityNames, entities, onUpdateSettings }
   }, [settingsStr]);
 
   if (!def) return <span>{keyword}</span>;
+
+  const currentDrplBody = React.useMemo(() => {
+    if (keyword !== 'difrenopt') return '';
+    const allLines = fullCode.split('\n');
+    const { drplLines } = extractDifrenoptBlock(allLines, lineIndex + 1);
+    const cleaned = drplLines.map(l => (l.startsWith('  ') ? l.slice(2) : l)).join('\n').trim();
+    return cleaned || DRPL_TEMPLATES[0].drplCode;
+  }, [keyword, fullCode, lineIndex]);
 
   const handleSave = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -589,7 +642,11 @@ function Token({ keyword, settingsStr, entityNames, entities, onUpdateSettings }
       <span 
         onClick={(e) => {
           e.stopPropagation();
-          if (def.schema) setShowPopover(true);
+          if (keyword === 'difrenopt') {
+            setShowDrplStudio(true);
+          } else if (def.schema) {
+            setShowPopover(true);
+          }
         }}
         className={clsx(
           "font-bold border-b-2 cursor-pointer transition-colors",
@@ -604,7 +661,11 @@ function Token({ keyword, settingsStr, entityNames, entities, onUpdateSettings }
         <span 
           onClick={(e) => {
             e.stopPropagation();
-            if (def.schema) setShowPopover(true);
+            if (keyword === 'difrenopt') {
+              setShowDrplStudio(true);
+            } else if (def.schema) {
+              setShowPopover(true);
+            }
           }}
           className="text-zinc-400 cursor-pointer hover:text-zinc-300 transition-colors flex items-center"
         >
@@ -662,7 +723,7 @@ function Token({ keyword, settingsStr, entityNames, entities, onUpdateSettings }
               {Object.entries(def.schema).map(([key, type]) => (
                 <div key={key}>
                   <label className="block text-xs text-zinc-400 mb-1 capitalize">{key}</label>
-                  {key === 'color' || key === 'background' || key === 'gradient' ? (
+                  {key === 'color' || key === 'background' || key === 'gradient' || key === 'borderColor' ? (
                     <div className="flex gap-2 items-center">
                       <input
                         type="color"
@@ -683,6 +744,48 @@ function Token({ keyword, settingsStr, entityNames, entities, onUpdateSettings }
                         ))}
                       </div>
                     </div>
+                  ) : type === 'options' && def.options ? (
+                    <CustomSelect
+                      value={localSettings[key] || def.options[0] || ''}
+                      onChange={(val) => setLocalSettings({ ...localSettings, [key]: val })}
+                      options={def.options.map(opt => ({ value: opt, label: opt }))}
+                      className="w-full"
+                    />
+                  ) : type === 'boolean' ? (
+                    <CustomSelect
+                      value={localSettings[key] || 'false'}
+                      onChange={(val) => setLocalSettings({ ...localSettings, [key]: val })}
+                      options={[
+                        { value: 'true', label: 'true' },
+                        { value: 'false', label: 'false' }
+                      ]}
+                      className="w-full"
+                    />
+                  ) : key === 'file' || ((keyword === 'file' || keyword === 'sound' || keyword === 'png' || keyword === 'linkto' || keyword === 'run') && (key === 'path' || key === 'sound')) ? (
+                    <div className="space-y-1.5">
+                      <CustomSelect
+                        value={localSettings[key] || ''}
+                        onChange={(val) => setLocalSettings({ ...localSettings, [key]: val })}
+                        placeholder={availableFiles.length > 0 ? 'Select a project file...' : 'No uploaded files yet'}
+                        options={
+                          availableFiles.length > 0
+                            ? availableFiles.map(f => ({
+                                value: f.name,
+                                label: f.name,
+                                description: f.url.startsWith('data:') ? 'Embedded local asset' : f.url
+                              }))
+                            : [{ value: '', label: 'No files uploaded yet (use Upload File)', disabled: true }]
+                        }
+                        className="w-full"
+                      />
+                      <input
+                        type="text"
+                        value={localSettings[key] || ''}
+                        onChange={(e) => setLocalSettings({ ...localSettings, [key]: e.target.value })}
+                        className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-xs text-zinc-200 focus:outline-none focus:border-emerald-500"
+                        placeholder="Or enter filename / URL manually (e.g. game.exe)..."
+                      />
+                    </div>
                   ) : (
                     <>
                       <input
@@ -691,12 +794,20 @@ function Token({ keyword, settingsStr, entityNames, entities, onUpdateSettings }
                         onChange={(e) => setLocalSettings({ ...localSettings, [key]: e.target.value })}
                         className="w-full bg-zinc-950 border border-zinc-800 rounded px-2 py-1.5 text-sm text-zinc-200 focus:outline-none focus:border-emerald-500"
                         placeholder={`Enter ${key}...`}
-                        list={key === 'target' || key === 'name' ? `autocomplete-${keyword}-${key}` : undefined}
                       />
-                      {(key === 'target' || key === 'name') && (
-                        <datalist id={`autocomplete-${keyword}-${key}`}>
-                          {entityNames.map(name => <option key={name} value={name} />)}
-                        </datalist>
+                      {(key === 'target' || key === 'name') && entityNames.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {entityNames.slice(0, 8).map(n => (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() => setLocalSettings({ ...localSettings, [key]: n })}
+                              className="px-2 py-0.5 text-[10px] rounded bg-zinc-800 hover:bg-zinc-700 text-emerald-400 border border-zinc-700"
+                            >
+                              {n}
+                            </button>
+                          ))}
+                        </div>
                       )}
                     </>
                   )}
@@ -841,6 +952,19 @@ function Token({ keyword, settingsStr, entityNames, entities, onUpdateSettings }
             </button>
           </div>
         </div>
+      )}
+
+      {keyword === 'difrenopt' && (
+        <DifrenoptConfigModal
+          isOpen={showDrplStudio}
+          onClose={() => setShowDrplStudio(false)}
+          initialParams={localSettings}
+          initialDrplCode={currentDrplBody}
+          onApply={(nextParams, nextDrpl) => {
+            const nextFullCode = upsertDifrenoptInCode(fullCode, nextParams, nextDrpl, lineIndex);
+            onReplaceCode(nextFullCode);
+          }}
+        />
       )}
     </div>
   );

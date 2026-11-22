@@ -69,6 +69,7 @@ export const EPL_DICTIONARY: Record<string, TokenDef> = {
   'velocity': { word: 'velocity', type: 'action', color: 'text-blue-500', description: 'Sets entity physics velocity.', schema: { target: 'string', vx: 'number', vy: 'number' } },
   'spawn': { word: 'spawn', type: 'action', color: 'text-blue-500', description: 'Spawns a copy of a template entity.', schema: { template: 'string', name: 'string', x: 'number', y: 'number' } },
   'shake': { word: 'shake', type: 'action', color: 'text-blue-500', description: 'Shakes the camera viewport.', schema: { intensity: 'number', duration: 'number' } },
+  'run': { word: 'run', type: 'action', color: 'text-blue-500', description: 'Runs an uploaded/project file in-app or downloads it automatically if unavailable locally (e.g. .exe, .epl, .html).', schema: { file: 'string', mode: 'options', target: 'string' }, options: ['auto', 'open', 'download'] },
   'changed?': { word: 'changed?', type: 'event', color: 'text-orange-500', description: 'Triggered when a slider or checkbox changes.', schema: { target: 'string' } },
 
   // Entities
@@ -91,7 +92,8 @@ export const EPL_DICTIONARY: Record<string, TokenDef> = {
   'textbox': { word: 'textbox', type: 'entity', color: 'text-emerald-500', description: 'Input field.', schema: { name: 'string', placeholder: 'string', text: 'string', x: 'number', y: 'number', width: 'number', corner: 'number', variable: 'string', spawnComponent: 'boolean' } },
   'circle': { word: 'circle', type: 'entity', color: 'text-emerald-500', description: '2D circle.', schema: { name: 'string', radius: 'number', color: 'string', x: 'number', y: 'number', physics: 'boolean', bounce: 'number', corner: 'number', variable: 'string', spawnComponent: 'boolean' } },
   'line': { word: 'line', type: 'entity', color: 'text-emerald-500', description: 'Connecting line.', schema: { name: 'string', x1: 'number', y1: 'number', x2: 'number', y2: 'number', color: 'string', thickness: 'number', variable: 'string', spawnComponent: 'boolean' } },
-  'file': { word: 'file', type: 'entity', color: 'text-emerald-500', description: 'File asset.', schema: { name: 'string', path: 'string', variable: 'string', spawnComponent: 'boolean' } },
+  'file': { word: 'file', type: 'entity', color: 'text-emerald-500', description: 'File asset.', schema: { name: 'string', path: 'string', file: 'string', variable: 'string', spawnComponent: 'boolean' } },
+  'linkto': { word: 'linkto', type: 'entity', color: 'text-emerald-500', description: 'Interactive file link/launcher button pointing to any uploaded project file (.exe, .html, .epl, media).', schema: { name: 'string', file: 'string', label: 'string', mode: 'options', color: 'string', x: 'number', y: 'number', width: 'number', corner: 'number', variable: 'string', spawnComponent: 'boolean' }, options: ['auto', 'open', 'download'] },
   'wasd_controls': { word: 'wasd_controls', type: 'entity', color: 'text-emerald-500', description: 'WASD movement.', schema: { name: 'string', target: 'string', step: 'number', duration: 'number', boundary: 'boolean', variable: 'string', spawnComponent: 'boolean' } },
   'gradient': { word: 'gradient', type: 'entity', color: 'text-emerald-500', description: 'Decorative gradient background blob.', schema: { name: 'string', variant: 'options', x: 'number', y: 'number', size: 'number', variable: 'string', spawnComponent: 'boolean' }, options: ['emerald', 'purple', 'blue'] },
   'terminal': { word: 'terminal', type: 'entity', color: 'text-emerald-500', description: 'Terminal component.', schema: { name: 'string', x: 'number', y: 'number', width: 'number', height: 'number', text: 'string', variable: 'string', spawnComponent: 'boolean' } },
@@ -99,6 +101,7 @@ export const EPL_DICTIONARY: Record<string, TokenDef> = {
   'panel': { word: 'panel', type: 'entity', color: 'text-emerald-500', description: 'UI Card / Container panel for building apps.', schema: { name: 'string', title: 'string', color: 'string', borderColor: 'string', x: 'number', y: 'number', width: 'number', height: 'number', corner: 'number', opacity: 'number', variable: 'string', spawnComponent: 'boolean' } },
   'checkbox': { word: 'checkbox', type: 'entity', color: 'text-emerald-500', description: 'Interactive checkbox control.', schema: { name: 'string', label: 'string', checked: 'boolean', x: 'number', y: 'number', variable: 'string', spawnComponent: 'boolean' } },
   'slider': { word: 'slider', type: 'entity', color: 'text-emerald-500', description: 'Interactive numeric slider control.', schema: { name: 'string', label: 'string', value: 'number', min: 'number', max: 'number', width: 'number', x: 'number', y: 'number', variable: 'string', spawnComponent: 'boolean' } },
+  'difrenopt': { word: 'difrenopt', type: 'entity', color: 'text-emerald-500', description: 'Difficult Render Optimizing (DRPL) high-performance 3D/2D/App engine block.', schema: { name: 'string', mode: 'options', quality: 'options', fps: 'number', shadows: 'boolean', bloom: 'boolean', instancing: 'boolean', culling: 'boolean' }, options: ['3d', '2d', 'app', 'hybrid'] },
 };
 
 // Sort keywords by length descending so longer phrases like "set up" match before "set"
@@ -107,7 +110,6 @@ export const KEYWORDS = Object.keys(EPL_DICTIONARY).sort((a, b) => b.length - a.
 // Escape keywords for regex
 const ESCAPED_KEYWORDS = KEYWORDS.map(k => k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 
-// Regex matches: (keyword) \s* {settings} or just (keyword) or (#comment)
-// We add \s* to allow spaces between the keyword and its settings block, which AI often generates!
-export const TOKEN_REGEX = new RegExp(`(${ESCAPED_KEYWORDS.join('|')})(?:\\s*\\{([^}]*)\\})?|(#.*)`, 'g');
+// Regex matches: (keyword) \s* {settings} or just (keyword) or (#comment) with word boundaries so words like "friend"/"render" never split on "end"
+export const TOKEN_REGEX = new RegExp(`(?<![a-zA-Z0-9_])(${ESCAPED_KEYWORDS.join('|')})(?![a-zA-Z0-9_?])(?:\\s*\\{([^}]*)\\})?|(#.*)`, 'g');
 

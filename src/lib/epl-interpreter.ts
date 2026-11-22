@@ -1,5 +1,6 @@
 import { TOKEN_REGEX } from '@/src/lib/epl-dictionary';
 import { generateWithAI } from './gemini';
+import { extractDifrenoptBlock, isDifrenoptStartLine } from './drpl-catalog';
 
 export type EPLValue = string | number | boolean | null;
 
@@ -42,13 +43,13 @@ const ENTITY_TYPES = new Set([
   'world', 'button', 'block', '3Dblock', '3DCamera', '3DEditor', 'sprite', 'png',
   'text_label', 'particle', 'sound', 'timer', 'player', 'enemy', 'textbox',
   'circle', 'line', 'wasd_controls', 'terminal', 'control', 'gradient',
-  'progress', 'panel', 'checkbox', 'slider'
+  'progress', 'panel', 'checkbox', 'slider', 'difrenopt', 'linkto', 'file'
 ]);
 
 const UI_WIDGET_TYPES = new Set([
   'world', 'button', 'text_label', 'textbox', 'terminal', 'wasd_controls',
   'timer', 'sound', '3DCamera', '3DEditor', 'gradient', 'progress', 'panel',
-  'checkbox', 'slider'
+  'checkbox', 'slider', 'difrenopt', 'linkto', 'file'
 ]);
 
 export class EPLInterpreter {
@@ -135,8 +136,56 @@ export class EPLInterpreter {
 
   resolveUrl(value: string): string {
     if (typeof value !== 'string') return value;
-    const file = this.uploadedFiles.find(f => f.name === value);
+    const trimmed = value.trim();
+    const lower = trimmed.toLowerCase();
+    const file = this.uploadedFiles.find(
+      f => f.name === trimmed || f.name.toLowerCase() === lower
+    );
     return file ? file.url : value;
+  }
+
+  private resolveFileEntry(fileRef?: string): { name: string; url: string } | null {
+    const raw = String(fileRef || '').trim();
+    if (!raw) return null;
+    const lower = raw.toLowerCase();
+    const found = this.uploadedFiles.find(
+      f =>
+        f.name === raw ||
+        f.name.toLowerCase() === lower ||
+        f.url === raw
+    );
+    if (found) return found;
+    return { name: raw, url: raw };
+  }
+
+  private dispatchFileAction(actionType: 'linkto' | 'run', settings: Record<string, any>) {
+    const rawRef = String(settings.file || settings.path || settings.target || settings.name || '').trim();
+    if (!rawRef) {
+      this.log(`[${actionType}] No file specified.`);
+      return;
+    }
+    const resolved = this.resolveFileEntry(rawRef);
+    const fileName = resolved?.name || rawRef;
+    const fileUrl = resolved?.url || '';
+    const hasUploadedMatch = this.uploadedFiles.some(
+      f => f.name.toLowerCase() === fileName.toLowerCase() || f.url === fileUrl
+    );
+    this.log(`[${actionType}] ${fileName}${hasUploadedMatch ? '' : ' (not found locally — preparing download)'}`);
+
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('epl:file-action', {
+          detail: {
+            actionType,
+            fileName,
+            url: hasUploadedMatch ? fileUrl : (fileUrl.startsWith('http') || fileUrl.startsWith('/') || fileUrl.startsWith('data:') || fileUrl.startsWith('blob:') ? fileUrl : ''),
+            mode: settings.mode || 'auto',
+            existsInProject: hasUploadedMatch,
+            uploadedFiles: this.uploadedFiles
+          }
+        })
+      );
+    }
   }
 
   log(msg: string) {
@@ -558,10 +607,26 @@ export class EPLInterpreter {
         settings.name ||
         (keyword !== 'button' && keyword !== 'button_pressed' && keyword !== 'clicked?' ? keyword : undefined);
       const isRecentClick = Date.now() - (this.context.lastClickedTime || 0) < 650;
-      if (!targetName || targetName === 'button') {
+      if (!targetName || String(targetName).toLowerCase() === 'button') {
         return isRecentClick;
       }
-      return isRecentClick && this.context.lastClickedTarget === targetName;
+      const wanted = String(targetName).trim().toLowerCase();
+      const clicked = String(this.context.lastClickedTarget || '').trim().toLowerCase();
+      if (isRecentClick && clicked === wanted) return true;
+      if (isRecentClick && this.context.lastClickedTarget) {
+        const clickedEnt = Object.values(this.context.entities).find(
+          e => String(e.name || '').toLowerCase() === clicked || String(e.id || '').toLowerCase() === clicked
+        );
+        if (clickedEnt) {
+          return (
+            String(clickedEnt.name || '').toLowerCase() === wanted ||
+            String(clickedEnt.label || '').toLowerCase() === wanted ||
+            String(clickedEnt.text || '').toLowerCase() === wanted ||
+            String(clickedEnt.type || '').toLowerCase() === wanted
+          );
+        }
+      }
+      return false;
     }
     if (keyword === 'key_pressed?' || keyword === 'key') {
       const key = String(settings.key || settings.target || '').toLowerCase();
@@ -704,45 +769,108 @@ export class EPLInterpreter {
           const nextSettingsStr = parts[j + 5] || '';
           const nextSettings = this.parseSettings(nextSettingsStr);
 
-          if (nextKeyword && ENTITY_TYPES.has(nextKeyword)) {
-            const id = nextSettings.name || `entity_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+          const resolvedEntityType =
+            nextKeyword && ENTITY_TYPES.has(nextKeyword)
+              ? nextKeyword
+              : settings.type && ENTITY_TYPES.has(String(settings.type))
+                ? String(settings.type)
+                : null;
+          const entitySettings = nextKeyword && ENTITY_TYPES.has(nextKeyword) ? nextSettings : settings;
+
+          if (resolvedEntityType) {
+            const id = entitySettings.name || `entity_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
             const entity: EPLEntity = {
               id,
-              type: nextKeyword,
-              name: nextSettings.name || id,
-              ...nextSettings
+              type: resolvedEntityType,
+              name: entitySettings.name || id,
+              ...entitySettings
             };
+            if (resolvedEntityType === 'difrenopt') {
+              const { drplLines, nextIndex } = extractDifrenoptBlock(lines, i + 1);
+              entity.drplCode = drplLines.map(l => (l.startsWith('  ') ? l.slice(2) : l)).join('\n').trim();
+              this.context.entities[id] = entity;
+              this.emitUIUpdate();
+              i = nextIndex;
+              lineHandledByBlock = true;
+              break;
+            }
             if (entity.spawnComponent) entity.isActive = false;
-            if (nextKeyword === 'player' && entity.health !== undefined && entity.maxHealth === undefined) {
+            if (resolvedEntityType === 'player' && entity.health !== undefined && entity.maxHealth === undefined) {
               entity.maxHealth = Number(entity.health);
             }
-            if (nextKeyword === 'enemy' && entity.health !== undefined && entity.maxHealth === undefined) {
+            if (resolvedEntityType === 'enemy' && entity.health !== undefined && entity.maxHealth === undefined) {
               entity.maxHealth = Number(entity.health);
             }
-            if ((nextKeyword === 'checkbox' || nextKeyword === 'slider') && entity.variable) {
+            if ((resolvedEntityType === 'checkbox' || resolvedEntityType === 'slider') && entity.variable) {
               this.context.variables[entity.variable] =
-                nextKeyword === 'checkbox' ? Boolean(entity.checked) : Number(entity.value ?? 0);
+                resolvedEntityType === 'checkbox' ? Boolean(entity.checked) : Number(entity.value ?? 0);
             }
 
             this.context.entities[id] = entity;
             this.emitUIUpdate();
 
-            if (nextKeyword === 'timer') {
-              const interval = Math.max(50, Number(nextSettings.interval || 1000));
+            if (resolvedEntityType === 'timer') {
+              const interval = Math.max(50, Number(entitySettings.interval || 1000));
               const timerId = setInterval(() => {
                 if (this.context.isRunning) {
-                  this.triggerEvent('timer_tick?', nextSettings.name);
+                  this.triggerEvent('timer_tick?', entitySettings.name);
                 }
               }, interval);
               this.context.timers[id] = timerId;
             }
 
-            const createdEventKey = `created?_${nextSettings.name}`;
+            const createdEventKey = `created?_${entitySettings.name}`;
             if (this.context.events[createdEventKey]) {
               this.runLines(this.context.events[createdEventKey]);
             }
 
-            j += 4;
+            if (nextKeyword && ENTITY_TYPES.has(nextKeyword)) {
+              j += 4;
+            }
+          }
+        } else if (keyword === 'run') {
+          this.dispatchFileAction('run', settings);
+        } else if (keyword === 'difrenopt') {
+          const id = settings.name || `difrenopt_${Date.now()}_${Math.random().toString(36).slice(2, 5)}`;
+          const { drplLines, nextIndex } = extractDifrenoptBlock(lines, i + 1);
+          const drplCode = drplLines.map(l => (l.startsWith('  ') ? l.slice(2) : l)).join('\n').trim();
+          const entity: EPLEntity = {
+            id,
+            type: 'difrenopt',
+            name: settings.name || 'engine',
+            ...settings,
+            drplCode
+          };
+          this.context.entities[id] = entity;
+          this.emitUIUpdate();
+          i = nextIndex;
+          lineHandledByBlock = true;
+          break;
+        } else if (keyword === 'linkto') {
+          const targetName = settings.name || settings.target;
+          const existing = targetName
+            ? Object.values(this.context.entities).find(e => e.name === targetName)
+            : null;
+          if (existing) {
+            const { id, type, ...cleanSettings } = settings;
+            Object.assign(existing, cleanSettings);
+            this.emitUIUpdate();
+            if (settings.file || settings.mode === 'open' || settings.mode === 'download') {
+              this.dispatchFileAction('linkto', settings);
+            }
+          } else {
+            const id = settings.name || `linkto_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+            const entity: EPLEntity = {
+              id,
+              type: 'linkto',
+              name: settings.name || id,
+              x: settings.x ?? 24,
+              y: settings.y ?? 24,
+              ...settings
+            };
+            if (entity.spawnComponent) entity.isActive = false;
+            this.context.entities[id] = entity;
+            this.emitUIUpdate();
           }
         } else if (ENTITY_TYPES.has(keyword)) {
           const targetName = settings.name || settings.target || (keyword === 'world' ? 'world' : null);
@@ -1148,17 +1276,41 @@ export class EPLInterpreter {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
       if (!line || line.startsWith('#') || line.startsWith('//')) continue;
-      const parts = line.split(TOKEN_REGEX);
 
-      // Inside an event block, track nested if/repeat/forever/object depth so their `end` doesn't close the outer event!
-      if (nestedDepth > 0) {
-        if (this.isBlockStarter(line)) {
-          nestedDepth++;
-        } else if (line === 'end' || /^end\b/i.test(line)) {
-          nestedDepth--;
+      // Capture full difrenopt { ... } ... end block atomically so inner DRPL lines are never parsed as EPL events
+      if (isDifrenoptStartLine(line)) {
+        const { drplLines, nextIndex } = extractDifrenoptBlock(lines, i + 1);
+        if (currentEvent) {
+          eventBlock.push(line, ...drplLines, 'end');
         }
-        if (currentEvent) eventBlock.push(line);
+        i = nextIndex - 1;
         continue;
+      }
+
+      const parts = line.split(TOKEN_REGEX);
+      const firstKw = parts[1];
+      const isEventHeader =
+        firstKw &&
+        [
+          'started?', 'created?', 'clicked?', 'collided?', 'key_pressed?',
+          'timer_tick?', 'input', 'file_added?', 'writed?', 'variable_activated?', 'changed?'
+        ].includes(firstKw) &&
+        !this.isBlockStarter(line);
+
+      // Inside an event block, track nested if/repeat/forever/object depth so their `end` doesn't close the outer event.
+      // If a top-level event header appears while unclosed nested blocks remain (e.g. from pasted/inventory snippets), recover cleanly!
+      if (nestedDepth > 0) {
+        if (isEventHeader) {
+          nestedDepth = 0;
+        } else {
+          if (this.isBlockStarter(line)) {
+            nestedDepth++;
+          } else if (line === 'end' || /^end\b/i.test(line)) {
+            nestedDepth--;
+          }
+          if (currentEvent) eventBlock.push(line);
+          continue;
+        }
       }
 
       if (this.isBlockStarter(line)) {
@@ -1222,7 +1374,15 @@ export class EPLInterpreter {
   }
 
   hasEvents(): boolean {
-    return Object.values(this.context.events).some(lines => lines.length > 0);
+    const hasEventHandlers = Object.entries(this.context.events).some(
+      ([k, lines]) => k !== 'started?' && lines.length > 0
+    );
+    if (hasEventHandlers) return true;
+    if (Object.values(this.context.events).some(lines => lines.length > 0)) return true;
+    if (Object.keys(this.context.timers).length > 0) return true;
+    return Object.values(this.context.entities).some(e =>
+      ['button', 'textbox', 'checkbox', 'slider', 'linkto', 'difrenopt', 'wasd_controls', 'player', 'enemy'].includes(e.type)
+    );
   }
 
   getVariable(name: string): EPLValue {
@@ -1347,9 +1507,33 @@ export class EPLInterpreter {
       if (normalizedTarget) this.keysPressed.delete(normalizedTarget);
     }
 
-    const specificKey = normalizedTarget ? `${eventName}_${normalizedTarget}` : eventName;
-    if (this.context.events[specificKey]) {
-      await this.runLines([...this.context.events[specificKey]]);
+    const eventEntries = Object.entries(this.context.events);
+    const matchedKeys = new Set<string>();
+
+    // Collect alias targets so clicked?{target=MyBtn}, clicked?{target=PlayLabel}, or case variations all match!
+    const candidates = new Set<string>();
+    if (normalizedTarget) candidates.add(normalizedTarget);
+    if (target) {
+      candidates.add(target);
+      const clickedEntity = Object.values(this.context.entities).find(
+        e => String(e.name || '').toLowerCase() === target.toLowerCase() || String(e.id || '').toLowerCase() === target.toLowerCase()
+      );
+      if (clickedEntity) {
+        if (clickedEntity.name) candidates.add(String(clickedEntity.name));
+        if (clickedEntity.label) candidates.add(String(clickedEntity.label));
+        if (clickedEntity.text) candidates.add(String(clickedEntity.text));
+        if (clickedEntity.type) candidates.add(String(clickedEntity.type));
+      }
+    }
+
+    for (const cand of candidates) {
+      const expectedLower = `${eventName}_${cand}`.toLowerCase();
+      for (const [k, lines] of eventEntries) {
+        if (k.toLowerCase() === expectedLower && !matchedKeys.has(k)) {
+          matchedKeys.add(k);
+          await this.runLines([...lines]);
+        }
+      }
     }
 
     if (eventName === 'manipulated?' || eventName === 'writed?') {
@@ -1364,12 +1548,15 @@ export class EPLInterpreter {
       }
 
       const inputKey = `input_${normalizedTarget}`;
-      if (this.context.events[inputKey]) {
-        await this.runLines([...this.context.events[inputKey]]);
+      for (const [k, lines] of eventEntries) {
+        if (k.toLowerCase() === inputKey.toLowerCase() && !matchedKeys.has(k)) {
+          matchedKeys.add(k);
+          await this.runLines([...lines]);
+        }
       }
     }
 
-    if (normalizedTarget && specificKey !== eventName && this.context.events[eventName]) {
+    if (this.context.events[eventName] && !matchedKeys.has(eventName)) {
       await this.runLines([...this.context.events[eventName]]);
     }
   }

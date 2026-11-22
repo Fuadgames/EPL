@@ -62,7 +62,11 @@ export default function InventoryModal({ onClose }: { onClose: () => void }) {
           : `Added "${item.title}" as a Script object to your scene!`
       );
     } else {
-      setCodeGlobal(code + '\n' + item.content);
+      const latestCode = useStore.getState().code || code || '';
+      const nextCode = latestCode.trim()
+        ? `${latestCode.trimEnd()}\n\n${item.content}`
+        : item.content;
+      setCodeGlobal(nextCode);
       notify.success(language === 'ru' ? `Сниппет "${item.title}" добавлен в код` : `Added "${item.title}" to code`);
     }
     onClose();

@@ -13,6 +13,7 @@ import {
   ChevronUp,
   Package,
   Cpu,
+  FileCode,
 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { clsx } from 'clsx';
@@ -32,6 +33,7 @@ export interface BuildAppTarget {
   macosUrl?: string;
   linuxUrl?: string;
   apkUrl?: string;
+  uploadedFiles?: Array<{ name: string; url: string }>;
 }
 
 interface BuildDownloadModalProps {
@@ -41,15 +43,17 @@ interface BuildDownloadModalProps {
   onClose: () => void;
 }
 
-type PlatformType = 'windows' | 'macos' | 'linux' | 'android' | 'ios';
+type PlatformType = 'epl' | 'windows' | 'macos' | 'linux' | 'android' | 'ios';
 type BuildStep = 'idle' | 'preparing' | 'installing' | 'building' | 'packaging' | 'validating' | 'completed' | 'failed';
 
 export default function BuildDownloadModal({ app, initialPlatform, isOpen, onClose }: BuildDownloadModalProps) {
   const theme = useStore(state => state.theme);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const language = useStore(state => state.language);
+  const userDataFiles = useStore(state => state.userData?.uploadedFiles);
+  const projectFiles = useStore(state => state.projectFiles);
 
-  const [platform, setPlatform] = useState<PlatformType>('windows');
+  const [platform, setPlatform] = useState<PlatformType>('epl');
   const [buildId, setBuildId] = useState<string | null>(null);
   const [status, setStatus] = useState<BuildStep>('idle');
   const [progress, setProgress] = useState(0);
@@ -66,10 +70,13 @@ export default function BuildDownloadModal({ app, initialPlatform, isOpen, onClo
   useEffect(() => {
     if (initialPlatform) {
       if (initialPlatform === 'apk') setPlatform('android');
-      else if (initialPlatform === 'source' || initialPlatform === 'exe') setPlatform('windows');
+      else if (initialPlatform === 'source' || initialPlatform === 'epl' || initialPlatform === 'direct') setPlatform('epl');
+      else if (initialPlatform === 'exe') setPlatform('windows');
       else if (initialPlatform === 'dmg') setPlatform('macos');
       else if (initialPlatform === 'appimage') setPlatform('linux');
       else setPlatform(initialPlatform as PlatformType);
+    } else {
+      setPlatform('epl');
     }
   }, [initialPlatform]);
 
@@ -101,6 +108,11 @@ export default function BuildDownloadModal({ app, initialPlatform, isOpen, onClo
     setLogs([`[${new Date().toLocaleTimeString()}] Initializing build worker for ${targetPlatform.toUpperCase()}...`]);
     setDownloadUrl(null);
 
+    const mergedFilesMap = new Map<string, { name: string; url: string }>();
+    [...(app.uploadedFiles || []), ...(userDataFiles || []), ...(projectFiles || [])].forEach(f => {
+      if (f?.name && f?.url) mergedFilesMap.set(f.name.toLowerCase(), { name: f.name, url: f.url });
+    });
+
     try {
       const res = await fetch('/api/build', {
         method: 'POST',
@@ -118,6 +130,7 @@ export default function BuildDownloadModal({ app, initialPlatform, isOpen, onClo
             description: app.description,
             authorName: app.authorName,
             category: app.category,
+            uploadedFiles: Array.from(mergedFilesMap.values()),
           },
         }),
       });
@@ -181,14 +194,24 @@ export default function BuildDownloadModal({ app, initialPlatform, isOpen, onClo
 
   const platforms: { id: PlatformType; name: string; ext: string; icon: any; guide: string }[] = [
     {
+      id: 'epl',
+      name: 'Direct EPL',
+      ext: '.epl.html',
+      icon: FileCode,
+      guide:
+        language === 'ru'
+          ? 'Прямой автономный файл проекта в стиле EPL (.epl.html): запускает весь EPL + DRPL код сразу с иконкой проекта и встроенными файлами.'
+          : 'Direct standalone EPL application file (.epl.html): runs complete EPL + DRPL code immediately with project icon and embedded assets.',
+    },
+    {
       id: 'windows',
       name: 'Windows',
       ext: '.exe',
       icon: Monitor,
       guide:
         language === 'ru'
-          ? 'Компилирует проект в готовый исполняемый файл Windows (.exe). Запускается сразу как отдельное приложение.'
-          : 'Compiles project into a standalone Windows Executable (.exe). Runs immediately in dedicated application window.',
+          ? 'Компилирует проект в готовый исполняемый файл Windows (.exe) с иконкой вашего проекта. Запускается сразу как отдельное приложение.'
+          : 'Compiles project into a standalone Windows Executable (.exe) with your project icon. Runs immediately in dedicated application window.',
     },
     {
       id: 'macos',
@@ -508,10 +531,14 @@ export default function BuildDownloadModal({ app, initialPlatform, isOpen, onClo
                 {language === 'ru'
                   ? platform === 'windows'
                     ? `Скомпилировать ${app.title}.exe`
-                    : `Собрать приложение (${platforms.find(p => p.id === platform)?.ext})`
+                    : platform === 'epl'
+                      ? `Скачать ${app.title}.epl.html`
+                      : `Собрать приложение (${platforms.find(p => p.id === platform)?.ext})`
                   : platform === 'windows'
                   ? `Compile ${app.title}.exe`
-                  : `Build Application (${platforms.find(p => p.id === platform)?.ext})`}
+                  : platform === 'epl'
+                    ? `Download ${app.title}.epl.html`
+                    : `Build Application (${platforms.find(p => p.id === platform)?.ext})`}
               </button>
             )}
 

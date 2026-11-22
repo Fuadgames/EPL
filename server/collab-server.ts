@@ -1,6 +1,6 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import * as Y from 'yjs';
-import { 
+import type { 
   ClientMessage, 
   ServerMessage, 
   CollabSessionData, 
@@ -9,7 +9,7 @@ import {
   ParticipantPresence,
   CursorPosition,
   CollabChatMessage 
-} from '../src/lib/collab/types';
+} from '../src/lib/collab/types.ts';
 
 const COLORS = [
   '#3B82F6', // Blue

@@ -2,15 +2,23 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useStore } from '../store/useStore';
 import {
   Plus, Trash2, GripVertical, Code2, ChevronRight, ChevronDown,
-  Layers, Zap, Copy, Check, FolderInput, X
+  Layers, Zap, Copy, Check, FolderInput, X, Cpu
 } from 'lucide-react';
 import { clsx } from 'clsx';
+import DifrenoptConfigModal from './DifrenoptConfigModal';
+import {
+  extractDifrenoptBlock,
+  isDifrenoptStartLine,
+  serializeDifrenoptBlock,
+  DRPL_TEMPLATES
+} from '../lib/drpl-catalog';
 
 export interface BlockItem {
   id: string;
   type: 'event' | 'action' | 'entity' | 'control';
   name: string;
   params: Record<string, string>;
+  drplCode?: string;
   children?: BlockItem[];
   collapsed?: boolean;
 }
@@ -54,6 +62,7 @@ const PRESET_BLOCKS: PresetBlockDef[] = [
   { type: 'entity', name: 'sprite', label: 'create sprite', description: 'Создать спрайт / персонаж', params: { name: 'hero', image: 'hero.png', x: '150', y: '150' } },
   { type: 'entity', name: 'player', label: 'create player', description: 'Создать управляемого игрока', params: { name: 'player1', speed: '5', health: '100', x: '100', y: '100' } },
   { type: 'entity', name: 'enemy', label: 'create enemy', description: 'Создать врага', params: { name: 'enemy1', damage: '10', x: '300', y: '100' } },
+  { type: 'entity', name: 'difrenopt', label: 'difrenopt (DRPL)', description: '3D/2D/App оптимизатор рендера на языке DRPL', params: { name: 'engine', mode: '3d', quality: 'ultra', fps: '60', shadows: 'true', bloom: 'true', instancing: 'true', culling: 'true' } },
 
   // Control
   { type: 'control', name: 'if', label: 'if ... then', description: 'Условие если', params: { check: 'score >= 10' }, hasChildren: true },
@@ -80,6 +89,7 @@ const createBlockFromPreset = (preset: PresetBlockDef): BlockItem => ({
   type: preset.type,
   name: preset.name,
   params: { ...preset.params },
+  ...(preset.name === 'difrenopt' ? { drplCode: DRPL_TEMPLATES[0].drplCode } : {}),
   ...(preset.hasChildren ? { children: [], collapsed: false } : {})
 });
 
@@ -193,11 +203,18 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
   const dragPayloadRef = useRef<DragPayload | null>(null);
   const lastEmittedCodeRef = useRef<string | null>(null);
 
+  const [configuringDifrenoptId, setConfiguringDifrenoptId] = useState<string | null>(null);
+
   const blocksToCode = useCallback((items: BlockItem[], depth = 0): string => {
     const indent = '  '.repeat(depth);
     let result = '';
 
     for (const item of items) {
+      if (item.name === 'difrenopt') {
+        result += serializeDifrenoptBlock(item.params, item.drplCode || DRPL_TEMPLATES[0].drplCode, indent) + '\n\n';
+        continue;
+      }
+
       const paramKeys = Object.keys(item.params).filter(
         k => item.params[k] !== undefined && item.params[k] !== ''
       );
@@ -242,15 +259,48 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
     const rootBlocks: BlockItem[] = [];
     const stack: { block: BlockItem; indent: number }[] = [];
 
-    lines.forEach((rawLine, idx) => {
-      const line = rawLine.trim();
-      if (!line || line.startsWith('//') || line.startsWith('#')) return;
+    for (let idx = 0; idx < lines.length; idx++) {
+      const line = lines[idx].trim();
+      if (!line || line.startsWith('//') || line.startsWith('#')) continue;
+
+      if (isDifrenoptStartLine(line)) {
+        const params: Record<string, string> = {};
+        const paramMatch = line.match(/difrenopt\s*\{([^}]*)\}/i);
+        if (paramMatch) {
+          paramMatch[1].split(',').forEach(pair => {
+            const eqIdx = pair.indexOf('=');
+            if (eqIdx !== -1) {
+              const k = pair.slice(0, eqIdx).trim();
+              const v = pair.slice(eqIdx + 1).trim();
+              if (k) params[k] = v;
+            }
+          });
+        }
+        const { drplLines, nextIndex } = extractDifrenoptBlock(lines, idx + 1);
+        const drplCode = drplLines.map(l => (l.startsWith('  ') ? l.slice(2) : l)).join('\n').trim();
+        const newBlock: BlockItem = {
+          id: `block_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+          type: 'entity',
+          name: 'difrenopt',
+          params,
+          drplCode
+        };
+        if (stack.length > 0) {
+          const parent = stack[stack.length - 1].block;
+          if (!parent.children) parent.children = [];
+          parent.children.push(newBlock);
+        } else {
+          rootBlocks.push(newBlock);
+        }
+        idx = nextIndex - 1;
+        continue;
+      }
 
       if (line === 'end') {
         if (stack.length > 0) {
           stack.pop();
         }
-        return;
+        continue;
       }
 
       let namePart = line;
@@ -287,7 +337,7 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
           params.check = condition;
         }
       } else if (
-        ['button', 'block', 'text_label', 'sprite', 'player', 'enemy', '3Dblock', 'circle', 'textbox'].includes(namePart)
+        ['button', 'block', 'text_label', 'sprite', 'player', 'enemy', '3Dblock', 'circle', 'textbox', 'difrenopt'].includes(namePart)
       ) {
         blockType = 'entity';
       }
@@ -311,7 +361,7 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
       if (isContainer) {
         stack.push({ block: newBlock, indent: stack.length });
       }
-    });
+    }
 
     return rootBlocks;
   }, []);
@@ -769,6 +819,7 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
               onUpdateParam={handleUpdateParam}
               onToggleCollapse={handleToggleCollapse}
               onAddChild={handleAddPresetBlock}
+              onConfigureDifrenopt={setConfiguringDifrenoptId}
               isFrutigerAero={isFrutigerAero}
               isLight={isLight}
               language={language}
@@ -866,6 +917,42 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
           </div>
         )}
       </div>
+
+      {configuringDifrenoptId && (() => {
+        const findBlock = (items: BlockItem[]): BlockItem | null => {
+          for (const b of items) {
+            if (b.id === configuringDifrenoptId) return b;
+            if (b.children) {
+              const f = findBlock(b.children);
+              if (f) return f;
+            }
+          }
+          return null;
+        };
+        const targetBlock = findBlock(blocks);
+        if (!targetBlock) return null;
+        return (
+          <DifrenoptConfigModal
+            isOpen={true}
+            onClose={() => setConfiguringDifrenoptId(null)}
+            initialParams={targetBlock.params}
+            initialDrplCode={targetBlock.drplCode}
+            onApply={(nextParams, nextDrpl) => {
+              const updateDeep = (items: BlockItem[]): BlockItem[] =>
+                items.map(item => {
+                  if (item.id === targetBlock.id) {
+                    return { ...item, params: nextParams, drplCode: nextDrpl };
+                  }
+                  if (item.children) {
+                    return { ...item, children: updateDeep(item.children) };
+                  }
+                  return item;
+                });
+              updateBlocksAndCode(updateDeep(blocks));
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -885,6 +972,7 @@ interface RenderBlockCardProps {
   onUpdateParam: (id: string, key: string, value: string) => void;
   onToggleCollapse: (id: string) => void;
   onAddChild: (preset: PresetBlockDef, parentId: string) => void;
+  onConfigureDifrenopt: (blockId: string) => void;
   isFrutigerAero: boolean;
   isLight: boolean;
   language: 'en' | 'ru';
@@ -905,6 +993,7 @@ function RenderBlockCard({
   onUpdateParam,
   onToggleCollapse,
   onAddChild,
+  onConfigureDifrenopt,
   isFrutigerAero,
   isLight,
   language
@@ -1091,6 +1180,17 @@ function RenderBlockCard({
             className="flex items-center gap-1 shrink-0"
             onMouseDown={e => e.stopPropagation()}
           >
+            {block.name === 'difrenopt' && (
+              <button
+                type="button"
+                onClick={() => onConfigureDifrenopt(block.id)}
+                className="px-2.5 py-1 rounded-md bg-[#10B981]/15 hover:bg-[#10B981] text-[#10B981] hover:text-[#0A0C0E] border border-[#10B981]/40 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer mr-1"
+              >
+                <Cpu className="w-3.5 h-3.5" />
+                <span>{language === 'ru' ? 'Настроить DRPL' : 'Configure DRPL'}</span>
+              </button>
+            )}
+
             {isContainer && (
               <button
                 type="button"
@@ -1144,6 +1244,7 @@ function RenderBlockCard({
                 onUpdateParam={onUpdateParam}
                 onToggleCollapse={onToggleCollapse}
                 onAddChild={onAddChild}
+                onConfigureDifrenopt={onConfigureDifrenopt}
                 isFrutigerAero={isFrutigerAero}
                 isLight={isLight}
                 language={language}

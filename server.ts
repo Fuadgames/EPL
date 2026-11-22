@@ -9,7 +9,6 @@ import crypto from "crypto";
 import Stripe from 'stripe';
 import { GoogleGenAI } from "@google/genai";
 import { initializeApp as initServerApp } from "firebase/app";
-import { getAuth as getServerAuth, signInAnonymously as serverSignInAnonymously } from "firebase/auth";
 import { 
   getFirestore as getServerFirestore, 
   doc as serverDoc, 
@@ -24,8 +23,8 @@ import {
   limit as serverLimit,
   increment as serverIncrement
 } from "firebase/firestore";
-import { createBuildJob, getBuildJob, BuildPlatform } from './server/builder';
-import { setupCollabWebSocketServer, createSession, getSession } from './server/collab-server';
+import { createBuildJob, getBuildJob, type BuildPlatform } from './server/builder.ts';
+import { setupCollabWebSocketServer, createSession, getSession } from './server/collab-server.ts';
 
 dotenv.config();
 dotenv.config({ path: '.env.example' });
@@ -72,8 +71,15 @@ async function startServer() {
     next();
   });
 
-  // Body parser with 2MB limit to prevent memory exhaustion attacks
-  app.use(express.json({ limit: '2mb' }));
+  // Body parser: 25mb for file upload/build payloads, 2mb default elsewhere
+  const uploadJsonParser = express.json({ limit: '25mb' });
+  const defaultJsonParser = express.json({ limit: '2mb' });
+  app.use((req, res, next) => {
+    if (req.path === '/api/files/upload' || req.path === '/api/build') {
+      return uploadJsonParser(req, res, next);
+    }
+    return defaultJsonParser(req, res, next);
+  });
 
   // In-memory sliding rate limiter per IP (isolated per route/middleware instance)
   const rateLimiter = (maxRequests: number, windowMs: number) => {
@@ -142,6 +148,65 @@ async function startServer() {
     res.json({ status: 'ok', version: '2.5.0', service: 'EPL Studio API v2', timestamp: new Date().toISOString() });
   });
 
+  // Project File Upload & Serving (/tmp/epl_uploads)
+  const UPLOADS_ROOT = '/tmp/epl_uploads';
+  if (!fs.existsSync(UPLOADS_ROOT)) {
+    fs.mkdirSync(UPLOADS_ROOT, { recursive: true });
+  }
+
+  app.post("/api/files/upload", rateLimiter(40, 60000), (req, res) => {
+    try {
+      const { fileName, mimeType, base64Data } = req.body || {};
+      if (!fileName || typeof fileName !== 'string' || !base64Data || typeof base64Data !== 'string') {
+        return res.status(400).json({ error: 'Missing fileName or base64Data' });
+      }
+      const cleanName = path.basename(fileName).replace(/[^a-zA-Z0-9._\-\(\) ]/g, '_') || `file_${Date.now()}.bin`;
+      const rawBase64 = base64Data.includes(',') ? base64Data.split(',')[1] : base64Data;
+      const buf = Buffer.from(rawBase64, 'base64');
+      if (buf.length > 18 * 1024 * 1024) {
+        return res.status(413).json({ error: 'File exceeds 18MB server upload limit' });
+      }
+      const id = crypto.randomBytes(8).toString('hex');
+      const dirPath = path.join(UPLOADS_ROOT, id);
+      fs.mkdirSync(dirPath, { recursive: true });
+      fs.writeFileSync(path.join(dirPath, cleanName), buf);
+      if (mimeType && typeof mimeType === 'string') {
+        fs.writeFileSync(path.join(dirPath, '.meta.json'), JSON.stringify({ mimeType, originalName: fileName }), 'utf8');
+      }
+      const url = `/api/files/${id}/${encodeURIComponent(cleanName)}`;
+      res.json({ name: cleanName, url, size: buf.length, mimeType: mimeType || 'application/octet-stream' });
+    } catch (err: any) {
+      console.error('File upload error:', err);
+      res.status(500).json({ error: err.message || 'Upload failed' });
+    }
+  });
+
+  app.get("/api/files/:id/:name", (req, res) => {
+    try {
+      const safeId = req.params.id.replace(/[^a-f0-9]/gi, '');
+      const safeName = path.basename(req.params.name);
+      const filePath = path.join(UPLOADS_ROOT, safeId, safeName);
+      if (!safeId || !safeName || !fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'File not found' });
+      }
+      const metaPath = path.join(UPLOADS_ROOT, safeId, '.meta.json');
+      let mime = 'application/octet-stream';
+      if (fs.existsSync(metaPath)) {
+        try {
+          mime = JSON.parse(fs.readFileSync(metaPath, 'utf8')).mimeType || mime;
+        } catch {}
+      }
+      const forceDownload = req.query.download === '1' || safeName.toLowerCase().endsWith('.exe');
+      res.setHeader('Content-Type', mime);
+      if (forceDownload) {
+        res.setHeader('Content-Disposition', `attachment; filename="${safeName.replace(/"/g, '')}"`);
+      }
+      res.sendFile(filePath);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Failed to serve file' });
+    }
+  });
+
   // Initialize server-side Firestore instance + REST helpers with caller Bearer token
   const fbConfigPath = path.join(process.cwd(), 'firebase-applet-config.json');
   let serverDb: any = null;
@@ -151,9 +216,6 @@ async function startServer() {
       fbRuntimeConfig = JSON.parse(fs.readFileSync(fbConfigPath, 'utf8'));
       const sApp = initServerApp(fbRuntimeConfig, 'server-backend-admin');
       serverDb = getServerFirestore(sApp, fbRuntimeConfig.firestoreDatabaseId);
-      serverSignInAnonymously(getServerAuth(sApp)).catch((err) => {
-        console.warn('Server anonymous auth notice:', err.message);
-      });
     } catch (e) {
       console.error('Failed to init server Firebase:', e);
     }
@@ -461,15 +523,18 @@ async function startServer() {
     titleHeader: string,
     options?: { temperature?: number; maxTokens?: number; timeoutMs?: number }
   ): Promise<{ parsed: any | null; rawText: string; modelUsed: string }> {
-    const timeoutMs = options?.timeoutMs ?? 24000;
+    const timeoutMs = Math.min(options?.timeoutMs ?? 6500, 7500);
+    const overallDeadline = Date.now() + 8500;
     const temperature = options?.temperature ?? 0.1;
     const maxTokens = options?.maxTokens ?? 1100;
 
     if (OPENROUTER_API_KEY && Date.now() >= openRouterQuotaCooldownUntil) {
       openRouterCooldownLogged = false;
       for (const modelId of OPENROUTER_FALLBACK_MODELS) {
+        const remaining = overallDeadline - Date.now();
+        if (remaining < 1200) break;
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+        const timeoutId = setTimeout(() => controller.abort(), Math.min(timeoutMs, remaining));
         try {
           const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
@@ -505,7 +570,6 @@ async function startServer() {
                 `OpenRouter free quota limited (${response.status} on ${modelId}); pausing OpenRouter calls for 15m and routing via fallback. Details: ${errBody.slice(0, 140)}`
               );
             }
-            // All :free models share the same daily quota on OpenRouter, so break immediately
             break;
           }
 
@@ -537,7 +601,11 @@ async function startServer() {
     }
 
     // Secondary AI fallback via Gemini (uses server GEMINI_API_KEY when available)
-    const geminiResult = await callGeminiJsonFallback(messages);
+    const geminiResult = await withTimeout(
+      callGeminiJsonFallback(messages),
+      6500,
+      'Gemini fallback timed out'
+    ).catch(() => null);
     if (geminiResult) {
       return geminiResult;
     }
@@ -631,7 +699,7 @@ ${code.slice(0, 12000)}
         { role: "user", content: prompt }
       ],
       "EPL Studio Content Moderation",
-      { temperature: 0.05, maxTokens: 1000, timeoutMs: 24000 }
+      { temperature: 0.05, maxTokens: 1000, timeoutMs: 6500 }
     );
 
     if (aiRes.parsed && typeof aiRes.parsed.approved === 'boolean') {
@@ -758,7 +826,7 @@ ${code.slice(0, 12000)}
         { role: "user", content: prompt }
       ],
       "EPL Studio User Moderation",
-      { temperature: 0.05, maxTokens: 900, timeoutMs: 22000 }
+      { temperature: 0.05, maxTokens: 900, timeoutMs: 6500 }
     );
 
     if (aiRes.parsed && typeof aiRes.parsed.approved === 'boolean') {
@@ -2178,9 +2246,12 @@ ${code.slice(0, 12000)}
       if (!geminiKey) {
         // Fast OpenRouter text fallback when GEMINI_API_KEY is not configured
         if (OPENROUTER_API_KEY && Date.now() >= openRouterQuotaCooldownUntil) {
+          const deadline = Date.now() + 8000;
           for (const modelId of OPENROUTER_FALLBACK_MODELS) {
+            const remaining = deadline - Date.now();
+            if (remaining < 1200) break;
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 18000);
+            const timeoutId = setTimeout(() => controller.abort(), Math.min(6000, remaining));
             try {
               const orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
@@ -2321,8 +2392,13 @@ ${code.slice(0, 12000)}
         return res.status(400).json({ error: 'Missing projectId or platform parameter' });
       }
 
-      const normalizedPlatform = platform === 'ios-ipa' ? 'ios' : platform;
-      const validPlatforms = ['windows', 'macos', 'linux', 'android', 'ios'];
+      const normalizedPlatform =
+        platform === 'ios-ipa'
+          ? 'ios'
+          : platform === 'source' || platform === 'direct'
+            ? 'epl'
+            : platform;
+      const validPlatforms = ['epl', 'windows', 'macos', 'linux', 'android', 'ios'];
       if (!validPlatforms.includes(normalizedPlatform)) {
         return res.status(400).json({ error: `Invalid platform: ${platform}. Allowed: ${validPlatforms.join(', ')}` });
       }

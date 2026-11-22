@@ -3,7 +3,7 @@ import { useStore } from '../store/useStore';
 import { notify } from '../store/useDialogStore';
 import { translations } from '../lib/translations';
 import { clsx } from 'clsx';
-import { Plus, Search, Coins, CheckCircle, Package } from 'lucide-react';
+import { Plus, Search, Coins, CheckCircle, ShoppingBag } from 'lucide-react';
 import { collection, query, onSnapshot, doc, updateDoc, increment, getDocs, where, setDoc } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { db } from '../firebase';
@@ -176,7 +176,7 @@ export default function AssetStoreView() {
                   : 'bg-[#181B20] border-[#262B33] text-[#10B981]'
               )}
             >
-              <Package className="w-5 h-5" />
+              <ShoppingBag className="w-5 h-5" />
             </div>
             <div>
               <h1 className="text-2xl font-bold tracking-tight">Asset Store</h1>
@@ -299,7 +299,7 @@ export default function AssetStoreView() {
                 : 'bg-[#181B20] border-[#262B33]'
             )}
           >
-            <Package className="w-10 h-10 mx-auto mb-3 opacity-35" />
+            <ShoppingBag className="w-10 h-10 mx-auto mb-3 opacity-35" />
             <h3 className="text-base font-semibold mb-1">No assets found</h3>
             <p className="text-sm opacity-70">Try adjusting your search or filters.</p>
           </div>
@@ -343,7 +343,7 @@ export default function AssetStoreView() {
                         referrerPolicy="no-referrer"
                       />
                     ) : (
-                      <Package className="w-10 h-10 opacity-25" />
+                      <ShoppingBag className="w-10 h-10 opacity-25" />
                     )}
                   </div>
 

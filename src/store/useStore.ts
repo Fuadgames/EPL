@@ -8,6 +8,14 @@ import { db } from '../firebase';
 
 export type View = 'store' | 'installed-apps' | 'editor' | 'my-apps' | 'profile' | 'public-profile' | 'settings' | 'player' | 'premium' | 'control' | 'asset-store' | 'leaderboards' | 'donate';
 
+export interface ProjectFileItem {
+  name: string;
+  url: string;
+  size?: number;
+  type?: string;
+  uploadedAt?: string;
+}
+
 export interface InstalledAppItem {
   id: string; // projectId
   projectId: string;
@@ -144,6 +152,10 @@ interface AppState {
   isAppInstalled: (projectId: string) => boolean;
   livePreviewEnabled: boolean;
   setLivePreviewEnabled: (enabled: boolean) => void;
+  projectFiles: ProjectFileItem[];
+  setProjectFiles: (files: ProjectFileItem[]) => void;
+  addProjectFile: (file: ProjectFileItem) => void;
+  removeProjectFile: (name: string) => void;
 }
 
 export const useStore = create<AppState>()(persist((set, get) => ({
@@ -403,6 +415,16 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   },
   livePreviewEnabled: true,
   setLivePreviewEnabled: (enabled) => set({ livePreviewEnabled: enabled }),
+  projectFiles: [],
+  setProjectFiles: (files) => set({ projectFiles: files }),
+  addProjectFile: (file) => set((state) => {
+    const existing = state.projectFiles || [];
+    const filtered = existing.filter((f) => f.name !== file.name);
+    return { projectFiles: [file, ...filtered] };
+  }),
+  removeProjectFile: (name) => set((state) => ({
+    projectFiles: (state.projectFiles || []).filter((f) => f.name !== name),
+  })),
 }), {
   name: 'app-storage',
   partialize: (state) => ({ 
@@ -424,6 +446,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     premiumExpiry: state.premiumExpiry,
     code: state.code,
     installedAppsList: state.installedAppsList,
-    livePreviewEnabled: state.livePreviewEnabled
+    livePreviewEnabled: state.livePreviewEnabled,
+    projectFiles: state.projectFiles
   }),
 }));

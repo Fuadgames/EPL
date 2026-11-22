@@ -18,6 +18,8 @@ import AIAgent from './AIAgent';
 import Tutorial from './Tutorial';
 import CollabModal from './CollabModal';
 import InventoryModal from './InventoryModal';
+import DifrenoptConfigModal from './DifrenoptConfigModal';
+import { findFirstDifrenoptInCode, upsertDifrenoptInCode } from '../lib/drpl-catalog';
 import { translations, tutorialContent } from '../lib/translations';
 const PreviewEditor = React.lazy(() => import('./PreviewEditor'));
 
@@ -58,6 +60,8 @@ export default function EditorView() {
   const setCurrentView = useStore(state => state.setCurrentView);
   const livePreviewEnabled = useStore(state => state.livePreviewEnabled);
   const setLivePreviewEnabled = useStore(state => state.setLivePreviewEnabled);
+  const projectFiles = useStore(state => state.projectFiles);
+  const addProjectFile = useStore(state => state.addProjectFile);
   const [isPending, startTransition] = useTransition();
   const t = translations[language];
   const [history, setHistory] = useState<string[]>([DEFAULT_CODE]);
@@ -89,6 +93,7 @@ export default function EditorView() {
   const [publishingStepText, setPublishingStepText] = useState('');
   const [moderationResult, setModerationResult] = useState<{ approved: boolean; reason: string; flags: string[]; riskScore?: number; modelUsed?: string; checkedByAI?: boolean } | null>(null);
   const [showModerationModal, setShowModerationModal] = useState(false);
+  const [showDrplStudioModal, setShowDrplStudioModal] = useState(false);
   const [isPreCheckingAi, setIsPreCheckingAi] = useState(false);
   const [preCheckStatus, setPreCheckStatus] = useState<{ approved?: boolean; reason?: string; checked: boolean } | null>(null);
 
@@ -137,12 +142,26 @@ export default function EditorView() {
   const outputRef = useRef(output);
   const uiStateRef = useRef(uiState);
   const codeRef = useRef(code);
+  const skipNextResetRef = useRef(false);
 
   useEffect(() => {
     outputRef.current = output;
     uiStateRef.current = uiState;
     codeRef.current = code;
   }, [output, uiState, code]);
+
+  const setCodeSync = useCallback((nextCode: string) => {
+    codeRef.current = nextCode;
+    setCodeGlobal(nextCode);
+  }, [setCodeGlobal]);
+
+  const mergedProjectFiles = React.useMemo(() => {
+    const map = new Map<string, { name: string; url: string; size?: number; type?: string; uploadedAt?: string }>();
+    [...(userData?.uploadedFiles || []), ...(projectFiles || [])].forEach(f => {
+      if (f?.name) map.set(f.name, f);
+    });
+    return Array.from(map.values());
+  }, [userData?.uploadedFiles, projectFiles]);
 
   useEffect(() => {
     if (tutorialCheckRequested) {
@@ -227,30 +246,91 @@ export default function EditorView() {
   
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'icon' | 'banner' | 'screenshot' | 'general' = 'general') => {
     const file = e.target.files?.[0];
-    if (!file || !user) return;
+    if (!file) return;
 
     setIsUploading(true);
     try {
-      const storageRef = ref(storage, `apps/${user.uid}/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const url = await getDownloadURL(storageRef);
-      
+      let url = '';
+
+      if (user) {
+        try {
+          const storageRef = ref(storage, `apps/${user.uid}/${Date.now()}_${file.name}`);
+          await uploadBytes(storageRef, file);
+          url = await getDownloadURL(storageRef);
+        } catch (storageErr) {
+          console.warn('Firebase Storage upload skipped, falling back to project server storage:', storageErr);
+        }
+      }
+
+      if (!url) {
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(String(reader.result || ''));
+          reader.onerror = () => reject(new Error('Failed to read file'));
+          reader.readAsDataURL(file);
+        });
+
+        try {
+          const resp = await fetch('/api/files/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fileName: file.name,
+              mimeType: file.type || 'application/octet-stream',
+              base64Data
+            })
+          });
+          if (resp.ok) {
+            const uploaded = await resp.json();
+            url = uploaded.url;
+          }
+        } catch (serverErr) {
+          console.warn('Server upload fallback check:', serverErr);
+        }
+
+        if (!url) {
+          url = base64Data;
+        }
+      }
+
       if (type === 'icon') setAppIconUrl(url);
       else if (type === 'banner') setAppBannerUrl(url);
       else if (type === 'screenshot') setAppScreenshotUrl(url);
       else {
-        // Update uploadedFiles in Firestore
-        const userRef = doc(db, 'users', user.uid);
-        const newFile = { name: file.name, url: url };
-        const updatedFiles = [...(userData?.uploadedFiles || []), newFile];
-        await updateDoc(userRef, { uploadedFiles: updatedFiles });
-        setUserData({ ...userData!, uploadedFiles: updatedFiles });
+        const newFile = {
+          name: file.name,
+          url,
+          size: file.size,
+          type: file.type || 'application/octet-stream',
+          uploadedAt: new Date().toISOString()
+        };
+        addProjectFile(newFile);
+
+        if (user && userData) {
+          const existing = (userData.uploadedFiles || []).filter(f => f.name !== file.name);
+          const updatedFiles = [{ name: file.name, url }, ...existing];
+          setUserData({ ...userData, uploadedFiles: updatedFiles });
+          updateDoc(doc(db, 'users', user.uid), { uploadedFiles: updatedFiles }).catch(err => {
+            console.warn('Could not sync uploadedFiles to Firestore (kept locally):', err);
+          });
+        }
+
+        if (interpreterRef.current?.context.isRunning) {
+          interpreterRef.current.uploadedFiles = [newFile, ...interpreterRef.current.uploadedFiles.filter(f => f.name !== newFile.name)];
+          interpreterRef.current.triggerEvent('file_added?', file.name);
+        }
+        if (liveInterpreterRef.current?.context.isRunning) {
+          liveInterpreterRef.current.uploadedFiles = [newFile, ...liveInterpreterRef.current.uploadedFiles.filter(f => f.name !== newFile.name)];
+          liveInterpreterRef.current.triggerEvent('file_added?', file.name);
+        }
+
         notify.success(`${translations[language].uploadSuccess} (${file.name})`);
       }
     } catch (error) {
       console.error('Error uploading file:', error);
       notify.error(translations[language].uploadFailed);
     } finally {
+      e.target.value = '';
       setIsUploading(false);
     }
   };
@@ -445,7 +525,8 @@ export default function EditorView() {
     setOutput((prev) => [...prev, "Program stopped."]);
   }, []);
 
-  const handleRun = useCallback(async (mode: 'pc' | 'mobile' | 'run' = 'run') => {
+  const handleRun = useCallback(async (mode: 'pc' | 'mobile' | 'run' = 'run', overrideCode?: string) => {
+    const activeCode = overrideCode !== undefined ? overrideCode : (codeRef.current || useStore.getState().code || '');
     if (window.innerWidth < 640) {
       setIsMobilePlayerOpen(true);
     } else {
@@ -467,7 +548,7 @@ export default function EditorView() {
         }
       }));
       
-      if (!code.trim()) {
+      if (!activeCode.trim()) {
         await new Promise(resolve => setTimeout(resolve, 1000));
         setUiState(prev => ({
           entities: {
@@ -553,15 +634,15 @@ export default function EditorView() {
       { answerMode: aiAnswerMode, changesEnabled: aiChangesEnabled },
       userData?.purchasedItems || [],
       isPremium,
-      userData?.uploadedFiles || []
+      mergedProjectFiles
     );
     interpreterRef.current.setMuted(isStageMuted);
 
     try {
-      if (code.includes('create block')) {
+      if (activeCode.includes('create block')) {
         unlockAchievement('creative_soul');
       }
-      await interpreterRef.current.run(code);
+      await interpreterRef.current.run(activeCode);
       
       // Tutorial Task Completion Check
       if (showTutorial && tutorialMinimized) {
@@ -570,18 +651,17 @@ export default function EditorView() {
     } catch (e: any) {
       setOutput((prev) => [...prev, `Error: ${e.message}`]);
     } finally {
-      // Don't set isRunning to false immediately if there are UI events waiting
+      // Keep running whenever events, timers, or interactive UI widgets exist
       if (!interpreterRef.current?.hasEvents()) {
         setIsRunning(false);
-        // Keep mobile player open so user can see the result
       }
     }
-  }, [code, selectedExtraCategory, aiAnswerMode, aiChangesEnabled, userData, isPremium, showTutorial, tutorialMinimized, unlockAchievement, setTutorialCheckRequested]);
+  }, [selectedExtraCategory, aiAnswerMode, aiChangesEnabled, userData, mergedProjectFiles, isPremium, isStageMuted, showTutorial, tutorialMinimized, unlockAchievement, setTutorialCheckRequested]);
 
   const handleRestart = useCallback(async () => {
     handleStop();
     setTimeout(() => {
-      handleRun();
+      handleRun('run', codeRef.current);
     }, 100);
   }, [handleStop, handleRun]);
 
@@ -617,7 +697,7 @@ export default function EditorView() {
           { answerMode: aiAnswerMode, changesEnabled: aiChangesEnabled },
           userData?.purchasedItems || [],
           isPremium,
-          userData?.uploadedFiles || []
+          mergedProjectFiles
         );
         liveInterpreterRef.current.setMuted(isStageMuted);
         await liveInterpreterRef.current.run(code);
@@ -627,7 +707,7 @@ export default function EditorView() {
     }, 200);
 
     return () => clearTimeout(timer);
-  }, [code, livePreviewEnabled, aiAnswerMode, aiChangesEnabled, userData?.purchasedItems, userData?.uploadedFiles, isPremium]);
+  }, [code, livePreviewEnabled, aiAnswerMode, aiChangesEnabled, userData?.purchasedItems, mergedProjectFiles, isPremium]);
 
   useEffect(() => {
     interpreterRef.current?.setMuted(isStageMuted);
@@ -668,11 +748,11 @@ export default function EditorView() {
       { answerMode: aiAnswerMode, changesEnabled: aiChangesEnabled },
       userData?.purchasedItems || [],
       isPremium,
-      userData?.uploadedFiles || []
+      mergedProjectFiles
     );
     liveInterpreterRef.current.setMuted(isStageMuted);
-    await liveInterpreterRef.current.run(code);
-  }, [code, aiAnswerMode, aiChangesEnabled, userData, isPremium, isStageMuted]);
+    await liveInterpreterRef.current.run(codeRef.current || code);
+  }, [code, aiAnswerMode, aiChangesEnabled, userData, mergedProjectFiles, isPremium, isStageMuted]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -686,7 +766,8 @@ export default function EditorView() {
 
   useEffect(() => {
     if (copiedAppData) {
-      setCodeGlobal(copiedAppData.code);
+      const nextCode = copiedAppData.code || '';
+      setCodeSync(nextCode);
       setAppTitle(`Copy of ${copiedAppData.title}`);
       setAppDesc(copiedAppData.description);
       setAppVersion('1.0.0');
@@ -704,16 +785,18 @@ export default function EditorView() {
       setMacosUrl('');
       setLinuxUrl('');
       setApkUrl('');
+      skipNextResetRef.current = true;
       setCopiedAppData(null);
-      // Auto-run on copy
-      setTimeout(() => handleRun(), 500);
+      // Auto-run copied code using explicit override so closure is never stale
+      setTimeout(() => handleRun('run', nextCode), 150);
     } else if (editingAppId) {
       const fetchApp = async () => {
         const docRef = doc(db, 'apps', editingAppId);
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           const data = docSnap.data();
-          setCodeGlobal(data.code);
+          const loadedCode = data.code || '';
+          setCodeSync(loadedCode);
           setAppTitle(data.title);
           setAppDesc(data.description);
           setAppVersion(data.version);
@@ -738,21 +821,25 @@ export default function EditorView() {
 
           // Auto-detect PreviewType but default to Normal mode for editing
           setSelectedExtraCategory('Normal');
-          if (data.code && data.code.includes('// mode=3D')) {
+          if (loadedCode.includes('// mode=3D')) {
             setPreviewType('3D');
-          } else if (data.code && data.code.includes('// mode=2D')) {
+          } else if (loadedCode.includes('// mode=2D')) {
             setPreviewType('2D');
-          } else if (data.code && (data.code.includes('3DCamera') || data.code.includes('lava') || data.code.includes('ground'))) {
+          } else if (loadedCode.includes('3DCamera') || loadedCode.includes('lava') || loadedCode.includes('ground')) {
             setPreviewType('3D');
-          } else if (data.code && (data.code.includes('block {') || data.code.includes('text_label {'))) {
+          } else if (loadedCode.includes('block {') || loadedCode.includes('text_label {')) {
             setPreviewType('2D');
           }
-          // Auto-run on load
-          setTimeout(() => handleRun(), 500);
+          // Auto-run loaded My Apps project with explicit code
+          setTimeout(() => handleRun('run', loadedCode), 150);
         }
       };
       fetchApp();
     } else {
+      if (skipNextResetRef.current) {
+        skipNextResetRef.current = false;
+        return;
+      }
       setAppTitle('My EPL App');
       setAppDesc('A cool app written in EPL.');
       setAppVersion('1.0.0');
@@ -782,7 +869,7 @@ export default function EditorView() {
   useEffect(() => { historyIndexRef.current = historyIndex; }, [historyIndex]);
 
   const handleCodeChange = (newCode: string) => {
-    setCodeGlobal(newCode);
+    setCodeSync(newCode);
     
     if (historyTimeoutRef.current) {
       clearTimeout(historyTimeoutRef.current);
@@ -1675,6 +1762,18 @@ export default function EditorView() {
               <UploadCloud className="w-4 h-4" /> <span className="hidden sm:inline">{t.publish}</span>
             </button>
           )}
+          <button 
+            onClick={() => setShowDrplStudioModal(true)}
+            className={clsx(
+              "flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap shrink-0 border cursor-pointer",
+              isFrutigerAero
+                ? "bg-white/60 hover:bg-white/80 text-blue-900 border-white/60"
+                : "bg-[#10B981]/15 hover:bg-[#10B981]/25 border-[#10B981]/50 text-[#10B981]"
+            )}
+            title="difrenopt Studio (DRPL 3D/2D/App Engine)"
+          >
+            <Cpu className="w-4 h-4" /> <span className="hidden sm:inline">DRPL Studio</span>
+          </button>
           <button 
             onClick={() => setShowEditorStoreModal(true)}
             className={clsx(
@@ -2807,8 +2906,8 @@ export default function EditorView() {
             <p className={clsx("text-sm mb-4", isFrutigerAero ? "text-blue-800/70" : "text-zinc-500")}>{translations[language].fileControlDesc}</p>
             
             <div className={clsx("flex-1 overflow-y-auto space-y-2 border rounded-lg p-2", isFrutigerAero ? "border-white/40 bg-white/20" : "border-zinc-800")}>
-              {userData?.uploadedFiles && userData.uploadedFiles.length > 0 ? (
-                userData.uploadedFiles.map((file, idx) => (
+              {mergedProjectFiles.length > 0 ? (
+                mergedProjectFiles.map((file, idx) => (
                   <div 
                     key={idx} 
                     className={clsx(
@@ -2818,7 +2917,7 @@ export default function EditorView() {
                   >
                     <div className="flex items-center gap-3 overflow-hidden">
                       <div className={clsx("w-10 h-10 rounded flex items-center justify-center flex-shrink-0", isFrutigerAero ? "bg-blue-500/20" : "bg-zinc-700")}>
-                        {file.name.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? (
+                        {file.name.match(/\.(jpg|jpeg|png|gif|webp|svg)$/i) ? (
                           <img src={file.url} alt={file.name} className="w-full h-full object-cover rounded" referrerPolicy="no-referrer" />
                         ) : (
                           <FileCode className={clsx("w-6 h-6", isFrutigerAero ? "text-blue-600" : "text-zinc-400")} />
@@ -3117,6 +3216,22 @@ end`}
         appId={editingAppId}
         onTriggerTest={() => handleRun()}
       />
+      {(() => {
+        const parsed = findFirstDifrenoptInCode(code);
+        return (
+          <DifrenoptConfigModal
+            isOpen={showDrplStudioModal}
+            onClose={() => setShowDrplStudioModal(false)}
+            initialParams={parsed?.params}
+            initialDrplCode={parsed?.drplCode}
+            onApply={(nextParams, nextDrpl) => {
+              const nextCode = upsertDifrenoptInCode(code, nextParams, nextDrpl, parsed?.startLine);
+              handleCodeChange(nextCode);
+              if (!livePreviewEnabled) setLivePreviewEnabled(true);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }

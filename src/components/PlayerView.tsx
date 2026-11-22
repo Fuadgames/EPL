@@ -14,6 +14,8 @@ export default function PlayerView() {
   const aiAnswerMode = useStore(state => state.aiAnswerMode);
   const aiChangesEnabled = useStore(state => state.aiChangesEnabled);
   const unlockAchievement = useStore(state => state.unlockAchievement);
+  const userUploadedFiles = useStore(state => state.userData?.uploadedFiles);
+  const projectFiles = useStore(state => state.projectFiles);
   const [isPending, startTransition] = useTransition();
   const [appData, setAppData] = useState<any>(null);
   const [uiState, setUiState] = useState<{ entities: Record<string, any>; variables?: Record<string, any>; camera?: any; uiMode?: any }>({ entities: {}, variables: {}, camera: null, uiMode: null });
@@ -93,6 +95,8 @@ export default function PlayerView() {
     setIsRunning(true);
     setError(null);
     
+    const mergedFiles = [...(appData.uploadedFiles || []), ...(userUploadedFiles || []), ...(projectFiles || [])];
+
     interpreterRef.current = new EPLInterpreter(
       (msg) => {
         if (msg === '__CLEAR__') {
@@ -107,7 +111,10 @@ export default function PlayerView() {
         variables: meta?.variables || {},
         camera: meta?.camera || null
       }),
-      { answerMode: aiAnswerMode, changesEnabled: aiChangesEnabled }
+      { answerMode: aiAnswerMode, changesEnabled: aiChangesEnabled },
+      [],
+      false,
+      mergedFiles
     );
     interpreterRef.current.setMuted(isMuted);
 
@@ -119,7 +126,7 @@ export default function PlayerView() {
     } catch (e: any) {
       setError(`Runtime Error: ${e.message}`);
     } finally {
-      if (interpreterRef.current && Object.keys(interpreterRef.current.context.events).length === 0) {
+      if (interpreterRef.current && !interpreterRef.current.hasEvents()) {
         setIsRunning(false);
       }
     }
