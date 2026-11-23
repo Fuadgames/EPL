@@ -118,7 +118,7 @@ function renderInlineTokens(text: string, depth = 0): React.ReactNode[] {
   if (!text) return [];
   if (depth > 4) return [text];
 
-  const pattern = /(\*\*[^*\n]+?\*\*|\*[^*\n]+?\*|__[^_\n]+?__|~~[^~\n]+?~~|\+\+[^+\n]+?\+\+|`[^`\n]+?`)/g;
+  const pattern = /(\*\*(?:(?!\*\*).)+\*\*|\*[^*\n]+?\*|__(?:(?!__).)+__|~~(?:(?!~~).)+~~|\+\+(?:(?!\+\+).)+\+\+|`[^`\n]+?`)/g;
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -269,6 +269,8 @@ export default function NewsView() {
   const [posts, setPosts] = useState<NewsPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [fatalError, setFatalError] = useState<Error | null>(null);
+  const [loadWarning, setLoadWarning] = useState<string | null>(null);
+  const [reloadTick, setReloadTick] = useState(0);
 
   // Composer Modal state (Developer only)
   const [isComposerOpen, setIsComposerOpen] = useState(false);
@@ -289,6 +291,7 @@ export default function NewsView() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    setLoadWarning(null);
     const q = query(collection(db, 'news'), orderBy('createdAt', 'desc'));
     const unsub = onSnapshot(
       q,
@@ -299,18 +302,24 @@ export default function NewsView() {
         }));
         setPosts(items);
         setLoading(false);
+        setLoadWarning(null);
       },
-      (err) => {
+      (err: any) => {
         setLoading(false);
-        try {
-          handleFirestoreError(err, OperationType.LIST, 'news');
-        } catch (wrapped) {
-          setFatalError(wrapped as Error);
+        const msg = String(err?.message || '').toLowerCase();
+        if (err?.code === 'permission-denied' || msg.includes('permission')) {
+          try {
+            handleFirestoreError(err, OperationType.LIST, 'news');
+          } catch (wrapped) {
+            setFatalError(wrapped as Error);
+          }
+        } else {
+          setLoadWarning(err?.message || 'Unable to load news right now.');
         }
       }
     );
     return () => unsub();
-  }, []);
+  }, [reloadTick]);
 
   if (fatalError) {
     throw fatalError;
@@ -360,8 +369,16 @@ export default function NewsView() {
     let nextSelEnd = end;
 
     if (selected.length > 0) {
-      // Toggle off if already wrapped
-      if (selected.startsWith(prefix) && selected.endsWith(suffix) && selected.length >= prefix.length + suffix.length) {
+      // Handle multi-line selection per line so markdown inline tokens render properly on each line
+      if (selected.includes('\n')) {
+        const formattedMulti = selected
+          .split('\n')
+          .map((line) => (line.trim() ? `${prefix}${line}${suffix}` : line))
+          .join('\n');
+        nextContent = content.slice(0, start) + formattedMulti + content.slice(end);
+        nextSelStart = start;
+        nextSelEnd = start + formattedMulti.length;
+      } else if (selected.startsWith(prefix) && selected.endsWith(suffix) && selected.length >= prefix.length + suffix.length) {
         const unwrapped = selected.slice(prefix.length, selected.length - suffix.length);
         nextContent = content.slice(0, start) + unwrapped + content.slice(end);
         nextSelStart = start;
@@ -604,6 +621,20 @@ export default function NewsView() {
             </button>
           )}
         </div>
+
+        {/* Non-fatal transient load banner */}
+        {loadWarning && (
+          <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 p-4 flex items-center justify-between gap-3 text-sm">
+            <span>{loadWarning}</span>
+            <button
+              type="button"
+              onClick={() => setReloadTick((t) => t + 1)}
+              className="px-3 py-1.5 rounded-lg bg-amber-500 text-black font-semibold text-xs cursor-pointer"
+            >
+              {language === 'ru' ? 'Повторить' : 'Retry'}
+            </button>
+          </div>
+        )}
 
         {/* Feed */}
         {loading ? (
@@ -867,6 +898,7 @@ export default function NewsView() {
                   <div className="flex flex-wrap items-center gap-1">
                     <button
                       type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => applyFormatToSelection('**', '**', language === 'ru' ? 'жирный' : 'bold')}
                       title={language === 'ru' ? 'Жирный (Bold) — выделите слово и нажмите' : 'Bold — select text and click'}
                       className={clsx(
@@ -879,6 +911,7 @@ export default function NewsView() {
                     </button>
                     <button
                       type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => applyFormatToSelection('*', '*', language === 'ru' ? 'курсив' : 'curve')}
                       title={language === 'ru' ? 'Наклонный / Curve (Italic) — выделите слово и нажмите' : 'Curve / Italic — select text and click'}
                       className={clsx(
@@ -891,6 +924,7 @@ export default function NewsView() {
                     </button>
                     <button
                       type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => applyFormatToSelection('__', '__', language === 'ru' ? 'подчёркнутый' : 'underline')}
                       title={language === 'ru' ? 'Подчёркнутый' : 'Underline'}
                       className={clsx(
@@ -903,6 +937,7 @@ export default function NewsView() {
                     </button>
                     <button
                       type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => applyFormatToSelection('~~', '~~', language === 'ru' ? 'зачёркнутый' : 'strike')}
                       title={language === 'ru' ? 'Зачёркнутый' : 'Strikethrough'}
                       className={clsx(
@@ -914,6 +949,7 @@ export default function NewsView() {
                     </button>
                     <button
                       type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => applyFormatToSelection('++', '++', language === 'ru' ? 'акцент' : 'highlight')}
                       title={language === 'ru' ? 'Выделить цветом' : 'Highlight'}
                       className={clsx(
@@ -925,6 +961,7 @@ export default function NewsView() {
                     </button>
                     <button
                       type="button"
+                      onMouseDown={(e) => e.preventDefault()}
                       onClick={() => applyFormatToSelection('`', '`', 'code()')}
                       title={language === 'ru' ? 'Вставка кода' : 'Inline code'}
                       className={clsx(

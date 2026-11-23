@@ -27,6 +27,7 @@ export default function SettingsView() {
   const setUserData = useStore(state => state.setUserData);
   const simulatedRole = useStore(state => state.simulatedRole);
   const setSimulatedRole = useStore(state => state.setSimulatedRole);
+  const setIsDesktopDownloadOpen = useStore(state => state.setIsDesktopDownloadOpen);
 
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [bio, setBio] = useState((userData as any)?.bio || '');
@@ -615,13 +616,11 @@ export default function SettingsView() {
                 </div>
               </div>
 
-              <a
-                href="https://drive.google.com/uc?export=download&id=122nysFUK_GBpxPBcwfV0kMSGhbNuRoSy"
-                download
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => setIsDesktopDownloadOpen(true)}
                 className={clsx(
-                  'group inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all shrink-0 shadow-md hover:-translate-y-0.5',
+                  'group inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl text-sm font-bold transition-all shrink-0 shadow-md hover:-translate-y-0.5 cursor-pointer',
                   isFrutigerAero
                     ? 'frutiger-aero-button'
                     : theme !== 'light'
@@ -631,7 +630,7 @@ export default function SettingsView() {
               >
                 <Download className="w-4 h-4 transition-transform group-hover:translate-y-0.5" />
                 <span>Download Desktop App</span>
-              </a>
+              </button>
             </div>
           </section>
         </div>

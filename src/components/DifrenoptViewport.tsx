@@ -77,7 +77,12 @@ interface UiWidgetState {
     | 'ui_badge'
     | 'ui_avatar'
     | 'ui_code'
-    | 'ui_modal';
+    | 'ui_modal'
+    | 'ui_inventory'
+    | 'ui_statbar'
+    | 'ui_timer'
+    | 'ui_chat'
+    | 'ui_grid';
   props: Record<string, any>;
 }
 
@@ -100,7 +105,10 @@ interface Entity2D {
     | 'polygon'
     | 'line'
     | 'capsule'
-    | 'sprite';
+    | 'sprite'
+    | 'checkpoint'
+    | 'spring'
+    | 'hazard';
   x: number;
   y: number;
   w: number;
@@ -391,10 +399,10 @@ export default function DifrenoptViewport({
     let wants2D = headerMode === '2d' || headerMode === 'hybrid';
     let wantsApp = headerMode === 'app';
 
-    if (/\b(use3d|sky3d|terrain3d|water3d|car3d|mecha3d|boss3d|trees3d|city3d|asteroids3d|portal3d|box3d|sphere3d|pyramid3d|cone3d|cylinder3d|torus3d|capsule3d|plane3d|icosahedron3d|ring3d|text3d|grid3d|camera3d)\b/.test(drplCode)) {
+    if (/\b(use3d|sky3d|terrain3d|water3d|car3d|mecha3d|boss3d|trees3d|city3d|asteroids3d|portal3d|box3d|sphere3d|pyramid3d|cone3d|cylinder3d|torus3d|capsule3d|plane3d|icosahedron3d|ring3d|text3d|grid3d|camera3d|raycast3d|hologram3d|checkpoint3d|platform3d|bouncepad3d|trail3d|shake3d)\b/.test(drplCode)) {
       wants3D = true;
     }
-    if (/\b(use2d|parallax2d|tilemap2d|player2d|enemy2d|platform2d|coin2d|camera2d|rect2d|triangle2d|circle2d|polygon2d|line2d|capsule2d|sprite2d|weather2d)\b/.test(drplCode)) {
+    if (/\b(use2d|parallax2d|tilemap2d|player2d|enemy2d|platform2d|coin2d|camera2d|rect2d|triangle2d|circle2d|polygon2d|line2d|capsule2d|sprite2d|weather2d|spawner2d|checkpoint2d|spring2d|hazard2d|shield2d|dialog2d|tween2d)\b/.test(drplCode)) {
       wants2D = true;
     }
     void wantsApp;
@@ -1236,6 +1244,168 @@ export default function DifrenoptViewport({
         return;
       }
 
+      if (kind === 'raycast3d') {
+        const len = Math.max(2, toNum(opts.length, 18));
+        const mat = trackMat(new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.78 }));
+        const geo = trackGeo(new THREE.CylinderGeometry(0.05, 0.05, len, 8));
+        geo.rotateX(Math.PI / 2);
+        const beam = new THREE.Mesh(geo, mat);
+        scene.add(beam);
+        const fromTarget = String(opts.from || '');
+        animatedUpdaters3D.push(() => {
+          const src = fromTarget ? objects3D.get(fromTarget)?.root : null;
+          if (src) {
+            const heading = objects3D.get(fromTarget)?.meta?.heading || src.rotation.y || 0;
+            beam.position.set(
+              src.position.x + Math.sin(heading) * (len * 0.5),
+              src.position.y + 0.9,
+              src.position.z + Math.cos(heading) * (len * 0.5)
+            );
+            beam.rotation.y = heading;
+          } else {
+            beam.position.set(toNum(opts.x, 0), toNum(opts.y, 1.2), toNum(opts.z, 0));
+          }
+        });
+        objects3D.set(name, { root: beam, meta: { kind, ...opts } });
+        return;
+      }
+
+      if (kind === 'hologram3d') {
+        const grp = new THREE.Group();
+        const rad = toNum(opts.radius, 1.7);
+        const holoMat = trackMat(new THREE.MeshBasicMaterial({ color: colorHex, wireframe: true, transparent: true, opacity: 0.72 }));
+        const core = new THREE.Mesh(trackGeo(new THREE.OctahedronGeometry(rad * 0.52, 1)), holoMat);
+        const ringA = new THREE.Mesh(trackGeo(new THREE.TorusGeometry(rad, 0.06, 8, 36)), holoMat);
+        const ringB = new THREE.Mesh(trackGeo(new THREE.TorusGeometry(rad * 0.78, 0.05, 8, 36)), holoMat);
+        ringB.rotation.x = Math.PI / 2.2;
+        grp.add(core, ringA, ringB);
+        grp.position.set(toNum(opts.x, 0), toNum(opts.y, 3.5), toNum(opts.z, -6));
+        scene.add(grp);
+        animatedUpdaters3D.push((dt, el) => {
+          core.rotation.y += dt * 1.4;
+          ringA.rotation.x += dt * 1.1;
+          ringB.rotation.z -= dt * 1.5;
+          grp.position.y = toNum(opts.y, 3.5) + Math.sin(el * 2.5) * 0.25;
+        });
+        objects3D.set(name, { root: grp, meta: { kind, ...opts } });
+        return;
+      }
+
+      if (kind === 'checkpoint3d') {
+        const grp = new THREE.Group();
+        const rad = toNum(opts.radius, 3.0);
+        const mat = trackMat(new THREE.MeshStandardMaterial({ color: colorHex, emissive: colorHex, emissiveIntensity: 1.5, transparent: true, opacity: 0.85 }));
+        const arch = new THREE.Mesh(trackGeo(new THREE.TorusGeometry(rad, 0.18, 12, 36, Math.PI)), mat);
+        const pad = new THREE.Mesh(trackGeo(new THREE.RingGeometry(rad * 0.72, rad, 32)), mat);
+        pad.rotation.x = -Math.PI / 2;
+        pad.position.y = 0.05;
+        grp.add(arch, pad);
+        grp.position.set(toNum(opts.x, 0), toNum(opts.y, 0.2), toNum(opts.z, -16));
+        scene.add(grp);
+        let triggered = false;
+        animatedUpdaters3D.push(() => {
+          if (triggered || editModeRef.current) return;
+          const hero = objects3D.get('racer')?.root || objects3D.get('hero')?.root || objects3D.get('titan')?.root;
+          if (hero && hero.position.distanceTo(grp.position) < rad + 1.2) {
+            triggered = true;
+            vars.checkpoints = (Number(vars.checkpoints) || 0) + 1;
+            playProceduralSfx('powerup', 0.35);
+            pushToast(`Checkpoint ${name} reached!`, 'success');
+          }
+        });
+        objects3D.set(name, { root: grp, meta: { kind, ...opts } });
+        return;
+      }
+
+      if (kind === 'platform3d') {
+        const grp = new THREE.Group();
+        const w = toNum(opts.w, 6);
+        const h = toNum(opts.h, 0.6);
+        const d = toNum(opts.d, 10);
+        const baseMat = trackMat(new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.4, roughness: 0.45 }));
+        const glowCol = String(opts.glow || '#10b981');
+        const trimMat = trackMat(new THREE.MeshStandardMaterial({ color: glowCol, emissive: glowCol, emissiveIntensity: 1.4 }));
+        const deck = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(w, h, d)), baseMat);
+        deck.receiveShadow = true;
+        deck.castShadow = true;
+        const trim = new THREE.Mesh(trackGeo(new THREE.BoxGeometry(w + 0.16, 0.12, d + 0.16)), trimMat);
+        trim.position.y = h * 0.38;
+        grp.add(deck, trim);
+        grp.position.set(toNum(opts.x, 0), toNum(opts.y, 2), toNum(opts.z, -8));
+        scene.add(grp);
+        objects3D.set(name, { root: grp, meta: { kind, ...opts } });
+        return;
+      }
+
+      if (kind === 'bouncepad3d') {
+        const grp = new THREE.Group();
+        const rad = toNum(opts.radius, 1.8);
+        const padMat = trackMat(new THREE.MeshStandardMaterial({ color: colorHex, emissive: colorHex, emissiveIntensity: 1.5 }));
+        const disc = new THREE.Mesh(trackGeo(new THREE.CylinderGeometry(rad, rad * 1.15, 0.25, 24)), padMat);
+        const halo = new THREE.Mesh(trackGeo(new THREE.TorusGeometry(rad * 0.92, 0.08, 8, 28)), padMat);
+        halo.rotation.x = Math.PI / 2;
+        halo.position.y = 0.25;
+        grp.add(disc, halo);
+        grp.position.set(toNum(opts.x, 4), toNum(opts.y, 0.2), toNum(opts.z, -4));
+        scene.add(grp);
+        const power = toNum(opts.power, 16);
+        let cooldown = 0;
+        animatedUpdaters3D.push((dt, el) => {
+          halo.position.y = 0.25 + ((el * 1.8) % 1.0) * 0.8;
+          cooldown = Math.max(0, cooldown - dt);
+          if (editModeRef.current || cooldown > 0) return;
+          const heroEntry = objects3D.get('racer') || objects3D.get('hero') || objects3D.get('titan');
+          if (heroEntry && heroEntry.root.position.distanceTo(grp.position) < rad + 1.0) {
+            cooldown = 0.65;
+            if (typeof heroEntry.meta.speed === 'number') {
+              heroEntry.meta.speed = Math.max(heroEntry.meta.speed, power * 1.4);
+            }
+            playProceduralSfx('jump', 0.32);
+            pushToast('BOOST PAD!', 'info');
+          }
+        });
+        objects3D.set(name, { root: grp, meta: { kind, ...opts } });
+        return;
+      }
+
+      if (kind === 'trail3d') {
+        const segCount = Math.min(28, Math.max(6, toNum(opts.length, 18)));
+        const pts: THREE.Mesh[] = [];
+        const trailMat = trackMat(new THREE.MeshBasicMaterial({ color: colorHex, transparent: true, opacity: 0.65 }));
+        const trailGeo = trackGeo(new THREE.SphereGeometry(0.18, 8, 8));
+        for (let i = 0; i < segCount; i++) {
+          const m = new THREE.Mesh(trailGeo, trailMat);
+          m.scale.setScalar(1 - i / segCount);
+          scene.add(m);
+          pts.push(m);
+        }
+        const history: THREE.Vector3[] = [];
+        const tgtName = String(opts.target || 'racer');
+        animatedUpdaters3D.push(() => {
+          const tgt = objects3D.get(tgtName)?.root;
+          if (!tgt) return;
+          history.unshift(tgt.position.clone().add(new THREE.Vector3(0, 0.45, 0)));
+          if (history.length > segCount) history.pop();
+          for (let i = 0; i < pts.length; i++) {
+            const p = history[Math.min(i, history.length - 1)] || tgt.position;
+            pts[i].position.copy(p);
+          }
+        });
+        return;
+      }
+
+      if (kind === 'shake3d') {
+        const intensity = Math.min(2.5, Math.max(0.05, toNum(opts.intensity, 0.4)));
+        let remain = Math.max(0.1, toNum(opts.duration, 0.35));
+        animatedUpdaters3D.push((dt) => {
+          if (remain <= 0 || !camera) return;
+          remain -= dt;
+          camera.position.x += (Math.random() - 0.5) * intensity;
+          camera.position.y += (Math.random() - 0.5) * intensity * 0.7;
+        });
+        return;
+      }
+
       // Generic primitives: box3d, sphere3d, cylinder3d, torus3d, pyramid3d, cone3d, capsule3d, plane3d, icosahedron3d, ring3d, projectile3d
       let pGeo: THREE.BufferGeometry;
       let isFlatHorizontal = false;
@@ -1384,7 +1554,10 @@ export default function DifrenoptViewport({
         kind === 'polygon2d' ||
         kind === 'line2d' ||
         kind === 'capsule2d' ||
-        kind === 'sprite2d'
+        kind === 'sprite2d' ||
+        kind === 'checkpoint2d' ||
+        kind === 'spring2d' ||
+        kind === 'hazard2d'
       ) {
         const name = String(opts.name || `${kind}_${entities2D.size + 1}`);
         const k = kind.replace('2d', '') as Entity2D['kind'];
@@ -1399,17 +1572,21 @@ export default function DifrenoptViewport({
               ? 22
               : k === 'circle' || k === 'polygon'
                 ? radius * 2
-                : k === 'capsule'
-                  ? 88
-                  : k === 'rect' || k === 'triangle'
-                    ? 72
-                    : k === 'sprite'
-                      ? 48
-                      : 32
+                : k === 'capsule' || k === 'hazard'
+                  ? 84
+                  : k === 'spring'
+                    ? 48
+                    : k === 'checkpoint'
+                      ? 30
+                      : k === 'rect' || k === 'triangle'
+                        ? 72
+                        : k === 'sprite'
+                          ? 48
+                          : 32
         );
         const h = toNum(
           opts.h,
-          k === 'platform'
+          k === 'platform' || k === 'spring' || k === 'hazard'
             ? 18
             : k === 'line'
               ? 6
@@ -1419,11 +1596,13 @@ export default function DifrenoptViewport({
                   ? radius * 2
                   : k === 'capsule'
                     ? 34
-                    : k === 'rect' || k === 'triangle'
-                      ? 64
-                      : k === 'sprite'
-                        ? 48
-                        : 36
+                    : k === 'checkpoint'
+                      ? 52
+                      : k === 'rect' || k === 'triangle'
+                        ? 64
+                        : k === 'sprite'
+                          ? 48
+                          : 36
         );
         const hp = toNum(opts.hp, 100);
         entities2D.set(name, {
@@ -1436,20 +1615,24 @@ export default function DifrenoptViewport({
           vx: 0,
           vy: 0,
           speed: toNum(opts.speed, k === 'player' ? 280 : 100),
-          jump: toNum(opts.jump, 460),
+          jump: toNum(opts.jump, k === 'spring' ? toNum(opts.power, 680) : 460),
           color: String(
             opts.color ||
               (k === 'player'
                 ? '#10b981'
-                : k === 'enemy'
+                : k === 'enemy' || k === 'hazard'
                   ? '#f43f5e'
-                  : k === 'circle'
-                    ? '#a855f7'
-                    : k === 'triangle'
-                      ? '#f97316'
-                      : k === 'polygon'
-                        ? '#ec4899'
-                        : '#38bdf8')
+                  : k === 'spring'
+                    ? '#eab308'
+                    : k === 'checkpoint'
+                      ? '#22c55e'
+                      : k === 'circle'
+                        ? '#a855f7'
+                        : k === 'triangle'
+                          ? '#f97316'
+                          : k === 'polygon'
+                            ? '#ec4899'
+                            : '#38bdf8')
           ),
           glow: opts.glow ? String(opts.glow) : undefined,
           border: opts.border ? String(opts.border) : undefined,
@@ -1461,11 +1644,63 @@ export default function DifrenoptViewport({
           hp,
           maxHp: hp,
           ai: opts.ai ? String(opts.ai) : 'patrol',
-          value: toNum(opts.value, 10),
+          value: toNum(opts.value, k === 'hazard' ? toNum(opts.damage, 20) : 10),
           facing: 1,
           grounded: false,
           startX: x,
           startY: y
+        });
+      } else if (kind === 'spawner2d') {
+        const sx = toNum(opts.x, 380);
+        const sy = toNum(opts.y, 220);
+        const spawnKind = String(opts.kind || 'coin2d');
+        const col = String(opts.color || '#facc15');
+        const iv = Math.max(0.6, toNum(opts.interval, 3.5));
+        timerHooks.push({
+          interval: iv,
+          elapsed: iv * 0.7,
+          fn: () => {
+            if (entities2D.size > 45 || editModeRef.current) return;
+            const id = `spawn_${Math.floor(Math.random() * 100000)}`;
+            spawn2DComponent(spawnKind, { name: id, x: sx + (Math.random() - 0.5) * 90, y: sy, color: col, value: 15 });
+          }
+        });
+      } else if (kind === 'shield2d') {
+        const tgt = String(opts.target || 'hero');
+        lights2D.push({
+          x: toNum(opts.x, 120),
+          y: toNum(opts.y, 240),
+          radius: toNum(opts.radius, 34),
+          color: String(opts.color || '#38bdf8'),
+          intensity: 0.75,
+          follow: tgt
+        });
+      } else if (kind === 'dialog2d') {
+        const id = String(opts.id || 'dialog2d_box');
+        widgetMap.set(id, {
+          id,
+          kind: 'ui_modal',
+          props: {
+            title: String(opts.speaker || 'Guide'),
+            body: String(opts.text || ''),
+            open: true,
+            x: toNum(opts.x, 18),
+            y: toNum(opts.y, 320),
+            w: toNum(opts.w, 380)
+          }
+        });
+        uiDirty = true;
+      } else if (kind === 'tween2d') {
+        const tgt = String(opts.target || '');
+        const axis = String(opts.axis || 'y');
+        const range = toNum(opts.range, 42);
+        const speed = toNum(opts.speed, 2.0);
+        updateHooks.push((_dt, t) => {
+          if (editModeRef.current) return;
+          const ent = entities2D.get(tgt);
+          if (!ent) return;
+          if (axis === 'x') ent.x = ent.startX + Math.sin(t * speed) * range;
+          else ent.y = ent.startY + Math.sin(t * speed) * range;
         });
       } else if (kind === 'bullet2d') {
         bullets2D.push({
@@ -1604,6 +1839,32 @@ export default function DifrenoptViewport({
           }
           return;
         }
+        if (kind === 'synth_music') {
+          const vol = toNum(opts.volume, 0.16);
+          const tempo = Math.max(60, Math.min(200, toNum(opts.tempo, 120)));
+          const beatSec = 60 / tempo;
+          let stepIdx = 0;
+          timerHooks.push({
+            interval: beatSec,
+            elapsed: 0,
+            fn: () => {
+              const notes = ['coin', 'click', 'powerup', 'coin'];
+              playProceduralSfx(notes[stepIdx % notes.length], vol * 0.5);
+              stepIdx++;
+            }
+          });
+          return;
+        }
+        if (kind === 'storage_save') {
+          const key = String(opts.key || 'highscore');
+          try {
+            window.localStorage?.setItem(`drpl_save_${key}`, JSON.stringify(opts.value ?? 0));
+          } catch {
+            // ignore
+          }
+          vars[key] = opts.value ?? 0;
+          return;
+        }
         if (kind === 'ui_toast') {
           pushToast(String(opts.text || 'Notice'), (opts.type as any) || 'info');
           return;
@@ -1611,6 +1872,20 @@ export default function DifrenoptViewport({
         if (kind.startsWith('ui_')) {
           const id = String(opts.id || `${kind}_${widgetMap.size + 1}`);
           widgetMap.set(id, { id, kind: kind as UiWidgetState['kind'], props: { ...opts } });
+          if (kind === 'ui_timer') {
+            timerHooks.push({
+              interval: 1,
+              elapsed: 0,
+              fn: () => {
+                const w = widgetMap.get(id);
+                if (!w) return;
+                const curr = toNum(w.props.seconds, 0);
+                const down = toBool(w.props.countDown, true);
+                w.props = { ...w.props, seconds: down ? Math.max(0, curr - 1) : curr + 1 };
+                uiDirty = true;
+              }
+            });
+          }
           uiDirty = true;
           return;
         }
@@ -1738,7 +2013,16 @@ export default function DifrenoptViewport({
       lerp: (a: number, b: number, t: number) => a + (b - a) * t,
       clamp: (v: number, min: number, max: number) => Math.max(min, Math.min(max, v)),
       rand: (min = 0, max = 1) => min + Math.random() * (max - min),
-      randInt: (min = 0, max = 10) => Math.floor(min + Math.random() * (max - min + 1))
+      randInt: (min = 0, max = 10) => Math.floor(min + Math.random() * (max - min + 1)),
+      storage_load: (key: string, fallback: any = 0) => {
+        try {
+          const raw = window.localStorage?.getItem(`drpl_save_${key}`);
+          if (raw !== null && raw !== undefined) return JSON.parse(raw);
+        } catch {
+          // ignore
+        }
+        return vars[key] !== undefined ? vars[key] : fallback;
+      }
     };
 
     let selectionHelper: THREE.BoxHelper | null = null;
@@ -1943,8 +2227,8 @@ export default function DifrenoptViewport({
 
         const dragPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -pos.y);
         const planeHit = new THREE.Vector3();
-        raycaster.ray.intersectPlane(dragPlane, planeHit);
-        const offset = pos.clone().sub(planeHit || pos);
+        const intersected = raycaster.ray.intersectPlane(dragPlane, planeHit);
+        const offset = intersected ? pos.clone().sub(intersected) : new THREE.Vector3();
         dragging3D = {
           name,
           kind: String(m.kind || 'box3d'),
@@ -1983,25 +2267,26 @@ export default function DifrenoptViewport({
     const handle3DPointerUp = (e: PointerEvent) => {
       if (controls) controls.enabled = true;
       if (dragging3D) {
-        const entry = objects3D.get(dragging3D.name);
-        if (entry && dragging3D.moved) {
+        const dragSnap = dragging3D;
+        dragging3D = null;
+        pointerDownScreen = null;
+        const entry = objects3D.get(dragSnap.name);
+        if (entry && dragSnap.moved) {
           const p = entry.root.position;
           const rounded = {
             x: Number(p.x.toFixed(2)),
             y: Number(p.y.toFixed(2)),
             z: Number(p.z.toFixed(2))
           };
-          setSelectedEntity(prev => (prev && prev.name === dragging3D!.name ? { ...prev, ...rounded } : prev));
+          setSelectedEntity(prev => (prev && prev.name === dragSnap.name ? { ...prev, ...rounded } : prev));
           onVisualPatchRef.current?.({
             type: 'update',
             mode: '3d',
-            name: dragging3D.name,
-            kind: dragging3D.kind,
+            name: dragSnap.name,
+            kind: dragSnap.kind,
             props: rounded
           });
         }
-        dragging3D = null;
-        pointerDownScreen = null;
         return;
       }
       if (editModeRef.current && pointerDownScreen) {
@@ -2014,11 +2299,18 @@ export default function DifrenoptViewport({
       pointerDownScreen = null;
     };
 
+    const handle3DPointerCancel = () => {
+      if (controls) controls.enabled = true;
+      dragging3D = null;
+      pointerDownScreen = null;
+    };
+
     const webglCanvasEl = renderer?.domElement || null;
     if (webglCanvasEl) {
       webglCanvasEl.addEventListener('pointerdown', handle3DPointerDown);
       window.addEventListener('pointermove', handle3DPointerMove);
       window.addEventListener('pointerup', handle3DPointerUp);
+      window.addEventListener('pointercancel', handle3DPointerCancel);
     }
 
     let dragging2D: { name: string; kind: string; offX: number; offY: number; moved: boolean } | null = null;
@@ -2072,25 +2364,30 @@ export default function DifrenoptViewport({
     };
     const handle2DPointerUp = () => {
       if (!dragging2D) return;
-      const ent = entities2D.get(dragging2D.name);
-      if (ent && dragging2D.moved) {
+      const dragSnap = dragging2D;
+      dragging2D = null;
+      const ent = entities2D.get(dragSnap.name);
+      if (ent && dragSnap.moved) {
         const x = Math.round(ent.x);
         const y = Math.round(ent.y);
-        setSelectedEntity(prev => (prev && prev.name === dragging2D!.name ? { ...prev, x, y } : prev));
+        setSelectedEntity(prev => (prev && prev.name === dragSnap.name ? { ...prev, x, y } : prev));
         onVisualPatchRef.current?.({
           type: 'update',
           mode: '2d',
-          name: dragging2D.name,
-          kind: dragging2D.kind,
+          name: dragSnap.name,
+          kind: dragSnap.kind,
           props: { x, y }
         });
       }
+    };
+    const handle2DPointerCancel = () => {
       dragging2D = null;
     };
     if (c2dEl && wants2D) {
       c2dEl.addEventListener('pointerdown', handle2DPointerDown);
       window.addEventListener('pointermove', handle2DPointerMove);
       window.addEventListener('pointerup', handle2DPointerUp);
+      window.addEventListener('pointercancel', handle2DPointerCancel);
     }
 
     // Keyboard bindings for DRPL runtime & Edit Visual Delete shortcut
@@ -2240,22 +2537,43 @@ export default function DifrenoptViewport({
           }
         });
 
-        // Collect coins
+        // Collect coins, springs, hazards & checkpoints in 2D
         const hero = Array.from(entities2D.values()).find(e => e.kind === 'player');
         if (hero) {
           entities2D.forEach(ent => {
+            const overlaps =
+              hero.x < ent.x + ent.w &&
+              hero.x + hero.w > ent.x &&
+              hero.y < ent.y + ent.h &&
+              hero.y + hero.h > ent.y;
+            if (!overlaps) return;
+
             if (ent.kind === 'coin' && !ent.collected) {
-              if (
-                hero.x < ent.x + ent.w &&
-                hero.x + hero.w > ent.x &&
-                hero.y < ent.y + ent.h &&
-                hero.y + hero.h > ent.y
-              ) {
-                ent.collected = true;
-                playProceduralSfx('coin', 0.32);
-                spawn2DParticles(ent.x + 10, ent.y + 10, 16, ent.color, 150, 0.5);
-                floaters2D.push({ text: `+${ent.value || 10}`, x: ent.x, y: ent.y - 10, color: '#facc15', life: 0.9 });
+              ent.collected = true;
+              playProceduralSfx('coin', 0.32);
+              spawn2DParticles(ent.x + 10, ent.y + 10, 16, ent.color, 150, 0.5);
+              floaters2D.push({ text: `+${ent.value || 10}`, x: ent.x, y: ent.y - 10, color: '#facc15', life: 0.9 });
+            } else if (ent.kind === 'spring' && hero.vy >= -40) {
+              hero.vy = -(ent.jump || 680);
+              hero.grounded = false;
+              playProceduralSfx('jump', 0.35);
+              spawn2DParticles(ent.x + ent.w / 2, ent.y, 12, ent.color, 130, 0.4);
+            } else if (ent.kind === 'hazard') {
+              hero.hp = Math.max(0, hero.hp - (ent.value || 20));
+              hero.vy = -340;
+              world2D.camShake = 6;
+              playProceduralSfx('hit', 0.32);
+              floaters2D.push({ text: `-${ent.value || 20}`, x: hero.x, y: hero.y - 12, color: '#ef4444', life: 0.85 });
+              if (hero.hp <= 0) {
+                hero.hp = hero.maxHp;
+                hero.x = hero.startX;
+                hero.y = hero.startY;
               }
+            } else if (ent.kind === 'checkpoint' && !ent.collected) {
+              ent.collected = true;
+              playProceduralSfx('powerup', 0.36);
+              spawn2DParticles(ent.x + ent.w / 2, ent.y, 26, ent.color, 190, 0.75);
+              pushToast(`Checkpoint ${ent.name} reached!`, 'success');
             }
           });
         }
@@ -2490,6 +2808,33 @@ export default function DifrenoptViewport({
           ctx.fillText((ent.icon || ent.name).slice(0, 6).toUpperCase(), cx, cy);
           ctx.textAlign = 'start';
           ctx.textBaseline = 'alphabetic';
+        } else if (ent.kind === 'checkpoint') {
+          ctx.fillStyle = '#94a3b8';
+          ctx.fillRect(cx - 2, ent.y, 4, ent.h);
+          ctx.fillStyle = ent.collected ? '#22c55e' : ent.color;
+          ctx.beginPath();
+          ctx.moveTo(cx + 2, ent.y + 2);
+          ctx.lineTo(cx + 26, ent.y + 12);
+          ctx.lineTo(cx + 2, ent.y + 22);
+          ctx.closePath();
+          ctx.fill();
+        } else if (ent.kind === 'spring') {
+          ctx.fillStyle = '#334155';
+          ctx.fillRect(ent.x + 4, ent.y + 6, ent.w - 8, ent.h - 6);
+          ctx.fillStyle = ent.color;
+          ctx.fillRect(ent.x, ent.y, ent.w, 8);
+        } else if (ent.kind === 'hazard') {
+          ctx.fillStyle = ent.color;
+          const spikes = Math.max(3, Math.floor(ent.w / 14));
+          const sw = ent.w / spikes;
+          for (let si = 0; si < spikes; si++) {
+            ctx.beginPath();
+            ctx.moveTo(ent.x + si * sw, ent.y + ent.h);
+            ctx.lineTo(ent.x + si * sw + sw / 2, ent.y);
+            ctx.lineTo(ent.x + (si + 1) * sw, ent.y + ent.h);
+            ctx.closePath();
+            ctx.fill();
+          }
         } else {
           ctx.fillStyle = ent.color;
           ctx.fillRect(ent.x, ent.y, ent.w, ent.h);
@@ -2806,11 +3151,13 @@ export default function DifrenoptViewport({
         webglCanvasEl.removeEventListener('pointerdown', handle3DPointerDown);
         window.removeEventListener('pointermove', handle3DPointerMove);
         window.removeEventListener('pointerup', handle3DPointerUp);
+        window.removeEventListener('pointercancel', handle3DPointerCancel);
       }
       if (c2dEl && wants2D) {
         c2dEl.removeEventListener('pointerdown', handle2DPointerDown);
         window.removeEventListener('pointermove', handle2DPointerMove);
         window.removeEventListener('pointerup', handle2DPointerUp);
+        window.removeEventListener('pointercancel', handle2DPointerCancel);
       }
       if (selectionHelper) {
         selectionHelper.dispose();
@@ -3294,6 +3641,153 @@ export default function DifrenoptViewport({
               );
             }
 
+            if (w.kind === 'ui_inventory') {
+              const items: string[] = Array.isArray(p.items) ? p.items : ['Plasma', 'Nitro', 'Shield', 'Key'];
+              const activeIdx = toNum(p.activeIndex, 0);
+              const col = String(p.color || '#f59e0b');
+              return (
+                <div
+                  key={w.id}
+                  style={{ left: x, top: y, width: toNum(p.w, 280) }}
+                  className="pointer-events-auto absolute rounded-xl border border-[#262B33] bg-[#111315]/92 p-3 shadow-lg"
+                >
+                  <div className="text-[11px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-2">
+                    {String(p.title || 'Inventory')}
+                  </div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {items.map((item, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          runtimeControlsRef.current.updateWidgetProp(w.id, 'activeIndex', idx);
+                          playProceduralSfx('click', 0.25);
+                        }}
+                        style={idx === activeIdx ? { borderColor: col, backgroundColor: `${col}22`, color: col } : undefined}
+                        className={clsx(
+                          'px-1.5 py-2 rounded-lg border text-[11px] font-mono font-semibold truncate cursor-pointer transition-colors',
+                          idx === activeIdx ? '' : 'border-[#262B33] bg-[#0A0C0E] text-[#D1D5DB] hover:border-[#374151]'
+                        )}
+                      >
+                        {String(item)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+
+            if (w.kind === 'ui_statbar') {
+              const hp = Math.max(0, toNum(p.hp, 85));
+              const maxHp = Math.max(1, toNum(p.maxHp, 100));
+              const mana = Math.max(0, toNum(p.mana, 60));
+              const maxMana = Math.max(1, toNum(p.maxMana, 100));
+              return (
+                <div
+                  key={w.id}
+                  style={{ left: x, top: y, width: toNum(p.w, 230) }}
+                  className="pointer-events-auto absolute rounded-xl border border-[#262B33] bg-[#111315]/92 p-2.5 shadow-lg space-y-1.5"
+                >
+                  <div className="flex justify-between text-[10px] font-mono">
+                    <span className="text-emerald-400 font-bold">HP</span>
+                    <span className="text-[#E5E7EB]">{Math.round(hp)}/{maxHp}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-[#262B33] overflow-hidden">
+                    <div className="h-full bg-[#10B981]" style={{ width: `${Math.min(100, (hp / maxHp) * 100)}%` }} />
+                  </div>
+                  <div className="flex justify-between text-[10px] font-mono pt-0.5">
+                    <span className="text-sky-400 font-bold">ENERGY</span>
+                    <span className="text-[#E5E7EB]">{Math.round(mana)}/{maxMana}</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-[#262B33] overflow-hidden">
+                    <div className="h-full bg-[#38BDF8]" style={{ width: `${Math.min(100, (mana / maxMana) * 100)}%` }} />
+                  </div>
+                </div>
+              );
+            }
+
+            if (w.kind === 'ui_timer') {
+              const sec = Math.max(0, Math.round(toNum(p.seconds, 90)));
+              const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+              const ss = String(sec % 60).padStart(2, '0');
+              const col = String(p.color || '#38bdf8');
+              return (
+                <div
+                  key={w.id}
+                  style={{ left: x, top: y }}
+                  className="pointer-events-auto absolute rounded-xl border border-[#262B33] bg-[#111315]/92 px-3.5 py-2 shadow-lg text-center"
+                >
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF]">
+                    {String(p.label || 'TIMER')}
+                  </div>
+                  <div className="text-xl font-bold font-mono tabular-nums" style={{ color: col }}>
+                    {mm}:{ss}
+                  </div>
+                </div>
+              );
+            }
+
+            if (w.kind === 'ui_chat') {
+              const msgs: string[] = Array.isArray(p.messages) ? p.messages : [];
+              return (
+                <div
+                  key={w.id}
+                  style={{ left: x, top: y, width: toNum(p.w, 280), height: toNum(p.h, 145) }}
+                  className="pointer-events-auto absolute rounded-xl border border-[#262B33] bg-[#111315]/92 p-3 flex flex-col shadow-lg"
+                >
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-1.5">
+                    {String(p.title || 'Mission Feed')}
+                  </div>
+                  <div className="flex-1 overflow-y-auto space-y-1 text-xs text-[#E5E7EB]">
+                    {msgs.map((m, idx) => (
+                      <div key={idx} className="px-2 py-1 rounded bg-[#0A0C0E] border border-[#22262E] truncate">
+                        {String(m)}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+
+            if (w.kind === 'ui_grid') {
+              const btns: string[] = Array.isArray(p.buttons) ? p.buttons : ['Action 1', 'Action 2', 'Action 3', 'Action 4'];
+              const col = String(p.color || '#2dd4bf');
+              return (
+                <div
+                  key={w.id}
+                  style={{ left: x, top: y, width: toNum(p.w, 240) }}
+                  className="pointer-events-auto absolute rounded-xl border border-[#262B33] bg-[#111315]/92 p-3 shadow-lg"
+                >
+                  {p.title && (
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-2">
+                      {String(p.title)}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {btns.map((bLabel, idx) => (
+                      <button
+                        key={idx}
+                        type="button"
+                        onClick={() => {
+                          playProceduralSfx('click', 0.25);
+                          const toastId = Date.now() + Math.random();
+                          setToasts(prev => [...prev.slice(-3), { id: toastId, text: `Command: ${bLabel}`, type: 'info' }]);
+                          window.setTimeout(() => {
+                            setToasts(prev => prev.filter(t => t.id !== toastId));
+                          }, 2200);
+                          onEvent?.('clicked?', String(bLabel), String(bLabel));
+                        }}
+                        style={{ borderColor: `${col}44`, color: col }}
+                        className="px-2 py-1.5 rounded-lg border bg-[#0A0C0E] hover:bg-[#1A1F26] text-xs font-semibold truncate cursor-pointer"
+                      >
+                        {String(bLabel)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+
             // ui_text fallback
             return (
               <div
@@ -3542,7 +4036,7 @@ export default function DifrenoptViewport({
                       style={{ backgroundColor: hex }}
                       className={clsx(
                         'w-5 h-5 rounded-md border cursor-pointer',
-                        selectedEntity.color.toLowerCase() === hex ? 'border-white scale-110' : 'border-[#262B33]'
+                        (selectedEntity.color || '').toLowerCase() === hex ? 'border-white scale-110' : 'border-[#262B33]'
                       )}
                     />
                   ))}

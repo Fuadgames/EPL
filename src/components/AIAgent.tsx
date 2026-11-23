@@ -5,6 +5,7 @@ import { useStore } from '../store/useStore';
 import { notify } from '../store/useDialogStore';
 import clsx from 'clsx';
 import CustomSelect from './CustomSelect';
+import { hasTierAccess, resolveEffectiveTier } from '../lib/premiumTiers';
 
 interface AIAgentProps {
   onCodeGenerated: (code: string) => void;
@@ -15,7 +16,13 @@ interface AIAgentProps {
 export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgentProps) {
   const theme = useStore(state => state.theme);
   const userData = useStore(state => state.userData);
-  const isPremium = useStore(state => state.isPremium) || userData?.role === 'developer';
+  const storeIsPremium = useStore(state => state.isPremium);
+  const storeTier = useStore(state => state.premiumTier);
+  const isDev = userData?.role === 'developer';
+  const effectiveTier = resolveEffectiveTier(storeIsPremium || userData?.isPremium, userData?.premiumTier || storeTier);
+  const isPremium = hasTierAccess(effectiveTier, 'plus') || isDev;
+  const canThinking = hasTierAccess(effectiveTier, 'plus') || isDev;
+  const canPro = hasTierAccess(effectiveTier, 'premium') || isDev;
   const aiMode = useStore(state => state.aiMode);
   const setAiMode = useStore(state => state.setAiMode);
   const requestCount = useStore(state => state.requestCount);
@@ -371,8 +378,8 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
           className="shrink-0 min-w-[106px]"
           options={[
             { value: 'fast', label: 'Fast' },
-            { value: 'thinking', label: `Thinking${!isPremium ? ' (Pro)' : ''}`, disabled: !isPremium },
-            { value: 'pro', label: `Pro${!isPremium ? ' (Pro)' : ''}`, disabled: !isPremium },
+            { value: 'thinking', label: `Thinking${!canThinking ? ' (Plus+)' : ''}`, disabled: !canThinking },
+            { value: 'pro', label: `Pro${!canPro ? ' (Premium+)' : ''}`, disabled: !canPro },
           ]}
         />
         <input

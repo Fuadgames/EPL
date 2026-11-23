@@ -1,17 +1,24 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useStore } from '../store/useStore';
-import { Star, Lock, CheckCircle, Monitor } from 'lucide-react';
+import {
+  Star, Lock, CheckCircle, Monitor, Crown, Sparkles, MessageSquare, Send, X, Zap, Check, Ban
+} from 'lucide-react';
 import { clsx } from 'clsx';
 import { translations } from '../lib/translations';
 import { db, auth } from '../firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, updateDoc, setDoc, collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { notify } from '../store/useDialogStore';
+import { PREMIUM_TIERS, resolveEffectiveTier } from '../lib/premiumTiers';
+import { PremiumChatMessage, PremiumTier } from '../types';
 
 export default function PremiumView() {
   const theme = useStore(state => state.theme);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const isPremium = useStore(state => state.isPremium);
   const setIsPremium = useStore(state => state.setIsPremium);
+  const premiumTier = useStore(state => state.premiumTier);
+  const setPremiumTier = useStore(state => state.setPremiumTier);
   const setTheme = useStore(state => state.setTheme);
   const setAiMode = useStore(state => state.setAiMode);
   const computerStyle = useStore(state => state.computerStyle);
@@ -19,12 +26,43 @@ export default function PremiumView() {
   const language = useStore(state => state.language);
   const premiumExpiry = useStore(state => state.premiumExpiry);
   const setPremiumExpiry = useStore(state => state.setPremiumExpiry);
+  const setCurrentView = useStore(state => state.setCurrentView);
+  const user = useStore(state => state.user);
+  const userData = useStore(state => state.userData);
+  const setIsAuthModalOpen = useStore(state => state.setIsAuthModalOpen);
+
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
+  const [redeeming, setRedeeming] = useState(false);
   const [isProcessingStripe, setIsProcessingStripe] = useState(false);
 
-  const user = useStore(state => state.user);
+  // Message to Developer chat state
+  const [isDevChatOpen, setIsDevChatOpen] = useState(false);
+  const [devMessages, setDevMessages] = useState<PremiumChatMessage[]>([]);
+  const [devChatInput, setDevChatInput] = useState('');
+  const [sendingDevMsg, setSendingDevMsg] = useState(false);
+
   const t = translations[language].premiumFeatures;
+  const isLight = theme === 'light' && !isFrutigerAero;
+  const activeTier: PremiumTier = resolveEffectiveTier(isPremium || userData?.isPremium, userData?.premiumTier || premiumTier);
+  const hasAnyPremium = activeTier !== 'none';
+
+  // Subscribe to player's Message to Developer chat
+  useEffect(() => {
+    if (!user?.uid || !isDevChatOpen) return;
+    const q = query(collection(db, 'premiumChats', user.uid, 'messages'), orderBy('createdAt', 'asc'));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setDevMessages(snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as PremiumChatMessage)));
+      },
+      (err) => {
+        console.warn('Dev chat messages listener error:', err);
+      }
+    );
+    updateDoc(doc(db, 'premiumChats', user.uid), { unreadForUser: false }).catch(() => {});
+    return () => unsub();
+  }, [user?.uid, isDevChatOpen]);
 
   const handleCheckout = async () => {
     try {
@@ -56,10 +94,12 @@ export default function PremiumView() {
 
   const handleUnlock = async () => {
     if (!code.trim() || !user) {
-      setError(language === 'ru' ? 'Войдите в аккаунт для активации' : 'Please log in to redeem');
+      setError(language === 'ru' ? 'Войдите в аккаунт и введите код' : 'Please log in and enter a code');
       return;
     }
 
+    setRedeeming(true);
+    setError('');
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (auth.currentUser) {
@@ -78,44 +118,46 @@ export default function PremiumView() {
         return;
       }
 
-      await updateDoc(doc(db, 'users', user.uid), {
+      const activatedTier: PremiumTier =
+        data.tier === 'plus' || data.tier === 'premium' || data.tier === 'ultra'
+          ? data.tier
+          : code.trim().toUpperCase().startsWith('PLUS-')
+            ? 'plus'
+            : code.trim().toUpperCase().startsWith('ULTR-')
+              ? 'ultra'
+              : 'premium';
+
+      await setDoc(doc(db, 'users', user.uid), {
         isPremium: true,
+        premiumTier: activatedTier,
         premiumExpiry: data.premiumExpiry || null,
-      }).catch(() => {});
+      }, { merge: true }).catch(() => {});
+
+      await setDoc(doc(db, 'users_public', user.uid), {
+        premiumTier: activatedTier,
+      }, { merge: true }).catch(() => {});
 
       setIsPremium(true);
+      setPremiumTier(activatedTier);
       setPremiumExpiry(data.premiumExpiry || null);
+      setCode('');
       setError('');
-      notify.success(language === 'ru' ? 'Premium активирован!' : 'Premium activated!');
+      notify.success(
+        language === 'ru'
+          ? `Уровень ${activatedTier.toUpperCase()} активирован! Доступен Extra Premium Access!`
+          : `${activatedTier.toUpperCase()} Tier activated! Extra Premium Access unlocked!`
+      );
     } catch (err: any) {
       console.error('Error unlocking premium', err);
       setError(language === 'ru' ? 'Ошибка при проверке кода' : 'Error checking code');
-    }
-  };
-
-  const handleFreeTrial = async () => {
-    const expiry = new Date();
-    expiry.setDate(expiry.getDate() + 7);
-    const expiryStr = expiry.toISOString();
-    setIsPremium(true);
-    setPremiumExpiry(expiryStr);
-    setError('');
-    notify.success(language === 'ru' ? 'Пробный период на 7 дней активирован' : '7-day trial activated');
-
-    if (user) {
-      try {
-        await updateDoc(doc(db, 'users', user.uid), {
-          isPremium: true,
-          premiumExpiry: expiryStr,
-        });
-      } catch (err) {
-        console.error('Error updating premium trial', err);
-      }
+    } finally {
+      setRedeeming(false);
     }
   };
 
   const handleCancelPremium = async () => {
     setIsPremium(false);
+    setPremiumTier('none');
     setPremiumExpiry(null);
     if (theme === 'gradient') {
       setTheme('dark');
@@ -128,197 +170,541 @@ export default function PremiumView() {
       try {
         await updateDoc(doc(db, 'users', user.uid), {
           isPremium: false,
+          premiumTier: 'none',
           premiumExpiry: null,
         });
+        await setDoc(doc(db, 'users_public', user.uid), {
+          premiumTier: 'none',
+        }, { merge: true }).catch(() => {});
       } catch (err) {
         console.error('Error cancelling premium', err);
       }
     }
   };
 
+  const handleSendDevMessage = async () => {
+    const text = devChatInput.trim();
+    if (!text) return;
+    if (!user) {
+      setIsAuthModalOpen(true);
+      return;
+    }
+
+    const msgId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const now = new Date().toISOString();
+    setSendingDevMsg(true);
+    try {
+      await setDoc(doc(db, 'premiumChats', user.uid, 'messages', msgId), {
+        id: msgId,
+        senderId: user.uid,
+        senderName: userData?.name || user.displayName || 'Player',
+        senderRole: 'user',
+        text,
+        createdAt: now,
+      });
+
+      await setDoc(doc(db, 'premiumChats', user.uid), {
+        userId: user.uid,
+        userName: userData?.name || user.displayName || 'Player',
+        userAvatar: userData?.avatarUrl || user.photoURL || '',
+        premiumTier: activeTier,
+        lastMessage: text,
+        lastSenderRole: 'user',
+        lastMessageAt: now,
+        unreadForDev: true,
+        unreadForUser: false,
+      }, { merge: true });
+
+      setDevChatInput('');
+      notify.success(language === 'ru' ? 'Сообщение отправлено разработчику!' : 'Message sent to developer!');
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.WRITE, `premiumChats/${user.uid}/messages/${msgId}`);
+    } finally {
+      setSendingDevMsg(false);
+    }
+  };
+
+  const cardSurface = isFrutigerAero
+    ? 'bg-white/45 border-white/60 backdrop-blur-md shadow-sm'
+    : isLight
+      ? 'bg-white border-[#E2E5EA]'
+      : 'bg-[#181B20] border-[#262B33]';
+
   return (
     <div className="h-full flex flex-col p-4 sm:p-8 overflow-y-auto">
-      <div className="max-w-2xl mx-auto w-full">
-        <div className="mb-6 pb-4 border-b border-[#262B33]/60">
-          <h1 className={clsx('text-2xl font-bold tracking-tight flex items-center gap-2.5', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
-            <Star className="w-6 h-6 text-amber-400 fill-amber-400" />
-            {t.title}
-          </h1>
-          <p className={clsx('text-xs mt-0.5', isFrutigerAero ? 'text-blue-800/70' : theme !== 'light' ? 'text-[#9CA3AF]' : 'text-[#525866]')}>
-            Extended AI capacity, IP protection, and workspace skins
-          </p>
+      <div className="max-w-5xl mx-auto w-full space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-current/10">
+          <div>
+            <h1
+              className={clsx(
+                'text-2xl font-bold tracking-tight flex items-center gap-2.5',
+                isFrutigerAero ? 'text-blue-900' : isLight ? 'text-[#111315]' : 'text-[#F3F4F6]'
+              )}
+            >
+              <Crown className="w-6 h-6 text-amber-400" />
+              {language === 'ru' ? 'Премиум-подписки EPL' : t.title}
+            </h1>
+            <p className={clsx('text-xs mt-1', isFrutigerAero ? 'text-blue-800/75' : 'text-[#9CA3AF]')}>
+              {language === 'ru'
+                ? '3 уровня доступа: Plus, Premium и Ultra • Extra Premium Access • Прямая связь с разработчиком'
+                : '3 distinct tiers: Plus, Premium & Ultra • Extra Premium Access • Direct Developer Messaging'}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2.5">
+            {hasAnyPremium && (
+              <button
+                type="button"
+                onClick={() => setCurrentView('extra-premium')}
+                className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 via-pink-500 to-cyan-500 text-white text-xs font-bold shadow-lg hover:scale-[1.02] transition-transform flex items-center gap-1.5 cursor-pointer whitespace-nowrap"
+              >
+                <Zap className="w-4 h-4" />
+                <span>Extra Premium Access</span>
+              </button>
+            )}
+
+            <button
+              type="button"
+              onClick={() => {
+                if (!user) {
+                  setIsAuthModalOpen(true);
+                  return;
+                }
+                setIsDevChatOpen(prev => !prev);
+              }}
+              className={clsx(
+                'px-4 py-2 rounded-xl border text-xs font-bold transition-all flex items-center gap-2 cursor-pointer whitespace-nowrap',
+                isDevChatOpen
+                  ? 'bg-[#10B981] border-[#10B981] text-[#0A0C0E]'
+                  : isLight
+                    ? 'bg-white border-[#E2E5EA] text-[#111315] hover:border-[#059669]'
+                    : 'bg-[#181B20] border-[#262B33] text-[#F3F4F6] hover:border-[#10B981]'
+              )}
+            >
+              <MessageSquare className="w-4 h-4 text-[#10B981]" />
+              <span>{language === 'ru' ? 'Message to Developer' : 'Message to Developer'}</span>
+            </button>
+          </div>
         </div>
 
-        {isPremium ? (
-          <div
-            className={clsx(
-              'p-6 sm:p-8 rounded-xl border text-left space-y-6',
-              isFrutigerAero
-                ? 'bg-white/40 border-white/50 backdrop-blur-md shadow-sm'
-                : theme !== 'light'
-                  ? 'bg-[#181B20] border-[#10B981]/40'
-                  : 'bg-white border-[#059669]/40'
-            )}
-          >
-            <div className="flex items-center gap-4">
-              <div className="p-3 rounded-xl bg-[#10B981]/15 border border-[#10B981]/30">
-                <CheckCircle className="w-8 h-8 text-[#10B981]" />
-              </div>
-              <div>
-                <h2 className={clsx('text-xl font-bold', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
-                  {t.active}
-                </h2>
-                <p className={clsx('text-sm', isFrutigerAero ? 'text-blue-800/70' : 'text-[#9CA3AF]')}>{t.thanks}</p>
-                {premiumExpiry && (
-                  <p className="text-xs font-mono-num text-[#10B981] mt-1 font-semibold">
-                    {language === 'ru' ? `Истекает: ${new Date(premiumExpiry).toLocaleDateString()}` : `Expires: ${new Date(premiumExpiry).toLocaleDateString()}`}
+        {/* Message to Developer Drawer/Panel */}
+        {isDevChatOpen && (
+          <div className={clsx('rounded-2xl border p-5 space-y-4', cardSurface)}>
+            <div className="flex items-center justify-between border-b border-current/10 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-lg bg-[#10B981]/15 border border-[#10B981]/30 text-[#10B981]">
+                  <MessageSquare className="w-4 h-4" />
+                </div>
+                <div>
+                  <h2 className="text-sm font-bold">
+                    {language === 'ru' ? 'Прямой чат с разработчиком (Message to Developer)' : 'Direct Message to Developer'}
+                  </h2>
+                  <p className="text-[11px] text-[#9CA3AF]">
+                    {language === 'ru'
+                      ? 'Ваш диалог попадает прямо во вкладку Premium Chat в панели разработчика.'
+                      : 'Your messages go straight into the Developer’s Premium Chat tab.'}
                   </p>
-                )}
+                </div>
               </div>
-            </div>
-
-            <div className="space-y-3">
-              <h3 className={clsx('font-bold text-xs uppercase tracking-wider', isFrutigerAero ? 'text-blue-900' : 'text-[#9CA3AF]')}>
-                {t.yourFeatures}
-              </h3>
-              <ul className="grid grid-cols-1 gap-3 text-sm">
-                <li className="flex items-start gap-2.5">
-                  <Star className="w-4 h-4 text-[#10B981] mt-0.5 shrink-0" />
-                  <span className="font-medium">{t.unlimitedAi}</span>
-                </li>
-                <li className="flex items-start gap-2.5">
-                  <Star className="w-4 h-4 text-[#10B981] mt-0.5 shrink-0" />
-                  <span className="font-medium">{t.fasterAi}</span>
-                </li>
-                <li className="flex items-start gap-2.5">
-                  <Star className="w-4 h-4 text-[#10B981] mt-0.5 shrink-0" />
-                  <span className="font-medium">{t.proAi}</span>
-                </li>
-                <li className="flex items-start gap-2.5">
-                  <Star className="w-4 h-4 text-[#10B981] mt-0.5 shrink-0" />
-                  <div>
-                    <span className="font-medium">{t.copyBlocking}</span>
-                    <p className="text-xs text-[#9CA3AF] mt-0.5">{t.copyBlockingDesc}</p>
-                  </div>
-                </li>
-                <li className="flex items-start gap-2.5">
-                  <Monitor className="w-4 h-4 text-[#10B981] mt-0.5 shrink-0" />
-                  <div>
-                    <span className="font-medium">{language === 'ru' ? 'Компьютерный стиль' : 'Computer Style'}</span>
-                    <p className="text-xs text-[#9CA3AF] mt-0.5">
-                      {language === 'ru' ? 'Включите компьютерный стиль для редактора' : 'Enable computer style for the editor'}
-                    </p>
-                  </div>
-                </li>
-              </ul>
-            </div>
-
-            <div className={clsx('pt-5 border-t flex flex-col sm:flex-row gap-4 justify-between items-start sm:items-end', theme !== 'light' ? 'border-[#262B33]' : 'border-[#E2E5EA]')}>
-              <div>
-                <h3 className={clsx('font-bold text-sm mb-2', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
-                  {language === 'ru' ? 'Стиль редактора' : 'Editor Style'}
-                </h3>
-                <button
-                  onClick={() => setComputerStyle(!computerStyle)}
-                  className={clsx(
-                    'px-4 py-2 rounded-lg text-sm font-semibold border transition-colors cursor-pointer',
-                    computerStyle
-                      ? theme !== 'light'
-                        ? 'bg-[#111315] border-[#262B33] text-[#F3F4F6] hover:bg-[#22262E]'
-                        : 'bg-[#111315] border-[#111315] text-white'
-                      : 'bg-[#10B981] border-[#10B981] text-[#0A0C0E] hover:bg-[#059669]'
-                  )}
-                >
-                  {computerStyle
-                    ? language === 'ru' ? 'Выключить компьютерный стиль' : 'Disable Computer Style'
-                    : language === 'ru' ? 'Включить компьютерный стиль' : 'Enable Computer Style'}
-                </button>
-              </div>
-
               <button
-                onClick={handleCancelPremium}
-                className="px-4 py-2 rounded-lg text-sm font-semibold border border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors cursor-pointer"
+                type="button"
+                onClick={() => setIsDevChatOpen(false)}
+                className="p-1.5 rounded-lg hover:bg-current/10 cursor-pointer"
               >
-                {t.cancelPremium}
+                <X className="w-4 h-4" />
               </button>
             </div>
-          </div>
-        ) : (
-          <div
-            className={clsx(
-              'p-6 sm:p-8 rounded-xl border',
-              isFrutigerAero
-                ? 'bg-white/40 border-white/50 backdrop-blur-md shadow-sm'
-                : theme !== 'light'
-                  ? 'bg-[#181B20] border-[#262B33]'
-                  : 'bg-white border-[#E2E5EA]'
-            )}
-          >
-            <div className="flex items-center gap-3 mb-4">
-              <div className={clsx('p-2.5 rounded-lg border', theme !== 'light' ? 'bg-[#111315] border-[#262B33]' : 'bg-[#F5F6F8] border-[#E2E5EA]')}>
-                <Lock className="w-5 h-5 text-[#9CA3AF]" />
-              </div>
-              <h2 className={clsx('text-lg font-bold', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
-                {t.unlockPremium}
-              </h2>
+
+            <div className={clsx('rounded-xl border p-3.5 h-60 overflow-y-auto space-y-2.5', isLight ? 'bg-[#F5F6F8] border-[#E2E5EA]' : 'bg-[#111315] border-[#262B33]')}>
+              {devMessages.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center text-center text-xs text-[#9CA3AF]">
+                  <MessageSquare className="w-8 h-8 opacity-30 mb-2" />
+                  <p>
+                    {language === 'ru'
+                      ? 'Напишите любое сообщение, идею или вопрос разработчику EPL Studio!'
+                      : 'Send any feedback, question, or message directly to the EPL Studio Developer!'}
+                  </p>
+                </div>
+              ) : (
+                devMessages.map(m => {
+                  const isMine = m.senderRole !== 'developer';
+                  return (
+                    <div key={m.id} className={clsx('flex flex-col max-w-[82%]', isMine ? 'ml-auto items-end' : 'mr-auto items-start')}>
+                      <div
+                        className={clsx(
+                          'px-3.5 py-2 rounded-xl text-xs sm:text-sm border',
+                          isMine
+                            ? 'bg-[#10B981] text-[#0A0C0E] border-[#10B981] font-medium'
+                            : 'bg-amber-500/15 text-amber-200 border-amber-500/35'
+                        )}
+                      >
+                        {m.text}
+                      </div>
+                      <span className="text-[10px] text-[#9CA3AF] mt-0.5 px-1">
+                        {m.senderRole === 'developer' ? 'Developer' : m.senderName} •{' '}
+                        {m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                      </span>
+                    </div>
+                  );
+                })
+              )}
             </div>
 
-            <p className="text-sm text-[#9CA3AF] mb-4">{t.enterCode}</p>
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSendDevMessage();
+              }}
+              className="flex items-center gap-2"
+            >
+              <input
+                type="text"
+                value={devChatInput}
+                onChange={(e) => setDevChatInput(e.target.value)}
+                placeholder={language === 'ru' ? 'Написать сообщение разработчику...' : 'Write a message to developer...'}
+                className={clsx(
+                  'flex-1 px-4 py-2.5 rounded-xl border text-sm focus:outline-none',
+                  isLight ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#111315]' : 'bg-[#111315] border-[#262B33] text-[#F3F4F6] focus:border-[#10B981]'
+                )}
+              />
+              <button
+                type="submit"
+                disabled={!devChatInput.trim() || sendingDevMsg}
+                className="px-4 py-2.5 rounded-xl bg-[#10B981] hover:bg-[#059669] text-[#0A0C0E] text-xs font-bold flex items-center gap-1.5 disabled:opacity-50 cursor-pointer whitespace-nowrap"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>{language === 'ru' ? 'Отправить' : 'Send'}</span>
+              </button>
+            </form>
+          </div>
+        )}
+
+        {/* Active Subscription Banner */}
+        {hasAnyPremium && (
+          <div
+            className={clsx(
+              'p-6 rounded-2xl border space-y-5 relative overflow-hidden',
+              activeTier === 'ultra'
+                ? 'bg-gradient-to-br from-[#1A140A] via-[#1C1224] to-[#0B1E26] border-amber-400/60 text-white shadow-[0_0_35px_rgba(245,158,11,0.22)]'
+                : activeTier === 'premium'
+                  ? 'bg-gradient-to-br from-[#131828] via-[#18162B] to-[#0F221D] border-violet-400/50 text-white shadow-[0_0_25px_rgba(139,92,246,0.2)]'
+                  : cardSurface
+            )}
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-center gap-4">
+                <div
+                  className={clsx(
+                    'p-3.5 rounded-xl border shrink-0',
+                    activeTier === 'ultra'
+                      ? 'bg-gradient-to-br from-amber-400 to-pink-500 text-black border-amber-300 shadow-lg'
+                      : activeTier === 'premium'
+                        ? 'bg-gradient-to-br from-violet-500 to-emerald-500 text-white border-violet-300'
+                        : 'bg-slate-500/20 text-sky-400 border-slate-500/40'
+                  )}
+                >
+                  {activeTier === 'ultra' ? (
+                    <Crown className="w-7 h-7" />
+                  ) : activeTier === 'premium' ? (
+                    <Sparkles className="w-7 h-7" />
+                  ) : (
+                    <CheckCircle className="w-7 h-7" />
+                  )}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-xl font-extrabold">
+                      {language === 'ru'
+                        ? `Активен уровень: ${PREMIUM_TIERS[activeTier].name}`
+                        : `Active Tier: ${PREMIUM_TIERS[activeTier].name}`}
+                    </h2>
+                    <span
+                      className={clsx(
+                        'text-[10px] px-2.5 py-0.5 rounded-md font-black uppercase tracking-wider',
+                        activeTier === 'ultra'
+                          ? 'bg-gradient-to-r from-amber-400 via-pink-500 to-cyan-400 text-black'
+                          : activeTier === 'premium'
+                            ? 'bg-violet-500 text-white'
+                            : 'bg-slate-600 text-white'
+                      )}
+                    >
+                      {PREMIUM_TIERS[activeTier].badgeText}
+                    </span>
+                  </div>
+                  <p className="text-xs opacity-80 mt-0.5">
+                    {language === 'ru' ? PREMIUM_TIERS[activeTier].taglineRu : PREMIUM_TIERS[activeTier].taglineEn}
+                  </p>
+                  {premiumExpiry && (
+                    <p className="text-xs font-mono-num text-[#10B981] mt-1 font-semibold">
+                      {language === 'ru' ? `Действует до: ${new Date(premiumExpiry).toLocaleDateString()}` : `Expires: ${new Date(premiumExpiry).toLocaleDateString()}`}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setComputerStyle(!computerStyle)}
+                  className={clsx(
+                    'px-3.5 py-2 rounded-xl text-xs font-semibold border transition-colors cursor-pointer flex items-center gap-1.5',
+                    computerStyle
+                      ? 'bg-[#10B981] border-[#10B981] text-[#0A0C0E]'
+                      : 'bg-black/25 border-white/15 hover:bg-black/40'
+                  )}
+                >
+                  <Monitor className="w-3.5 h-3.5" />
+                  <span>
+                    {computerStyle
+                      ? language === 'ru' ? 'Выкл. комп. стиль' : 'Disable Computer Style'
+                      : language === 'ru' ? 'Компьютерный стиль' : 'Computer Style'}
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleCancelPremium}
+                  className="px-3.5 py-2 rounded-xl text-xs font-semibold border border-red-500/40 bg-red-500/15 text-red-300 hover:bg-red-600 hover:text-white transition-colors cursor-pointer"
+                >
+                  {t.cancelPremium}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Code Redemption & Stripe Purchase Card */}
+        <div className={clsx('p-6 rounded-2xl border', cardSurface)}>
+          <div className="flex items-center gap-3 mb-3">
+            <div className={clsx('p-2.5 rounded-xl border', isLight ? 'bg-[#F5F6F8] border-[#E2E5EA]' : 'bg-[#111315] border-[#262B33]')}>
+              <Lock className="w-5 h-5 text-[#10B981]" />
+            </div>
+            <div>
+              <h2 className="text-base font-bold">
+                {hasAnyPremium
+                  ? language === 'ru' ? 'Активировать другой код или повысить уровень' : 'Redeem Another Tier Code / Upgrade'
+                  : t.unlockPremium}
+              </h2>
+              <p className="text-xs text-[#9CA3AF]">
+                {language === 'ru'
+                  ? 'Введите ключ вида PLUS-XXXX-XXXX, PREM-XXXX-XXXX или ULTR-XXXX-XXXX'
+                  : 'Enter a tier key (PLUS-XXXX-XXXX, PREM-XXXX-XXXX, or ULTR-XXXX-XXXX)'}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2.5">
             <input
               type="text"
               value={code}
               onChange={(e) => setCode(e.target.value)}
-              placeholder={t.placeholder}
+              placeholder="PLUS-XXXX-XXXX / PREM-XXXX-XXXX / ULTR-XXXX-XXXX"
               className={clsx(
-                'w-full px-4 py-3 rounded-lg border mb-4 font-mono text-sm placeholder:text-[#6B7280] focus:outline-none',
+                'flex-1 px-4 py-2.5 rounded-xl border font-mono text-sm placeholder:text-[#6B7280] focus:outline-none',
                 isFrutigerAero
                   ? 'bg-white/60 border-white/40 text-blue-900'
-                  : theme !== 'light'
-                    ? 'bg-[#111315] border-[#262B33] text-[#F3F4F6] focus:border-[#10B981]'
-                    : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#111315] focus:border-[#059669]'
+                  : isLight
+                    ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#111315] focus:border-[#059669]'
+                    : 'bg-[#111315] border-[#262B33] text-[#F3F4F6] focus:border-[#10B981]'
               )}
             />
-            {error && <p className="text-red-400 text-xs font-medium mb-4">{error}</p>}
             <button
+              type="button"
+              disabled={redeeming}
               onClick={handleUnlock}
               className={clsx(
-                'w-full py-2.5 px-5 rounded-lg text-sm font-semibold transition-colors mb-4 cursor-pointer',
+                'py-2.5 px-6 rounded-xl text-sm font-bold transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap',
                 isFrutigerAero ? 'frutiger-aero-button' : 'bg-[#10B981] hover:bg-[#059669] text-[#0A0C0E]'
               )}
             >
-              {t.unlockButton}
+              {redeeming ? (language === 'ru' ? 'Проверка...' : 'Checking...') : t.unlockButton}
             </button>
-
-            <div className="relative flex items-center justify-center my-5">
-              <div className={clsx('absolute inset-x-0 border-t', theme !== 'light' ? 'border-[#262B33]' : 'border-[#E2E5EA]')} />
-              <span className={clsx('relative px-3 text-xs font-medium', theme !== 'light' ? 'bg-[#181B20] text-[#6B7280]' : 'bg-white text-[#6B7280]')}>
-                {language === 'ru' ? 'или безопасно с картой' : 'or securely via card'}
-              </span>
-            </div>
-
             <button
+              type="button"
               onClick={handleCheckout}
               disabled={isProcessingStripe}
-              className="w-full py-2.5 px-5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-lg text-sm font-semibold transition-colors flex items-center justify-center mb-3 disabled:opacity-50 cursor-pointer font-mono-num"
+              className="py-2.5 px-5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 cursor-pointer whitespace-nowrap font-mono-num"
             >
               {isProcessingStripe
                 ? language === 'ru' ? 'Загрузка...' : 'Loading...'
-                : language === 'ru' ? 'Оплатить через Stripe ($5.99)' : 'Pay with Stripe ($5.99)'}
-            </button>
-
-            <button
-              onClick={handleFreeTrial}
-              className={clsx(
-                'w-full py-2.5 px-5 rounded-lg border text-sm font-medium transition-colors cursor-pointer',
-                theme !== 'light'
-                  ? 'bg-[#111315] border-[#262B33] text-[#F3F4F6] hover:bg-[#22262E]'
-                  : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#111315] hover:bg-zinc-200'
-              )}
-            >
-              {language === 'ru' ? 'Включить бесплатную пробную версию на 1 неделю' : 'Enable free trial for 1 week'}
+                : language === 'ru' ? 'Stripe ($5.99)' : 'Pay with Stripe ($5.99)'}
             </button>
           </div>
-        )}
+          {error && <p className="text-red-400 text-xs font-medium mt-2.5">{error}</p>}
+        </div>
+
+        {/* 3 Distinct Premium Tier Cards */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* 1. PLUS — Understated / non-unique */}
+          {(() => {
+            const meta = PREMIUM_TIERS.plus;
+            const isCurrent = activeTier === 'plus';
+            return (
+              <div
+                className={clsx(
+                  'rounded-xl border p-5 flex flex-col justify-between transition-all',
+                  isLight
+                    ? 'bg-[#F8FAFC] border-slate-300 text-slate-800'
+                    : 'bg-[#16191D] border-slate-700/70 text-slate-200',
+                  isCurrent && 'ring-2 ring-slate-400'
+                )}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="px-2.5 py-0.5 rounded bg-slate-600/30 border border-slate-500/40 text-slate-300 text-[11px] font-bold uppercase">
+                      {meta.badgeText}
+                    </span>
+                    <span className="text-xs font-mono-num opacity-70">{meta.priceLabel}</span>
+                  </div>
+                  <h3 className="text-xl font-bold mb-1">{meta.name}</h3>
+                  <p className="text-xs opacity-70 mb-4">
+                    {language === 'ru' ? meta.taglineRu : meta.taglineEn}
+                  </p>
+
+                  <div className="text-[11px] font-bold uppercase tracking-wider opacity-60 mb-2">
+                    {language === 'ru' ? 'Доступно:' : 'Included:'}
+                  </div>
+                  <ul className="space-y-2 text-xs mb-4">
+                    {(language === 'ru' ? meta.allowedRu : meta.allowedEn).map((item, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <Check className="w-3.5 h-3.5 text-sky-400 shrink-0 mt-0.5" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-red-400/80 mb-2">
+                    {language === 'ru' ? 'Недоступно:' : 'Not included:'}
+                  </div>
+                  <ul className="space-y-1.5 text-xs opacity-70">
+                    {(language === 'ru' ? meta.lockedRu : meta.lockedEn).map((item, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <Ban className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="mt-5 pt-3 border-t border-current/10 text-[11px] font-mono opacity-65">
+                  {language === 'ru' ? 'Формат ключа: PLUS-XXXX-XXXX' : 'Key format: PLUS-XXXX-XXXX'}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* 2. PREMIUM — Distinct Crystalline Violet-Emerald */}
+          {(() => {
+            const meta = PREMIUM_TIERS.premium;
+            const isCurrent = activeTier === 'premium';
+            return (
+              <div
+                className={clsx(
+                  'rounded-2xl border p-5 flex flex-col justify-between transition-all relative overflow-hidden',
+                  isLight
+                    ? 'bg-gradient-to-b from-violet-50 via-white to-emerald-50 border-violet-400 text-[#111315] shadow-md'
+                    : 'bg-gradient-to-b from-[#1B1630] via-[#171A26] to-[#11221E] border-violet-500/60 text-[#F3F4F6] shadow-[0_0_28px_rgba(139,92,246,0.18)]',
+                  isCurrent && 'ring-2 ring-emerald-400'
+                )}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="px-2.5 py-0.5 rounded-md bg-gradient-to-r from-violet-500 to-emerald-500 text-white text-[11px] font-bold uppercase flex items-center gap-1 shadow-sm">
+                      <Sparkles className="w-3 h-3" />
+                      {meta.badgeText}
+                    </span>
+                    <span className="text-xs font-mono-num text-emerald-400 font-bold">{meta.priceLabel}</span>
+                  </div>
+                  <h3 className="text-xl font-extrabold mb-1 bg-gradient-to-r from-violet-400 to-emerald-400 bg-clip-text text-transparent">
+                    {meta.name}
+                  </h3>
+                  <p className="text-xs opacity-75 mb-4">
+                    {language === 'ru' ? meta.taglineRu : meta.taglineEn}
+                  </p>
+
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-emerald-400 mb-2">
+                    {language === 'ru' ? 'Доступно:' : 'Included:'}
+                  </div>
+                  <ul className="space-y-2 text-xs mb-4">
+                    {(language === 'ru' ? meta.allowedRu : meta.allowedEn).map((item, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-amber-400/80 mb-2">
+                    {language === 'ru' ? 'Только в Ultra:' : 'Ultra Only:'}
+                  </div>
+                  <ul className="space-y-1.5 text-xs opacity-75">
+                    {(language === 'ru' ? meta.lockedRu : meta.lockedEn).map((item, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <Lock className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="mt-5 pt-3 border-t border-current/10 text-[11px] font-mono text-violet-300">
+                  {language === 'ru' ? 'Формат ключа: PREM-XXXX-XXXX' : 'Key format: PREM-XXXX-XXXX'}
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* 3. ULTRA — Most Epic & Unique Flagship */}
+          {(() => {
+            const meta = PREMIUM_TIERS.ultra;
+            const isCurrent = activeTier === 'ultra';
+            return (
+              <div
+                className={clsx(
+                  'rounded-2xl border-2 p-5 flex flex-col justify-between transition-all relative overflow-hidden',
+                  'bg-gradient-to-br from-[#1C1408] via-[#201228] to-[#081F26] border-amber-400 text-white shadow-[0_0_40px_rgba(245,158,11,0.28)]',
+                  isCurrent && 'ring-2 ring-cyan-300'
+                )}
+              >
+                <div className="pointer-events-none absolute -top-20 -right-20 w-44 h-44 rounded-full bg-amber-400/20 blur-3xl" />
+                <div className="pointer-events-none absolute -bottom-20 -left-20 w-44 h-44 rounded-full bg-pink-500/20 blur-3xl" />
+
+                <div className="relative z-10">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="px-3 py-1 rounded-lg bg-gradient-to-r from-amber-400 via-pink-500 to-cyan-400 text-black text-[11px] font-black uppercase flex items-center gap-1.5 shadow-md">
+                      <Crown className="w-3.5 h-3.5" />
+                      {meta.badgeText}
+                    </span>
+                    <span className="text-xs font-mono-num text-amber-300 font-bold">{meta.priceLabel}</span>
+                  </div>
+                  <h3 className="text-2xl font-black mb-1 bg-gradient-to-r from-amber-300 via-pink-300 to-cyan-300 bg-clip-text text-transparent">
+                    {meta.name}
+                  </h3>
+                  <p className="text-xs text-amber-100/80 mb-4">
+                    {language === 'ru' ? meta.taglineRu : meta.taglineEn}
+                  </p>
+
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-amber-300 mb-2">
+                    {language === 'ru' ? 'Открыто абсолютно ВСЁ:' : 'Everything Unlocked:'}
+                  </div>
+                  <ul className="space-y-2.5 text-xs">
+                    {(language === 'ru' ? meta.allowedRu : meta.allowedEn).map((item, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <Star className="w-3.5 h-3.5 text-amber-400 fill-amber-400 shrink-0 mt-0.5" />
+                        <span className="text-white/95">{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <div className="relative z-10 mt-5 pt-3 border-t border-amber-400/25 text-[11px] font-mono text-amber-300 font-semibold">
+                  {language === 'ru' ? 'Формат ключа: ULTR-XXXX-XXXX' : 'Key format: ULTR-XXXX-XXXX'}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
       </div>
     </div>
   );

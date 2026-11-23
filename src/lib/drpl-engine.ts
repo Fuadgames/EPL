@@ -129,20 +129,23 @@ const DRPL_COMPONENT_FN_NAMES = new Set([
   'text3d', 'grid3d', 'spin3d', 'rigidbody3d', 'fog3d',
   'pickup3d', 'turret3d', 'particles3d', 'camera3d', 'move3d', 'rotate3d',
   'scale3d', 'projectile3d', 'dragon3d', 'forest3d', 'character3d',
+  'raycast3d', 'hologram3d', 'checkpoint3d', 'platform3d', 'bouncepad3d', 'trail3d', 'shake3d',
   // 2D
   'use2d', 'parallax2d', 'tilemap2d', 'player2d', 'enemy2d', 'platform2d', 'bullet2d',
   'coin2d', 'laser2d', 'particles2d', 'light2d', 'floater2d', 'camera2d', 'minimap2d', 'sfx2d',
   'move2d', 'rect2d', 'triangle2d', 'circle2d', 'polygon2d', 'line2d', 'capsule2d', 'sprite2d', 'weather2d',
+  'spawner2d', 'checkpoint2d', 'spring2d', 'hazard2d', 'shield2d', 'dialog2d', 'tween2d',
   // App / UI / Polyglot OOP Data
   'useapp', 'ui_card', 'ui_chart', 'ui_gauge', 'ui_button', 'ui_slider', 'ui_toggle',
   'ui_progress', 'ui_tabs', 'ui_table', 'ui_terminal', 'ui_spectrum', 'ui_toast', 'ui_input',
-  'ui_text', 'ui_badge', 'ui_avatar', 'ui_code', 'ui_modal', 'state_store', 'event_bus'
+  'ui_text', 'ui_badge', 'ui_avatar', 'ui_code', 'ui_modal', 'ui_inventory', 'ui_statbar',
+  'ui_timer', 'ui_chat', 'ui_grid', 'synth_music', 'storage_save', 'state_store', 'event_bus'
 ]);
 
 const DRPL_HELPER_FN_NAMES = new Set([
   'setUI', 'getUI', 'pushChart', 'logTerminal', 'setVar', 'getVar', 'getProp', 'get2D',
   'shake', 'playSfx', 'distance3d', 'lerp', 'clamp', 'rand', 'randInt',
-  'print', 'vec2', 'vec3', 'emit', 'onEvent'
+  'print', 'vec2', 'vec3', 'emit', 'onEvent', 'storage_load'
 ]);
 
 function splitTopLevelArgs(argText: string): string[] {
@@ -309,12 +312,14 @@ export function transpileDRPL(source: string): DrplTranspileResult {
     'torus3d', 'pyramid3d', 'cone3d', 'capsule3d', 'plane3d', 'icosahedron3d', 'ring3d',
     'text3d', 'grid3d', 'spin3d', 'rigidbody3d', 'fog3d',
     'pickup3d', 'turret3d', 'particles3d', 'camera3d', 'move3d', 'rotate3d',
-    'scale3d', 'projectile3d', 'dragon3d', 'forest3d', 'character3d'
+    'scale3d', 'projectile3d', 'dragon3d', 'forest3d', 'character3d',
+    'raycast3d', 'hologram3d', 'checkpoint3d', 'platform3d', 'bouncepad3d', 'trail3d', 'shake3d'
   ]);
   const twoDWorldNames = new Set([
     'parallax2d', 'tilemap2d', 'player2d', 'enemy2d', 'platform2d', 'bullet2d',
     'coin2d', 'laser2d', 'particles2d', 'light2d', 'floater2d', 'camera2d', 'minimap2d', 'move2d',
-    'rect2d', 'triangle2d', 'circle2d', 'polygon2d', 'line2d', 'capsule2d', 'sprite2d', 'weather2d'
+    'rect2d', 'triangle2d', 'circle2d', 'polygon2d', 'line2d', 'capsule2d', 'sprite2d', 'weather2d',
+    'spawner2d', 'checkpoint2d', 'spring2d', 'hazard2d', 'shield2d', 'dialog2d', 'tween2d'
   ]);
   let hasUse3d = false;
   let hasUse2d = false;

@@ -43,6 +43,17 @@ service cloud.firestore {
       return isBootstrappedDev() || (signedIn() && callerRole() == 'developer');
     }
 
+    function callerHasPremium() {
+      return isDeveloper() || (
+        signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('isPremium', false) == true
+          || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('premiumTier', 'none') in ['plus', 'premium', 'ultra']
+        )
+      );
+    }
+
     function isValidNewsImages(imgs) {
       return imgs is list
         && imgs.size() <= 6
@@ -67,6 +78,51 @@ service cloud.firestore {
         && (!('authorAvatar' in data) || (data.authorAvatar is string && data.authorAvatar.size() <= 2048))
         && data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 64
         && data.updatedAt is string && data.updatedAt.size() > 0 && data.updatedAt.size() <= 64;
+    }
+
+    function isValidReview(data) {
+      return data.keys().hasAll(['appId', 'userId', 'userName', 'rating', 'comment', 'createdAt'])
+        && data.appId is string && data.appId.size() > 0 && data.appId.size() <= 128
+        && data.userId is string && data.userId.size() > 0 && data.userId.size() <= 128
+        && data.userName is string && data.userName.size() > 0 && data.userName.size() <= 100
+        && data.rating is number && data.rating >= 1 && data.rating <= 5
+        && data.comment is string && data.comment.size() > 0 && data.comment.size() <= 2000
+        && data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 64;
+    }
+
+    function isValidPremiumChat(data, expectedUid) {
+      return data.keys().hasAll(['userId', 'userName', 'lastMessage', 'lastMessageAt'])
+        && data.userId is string && data.userId == expectedUid
+        && data.userName is string && data.userName.size() > 0 && data.userName.size() <= 100
+        && data.lastMessage is string && data.lastMessage.size() <= 4000
+        && data.lastMessageAt is string && data.lastMessageAt.size() > 0 && data.lastMessageAt.size() <= 64;
+    }
+
+    function isValidPremiumChatMessage(data) {
+      return data.keys().hasAll(['senderId', 'senderName', 'senderRole', 'text', 'createdAt'])
+        && data.senderId is string && data.senderId.size() > 0 && data.senderId.size() <= 128
+        && data.senderName is string && data.senderName.size() > 0 && data.senderName.size() <= 100
+        && data.senderRole in ['user', 'developer']
+        && data.text is string && data.text.size() > 0 && data.text.size() <= 4000
+        && data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 64;
+    }
+
+    function isValidRemoteSession(data, targetUid) {
+      return data.keys().hasAll(['targetUid', 'controllerUid', 'controllerName', 'status', 'updatedAt'])
+        && data.targetUid is string && data.targetUid == targetUid
+        && data.controllerUid is string && data.controllerUid.size() > 0 && data.controllerUid.size() <= 128
+        && data.controllerName is string && data.controllerName.size() > 0 && data.controllerName.size() <= 100
+        && data.status in ['active', 'declined', 'ended']
+        && data.updatedAt is string && data.updatedAt.size() > 0 && data.updatedAt.size() <= 64;
+    }
+
+    function isValidTrollInbox(data, targetUid) {
+      return data.keys().hasAll(['eventId', 'targetUid', 'senderUid', 'kind', 'createdAt'])
+        && data.eventId is string && data.eventId.size() > 0 && data.eventId.size() <= 128
+        && data.targetUid is string && data.targetUid == targetUid
+        && data.senderUid is string && data.senderUid.size() > 0 && data.senderUid.size() <= 128
+        && data.kind in ['troll_message', 'prank_fx', 'soundboard', 'clear']
+        && data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 64;
     }
 
     // ---------- users ----------
@@ -121,6 +177,29 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // ---------- premiumChats (Player <-> Developer chat) ----------
+    match /premiumChats/{chatId} {
+      allow get: if isValidId(chatId) && (isDeveloper() || isSelf(chatId));
+      allow list: if isDeveloper() || (signedIn() && resource.data.userId == request.auth.uid);
+      allow create: if isValidId(chatId)
+                    && (isDeveloper() || isSelf(chatId))
+                    && isValidPremiumChat(request.resource.data, chatId);
+      allow update: if isValidId(chatId)
+                    && (isDeveloper() || isSelf(chatId))
+                    && isValidPremiumChat(request.resource.data, chatId);
+      allow delete: if isValidId(chatId) && isDeveloper();
+
+      match /messages/{messageId} {
+        allow get, list: if isValidId(chatId) && isValidId(messageId) && (isDeveloper() || isSelf(chatId));
+        allow create: if isValidId(chatId) && isValidId(messageId)
+                      && (isDeveloper() || isSelf(chatId))
+                      && isValidPremiumChatMessage(request.resource.data)
+                      && request.resource.data.senderId == request.auth.uid
+                      && (isDeveloper() || request.resource.data.senderRole == 'user');
+        allow update, delete: if isValidId(chatId) && isValidId(messageId) && isDeveloper();
+      }
+    }
+
     // ---------- adminRequests ----------
     match /adminRequests/{reqId} {
       allow create: if isValidId(reqId) && signedIn()
@@ -153,12 +232,49 @@ service cloud.firestore {
       allow delete: if isValidId(voteId) && signedIn() && resource.data.userId == request.auth.uid;
     }
 
-    // ---------- reviews ----------
+    // ---------- reviews (Rate tab + app reviews; deletion strictly developer, author, or server AI) ----------
     match /reviews/{reviewId} {
       allow get: if isValidId(reviewId);
       allow list: if true;
-      allow create: if isValidId(reviewId) && signedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if isValidId(reviewId) && (isStaff() || (signedIn() && resource.data.userId == request.auth.uid));
+      allow create: if isValidId(reviewId) && signedIn()
+                    && request.resource.data.userId == request.auth.uid
+                    && isValidReview(request.resource.data);
+      allow update: if isValidId(reviewId)
+                    && (isDeveloper() || (signedIn() && resource.data.userId == request.auth.uid))
+                    && isValidReview(request.resource.data);
+      allow delete: if isValidId(reviewId)
+                    && (isDeveloper() || (signedIn() && resource.data.userId == request.auth.uid));
+    }
+
+    // ---------- remoteControlSessions (Control My EPL) ----------
+    match /remoteControlSessions/{targetUid} {
+      allow get: if isValidId(targetUid) && signedIn()
+                 && (isSelf(targetUid) || callerHasPremium());
+      allow list: if signedIn()
+                  && (isDeveloper() || resource.data.targetUid == request.auth.uid || resource.data.controllerUid == request.auth.uid);
+      allow create: if isValidId(targetUid) && callerHasPremium()
+                    && request.resource.data.controllerUid == request.auth.uid
+                    && isValidRemoteSession(request.resource.data, targetUid);
+      allow update: if isValidId(targetUid) && signedIn()
+                    && isValidRemoteSession(request.resource.data, targetUid)
+                    && (
+                      (isSelf(targetUid) && request.resource.data.status in ['declined', 'ended'])
+                      || (callerHasPremium() && request.resource.data.controllerUid == request.auth.uid)
+                    );
+      allow delete: if isValidId(targetUid) && signedIn()
+                    && (isSelf(targetUid) || resource.data.controllerUid == request.auth.uid || isDeveloper());
+    }
+
+    // ---------- trollInbox (Troll Message & target prank FX) ----------
+    match /trollInbox/{targetUid} {
+      allow get: if isValidId(targetUid) && signedIn()
+                 && (isSelf(targetUid) || callerHasPremium());
+      allow list: if signedIn()
+                  && (isDeveloper() || resource.data.targetUid == request.auth.uid || resource.data.senderUid == request.auth.uid);
+      allow create, update: if isValidId(targetUid) && signedIn()
+                            && isValidTrollInbox(request.resource.data, targetUid)
+                            && (isSelf(targetUid) || (callerHasPremium() && request.resource.data.senderUid == request.auth.uid));
+      allow delete: if isValidId(targetUid) && (isSelf(targetUid) || isDeveloper());
     }
 
     // ---------- friendRequests ----------

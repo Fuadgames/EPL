@@ -18,11 +18,13 @@ interface LeaderboardUser {
   eplCoins: number;
   role?: string;
   isVerifiedAuthor?: boolean;
+  isBanned?: boolean;
 }
 
 interface PopularProject {
   id: string;
   title: string;
+  authorId?: string;
   authorName: string;
   visits: number;
   iconUrl: string;
@@ -51,10 +53,24 @@ export default function LeaderboardsView() {
       let q;
       const usersRef = collection(db, 'users_public');
 
+      // Always collect banned UIDs from `users` as well so even legacy bans without users_public.isBanned are excluded
+      const bannedUids = new Set<string>();
+      try {
+        const bannedSnap = await getDocs(query(collection(db, 'users'), where('isBanned', '==', true)));
+        bannedSnap.docs.forEach((d) => {
+          const data = d.data() as any;
+          if (data?.isBanned) {
+            bannedUids.add(data.uid || d.id);
+          }
+        });
+      } catch (err) {
+        console.warn('Could not query banned users set:', err);
+      }
+
       if (activeTab === 'global') {
-        q = query(usersRef, orderBy('eplCoins', 'desc'), limit(100));
+        q = query(usersRef, orderBy('eplCoins', 'desc'), limit(150));
       } else if (activeTab === 'region') {
-        q = query(usersRef, orderBy('eplCoins', 'desc'), limit(200));
+        q = query(usersRef, orderBy('eplCoins', 'desc'), limit(250));
       } else if (activeTab === 'popular') {
         const appsRef = collection(db, 'apps');
         const popularQuery = query(
@@ -65,7 +81,7 @@ export default function LeaderboardsView() {
         const snapshot = await getDocs(popularQuery);
         const projects = snapshot.docs
           .map((docSnap) => ({ id: docSnap.id, ...docSnap.data() } as PopularProject & { isPrivate?: boolean }))
-          .filter((p) => !p.isPrivate)
+          .filter((p) => !p.isPrivate && (!p.authorId || !bannedUids.has(p.authorId)))
           .slice(0, 50);
         setPopularProjects(projects);
         setLoading(false);
@@ -84,7 +100,9 @@ export default function LeaderboardsView() {
           for (const chunk of chunks) {
             const chunkQuery = query(usersRef, where('uid', 'in', chunk));
             const snapshot = await getDocs(chunkQuery);
-            const chunkUsers = snapshot.docs.map((docSnap) => docSnap.data() as LeaderboardUser);
+            const chunkUsers = snapshot.docs
+              .map((docSnap) => ({ uid: docSnap.id, ...(docSnap.data() as Record<string, any>) } as LeaderboardUser))
+              .filter((u) => !u.isBanned && !bannedUids.has(u.uid));
             allFriends = [...allFriends, ...chunkUsers];
           }
 
@@ -101,11 +119,16 @@ export default function LeaderboardsView() {
 
       if (q) {
         const snapshot = await getDocs(q);
-        let fetchedUsers = snapshot.docs.map((docSnap) => docSnap.data() as LeaderboardUser);
+        let fetchedUsers = snapshot.docs.map((docSnap) => ({
+          uid: docSnap.id,
+          ...(docSnap.data() as Record<string, any>)
+        } as LeaderboardUser));
         fetchedUsers = fetchedUsers.filter((u) => {
           const name = (u.name || '').toLowerCase();
           const matchesRegion = activeTab !== 'region' || (u.region || 'Global') === (userData?.region || 'Global');
+          const notBanned = !u.isBanned && !bannedUids.has(u.uid);
           return (
+            notBanned &&
             matchesRegion &&
             !name.includes('взлом') &&
             !name.includes('hacked') &&

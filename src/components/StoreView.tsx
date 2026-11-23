@@ -34,11 +34,13 @@ import {
   CheckCircle2,
   Play,
   Package,
+  Globe,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { AppData, AppCategory, UserVote } from '../types';
 import FriendsView from './FriendsView';
 import BuildDownloadModal from './BuildDownloadModal';
+import WebsiteViewerModal from './WebsiteViewerModal';
 import UserRoleBadge from './UserRoleBadge';
 import VerifiedBadge from './VerifiedBadge';
 
@@ -70,17 +72,27 @@ export default function StoreView() {
   const isFrutigerAero = useStore((state) => state.isFrutigerAero);
   const language = useStore((state) => state.language);
   const isAppInstalled = useStore((state) => state.isAppInstalled);
-  const installApp = useStore((state) => state.installApp);
-  const [installingAppId, setInstallingAppId] = useState<string | null>(null);
   const [, startTransition] = useTransition();
 
   const [buildTargetApp, setBuildTargetApp] = useState<AppData | null>(null);
   const [buildTargetPlatform, setBuildTargetPlatform] = useState<string | undefined>(undefined);
+  const [visitingWebsiteApp, setVisitingWebsiteApp] = useState<AppData | null>(null);
 
   const [enteredCode, setEnteredCode] = useState('');
   const [unlockError, setUnlockError] = useState('');
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [unlockTargetApp, setUnlockTargetApp] = useState<AppData | null>(null);
+
+  const handleVisitWebsite = async (app: AppData) => {
+    setVisitingWebsiteApp(app);
+    try {
+      await updateDoc(doc(db, 'apps', app.id), {
+        visits: increment(1),
+      });
+    } catch (err) {
+      console.error('Error incrementing website visits:', err);
+    }
+  };
 
   const isLight = theme === 'light' && !isFrutigerAero;
 
@@ -592,9 +604,20 @@ export default function StoreView() {
                                 : 'text-[#9CA3AF]'
                             )}
                           >
-                            <span className="capitalize">{app.category || 'App'}</span>
-                            <span className="mx-1.5">·</span>
-                            <span className="font-mono-num">{app.visits || 0} runs</span>
+                            {app.isWebsite || app.websiteDomain ? (
+                              <>
+                                <span className="font-mono text-[#10B981] font-semibold">
+                                  {app.websiteDomain || `${(app.title || 'site').toLowerCase().replace(/[^a-z0-9-]+/g, '-')}.epl`}
+                                </span>
+                                <span className="mx-1.5">·</span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="capitalize">{app.category || 'App'}</span>
+                                <span className="mx-1.5">·</span>
+                              </>
+                            )}
+                            <span className="font-mono-num">{app.visits || 0} {app.isWebsite || app.websiteDomain ? 'visits' : 'runs'}</span>
                             {app.price && app.price > 0 ? (
                               <>
                                 <span className="mx-1.5">·</span>
@@ -707,7 +730,25 @@ export default function StoreView() {
                       </div>
 
                       {/* Primary Action */}
-                      {installed ? (
+                      {app.isWebsite || app.websiteDomain ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleVisitWebsite(app);
+                          }}
+                          className={clsx(
+                            'w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer',
+                            isFrutigerAero
+                              ? 'frutiger-aero-button'
+                              : isLight
+                              ? 'bg-[#0284C7] hover:bg-[#0369A1] text-white'
+                              : 'bg-sky-500 hover:bg-sky-400 text-[#07111A]'
+                          )}
+                        >
+                          <Globe className="w-4 h-4" />
+                          <span>Visit</span>
+                        </button>
+                      ) : installed ? (
                         <div className="flex items-center gap-2">
                           <button
                             onClick={() => handlePlay(app)}
@@ -739,30 +780,12 @@ export default function StoreView() {
                         </div>
                       ) : (
                         <button
-                          disabled={installingAppId === app.id}
-                          onClick={async (e) => {
+                          onClick={(e) => {
                             e.stopPropagation();
-                            if (app.price && app.price > 0 && !userData?.purchasedApps?.includes(app.id)) {
-                              setSelectedAppId(app.id);
-                              return;
-                            }
-                            try {
-                              setInstallingAppId(app.id);
-                              await installApp(app);
-                              notify.success(
-                                language === 'ru'
-                                  ? `«${app.title}» добавлено в установленные`
-                                  : `"${app.title}" installed`
-                              );
-                            } catch (err) {
-                              console.error('Install error:', err);
-                              notify.error(language === 'ru' ? 'Ошибка установки' : 'Install failed');
-                            } finally {
-                              setInstallingAppId(null);
-                            }
+                            setSelectedAppId(app.id);
                           }}
                           className={clsx(
-                            'w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap disabled:opacity-50',
+                            'w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer',
                             isFrutigerAero
                               ? 'frutiger-aero-button'
                               : isLight
@@ -771,15 +794,7 @@ export default function StoreView() {
                           )}
                         >
                           <Download className="w-4 h-4" />
-                          <span>
-                            {installingAppId === app.id
-                              ? language === 'ru'
-                                ? 'Установка...'
-                                : 'Installing...'
-                              : language === 'ru'
-                              ? 'Получить (Get)'
-                              : 'Get'}
-                          </span>
+                          <span>Get</span>
                         </button>
                       )}
                     </article>
@@ -869,6 +884,13 @@ export default function StoreView() {
         app={buildTargetApp}
         initialPlatform={buildTargetPlatform}
         onClose={() => setBuildTargetApp(null)}
+      />
+
+      {/* Website Viewer Modal */}
+      <WebsiteViewerModal
+        isOpen={!!visitingWebsiteApp}
+        app={visitingWebsiteApp}
+        onClose={() => setVisitingWebsiteApp(null)}
       />
     </div>
   );

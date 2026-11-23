@@ -26,18 +26,24 @@ import {
   ChevronRight,
   X,
   Sparkles,
+  PanelLeftClose,
+  PanelLeftOpen,
+  PanelBottomClose,
+  PanelBottomOpen,
+  Crown,
+  MessageSquareHeart,
 } from 'lucide-react';
 import { logOut } from '../firebase';
 import { clsx } from 'clsx';
 import { translations } from '../lib/translations';
 import AuthModal from './AuthModal';
 import AppDetailView from './AppDetailView';
+import DesktopDownloadModal from './DesktopDownloadModal';
+import ExtraPremiumReceiver from './ExtraPremiumReceiver';
 import { getDefaultAvatar } from '../lib/avatar';
 import UserRoleBadge from './UserRoleBadge';
 import VerifiedBadge from './VerifiedBadge';
-
-const DESKTOP_APP_DOWNLOAD_URL =
-  'https://drive.google.com/uc?export=download&id=122nysFUK_GBpxPBcwfV0kMSGhbNuRoSy';
+import { resolveEffectiveTier } from '../lib/premiumTiers';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const currentView = useStore((state) => state.currentView);
@@ -46,8 +52,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const theme = useStore((state) => state.theme);
   const language = useStore((state) => state.language);
   const isPremium = useStore((state) => state.isPremium);
+  const premiumTier = useStore((state) => state.premiumTier);
   const selectedAppId = useStore((state) => state.selectedAppId);
   const userData = useStore((state) => state.userData);
+  const effectivePremiumTier = resolveEffectiveTier(isPremium || userData?.isPremium, userData?.premiumTier || premiumTier);
+  const hasActivePremium = effectivePremiumTier !== 'none';
   const isAuthModalOpen = useStore((state) => state.isAuthModalOpen);
   const setIsAuthModalOpen = useStore((state) => state.setIsAuthModalOpen);
   const isFrutigerAero = useStore((state) => state.isFrutigerAero);
@@ -59,12 +68,31 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const showTab = useStore((state) => state.showTab);
   const toggleTabVisibility = useStore((state) => state.toggleTabVisibility);
   const restoreAllTabs = useStore((state) => state.restoreAllTabs);
+  const isSidebarHidden = useStore((state) => state.isSidebarHidden);
+  const setIsSidebarHidden = useStore((state) => state.setIsSidebarHidden);
+  const toggleSidebarHidden = useStore((state) => state.toggleSidebarHidden);
+  const isMobileNavHidden = useStore((state) => state.isMobileNavHidden);
+  const setIsMobileNavHidden = useStore((state) => state.setIsMobileNavHidden);
+  const setIsDesktopDownloadOpen = useStore((state) => state.setIsDesktopDownloadOpen);
   const t = translations[language];
 
   const [isCustomizeTabs, setIsCustomizeTabs] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const mobileNavRef = useRef<HTMLDivElement>(null);
   const mobileTabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'b') {
+        const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+        if (tag === 'input' || tag === 'textarea') return;
+        e.preventDefault();
+        toggleSidebarHidden();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [toggleSidebarHidden]);
 
   const handleLogOut = async () => {
     try {
@@ -112,10 +140,14 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { id: 'asset-store', label: 'Asset Store', icon: ShoppingBag, permission: 'accessAssetStore' },
     { id: 'donate', label: language === 'ru' ? 'Поддержать' : 'Donate', icon: Coins },
     { id: 'premium', label: translations[language].premium, icon: Star, permission: 'accessPremium' },
+    ...(hasActivePremium
+      ? [{ id: 'extra-premium', label: 'Extra Premium Access', icon: Crown, permission: 'accessPremium', isEpicExtra: true }]
+      : []),
     { id: 'profile', label: translations[language].profile, icon: User },
     ...(effectiveRole === 'developer' || effectiveRole === 'admin' || effectiveRole === 'moderator'
       ? [{ id: 'control', label: 'Control', icon: ShieldCheck, permission: 'accessControl' }]
       : []),
+    { id: 'rate', label: language === 'ru' ? 'Оценить' : 'Rate', icon: MessageSquareHeart },
     { id: 'news', label: translations[language].news || (language === 'ru' ? 'Новости' : 'News'), icon: Newspaper },
     { id: 'settings', label: translations[language].settings, icon: Settings },
   ] as const;
@@ -155,61 +187,97 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
+      {/* Floating Restore Sidebar Button when Sidebar is Hidden (Desktop) */}
+      {isSidebarHidden && (
+        <button
+          type="button"
+          onClick={() => setIsSidebarHidden(false)}
+          title={language === 'ru' ? 'Вернуть боковое меню (Ctrl+B)' : 'Show sidebar (Ctrl+B)'}
+          className={clsx(
+            'hidden md:inline-flex fixed top-3 left-3 z-40 items-center gap-2 px-3 py-2 rounded-xl border shadow-lg backdrop-blur-md text-xs font-semibold transition-all hover:scale-[1.03] cursor-pointer',
+            isFrutigerAero
+              ? 'frutiger-aero-button border-white'
+              : isLight
+                ? 'bg-white/95 border-[#E2E5EA] text-[#111315] hover:border-[#059669]'
+                : 'bg-[#181B20]/95 border-[#262B33] text-[#F3F4F6] hover:border-[#10B981]'
+          )}
+        >
+          <PanelLeftOpen className="w-4 h-4 text-[#10B981]" />
+          <span>{language === 'ru' ? 'Меню' : 'Menu'}</span>
+        </button>
+      )}
+
       {/* Desktop Sidebar */}
-      <aside
-        className={clsx(
-          'hidden md:flex w-64 shrink-0 flex-col border-r relative z-10 h-screen',
-          isFrutigerAero
-            ? 'frutiger-aero-glass border-white/50'
-            : isLight
-            ? 'border-[#E2E5EA] bg-[#FFFFFF]'
-            : 'border-[#262B33] bg-[#181B20]'
-        )}
-      >
-        <div className="flex flex-col h-full p-4">
-          {/* Clean IDE Brand Header */}
-          <div className="px-2 pt-1 pb-4 mb-4 border-b border-current/10">
-            <div className="flex items-center gap-2.5">
-              <div
+      {!isSidebarHidden && (
+        <aside
+          className={clsx(
+            'hidden md:flex w-64 shrink-0 flex-col border-r relative z-10 h-screen',
+            isFrutigerAero
+              ? 'frutiger-aero-glass border-white/50'
+              : isLight
+              ? 'border-[#E2E5EA] bg-[#FFFFFF]'
+              : 'border-[#262B33] bg-[#181B20]'
+          )}
+        >
+          <div className="flex flex-col h-full p-4">
+            {/* Clean IDE Brand Header + Hide Whole Panel Button */}
+            <div className="px-2 pt-1 pb-4 mb-4 border-b border-current/10 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div
+                  className={clsx(
+                    'w-8 h-8 rounded-lg flex items-center justify-center border shrink-0',
+                    isFrutigerAero
+                      ? 'bg-white/60 border-white text-[#0284c7]'
+                      : isLight
+                      ? 'bg-[#059669]/10 border-[#059669]/30 text-[#059669]'
+                      : 'bg-[#10B981]/10 border-[#10B981]/30 text-[#10B981]'
+                  )}
+                >
+                  <Terminal className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <h1
+                    className={clsx(
+                      'text-base font-bold tracking-tight leading-none truncate',
+                      isFrutigerAero
+                        ? 'frutiger-aero-text'
+                        : isLight
+                        ? 'text-[#111315]'
+                        : 'text-[#F3F4F6]'
+                    )}
+                  >
+                    {isPremium ? 'EPL Premium' : 'EPL Studio'}
+                  </h1>
+                  <p
+                    className={clsx(
+                      'text-[11px] mt-1 font-mono truncate',
+                      isFrutigerAero
+                        ? 'text-[#1e4b73]'
+                        : isLight
+                        ? 'text-[#6B7280]'
+                        : 'text-[#9CA3AF]'
+                    )}
+                  >
+                    Easy Programming Language
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSidebarHidden(true)}
+                title={language === 'ru' ? 'Скрыть панель (Ctrl+B)' : 'Hide panel (Ctrl+B)'}
                 className={clsx(
-                  'w-8 h-8 rounded-lg flex items-center justify-center border shrink-0',
+                  'p-1.5 rounded-lg border transition-colors shrink-0 cursor-pointer',
                   isFrutigerAero
-                    ? 'bg-white/60 border-white text-[#0284c7]'
+                    ? 'border-white/60 text-[#1e4b73] hover:bg-white/50'
                     : isLight
-                    ? 'bg-[#059669]/10 border-[#059669]/30 text-[#059669]'
-                    : 'bg-[#10B981]/10 border-[#10B981]/30 text-[#10B981]'
+                      ? 'border-[#E2E5EA] text-[#6B7280] hover:bg-[#F5F6F8] hover:text-[#111315]'
+                      : 'border-[#262B33] text-[#9CA3AF] hover:bg-[#20242B] hover:text-[#F3F4F6]'
                 )}
               >
-                <Terminal className="w-4 h-4" />
-              </div>
-              <div className="min-w-0">
-                <h1
-                  className={clsx(
-                    'text-base font-bold tracking-tight leading-none truncate',
-                    isFrutigerAero
-                      ? 'frutiger-aero-text'
-                      : isLight
-                      ? 'text-[#111315]'
-                      : 'text-[#F3F4F6]'
-                  )}
-                >
-                  {isPremium ? 'EPL Premium' : 'EPL Studio'}
-                </h1>
-                <p
-                  className={clsx(
-                    'text-[11px] mt-1 font-mono truncate',
-                    isFrutigerAero
-                      ? 'text-[#1e4b73]'
-                      : isLight
-                      ? 'text-[#6B7280]'
-                      : 'text-[#9CA3AF]'
-                  )}
-                >
-                  Easy Programming Language
-                </p>
-              </div>
+                <PanelLeftClose className="w-4 h-4" />
+              </button>
             </div>
-          </div>
 
           {/* Account Summary */}
           <div
@@ -405,27 +473,36 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               : visibleNavItems.map((item) => {
                   const active = currentView === item.id;
                   const canHide = item.id !== 'settings';
+                  const isEpicExtra = 'isEpicExtra' in item && item.isEpicExtra;
                   return (
                     <div key={item.id} className="group relative flex items-center">
                       <button
                         onClick={() => handleNavClick(item.id)}
                         className={clsx(
-                          'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap shrink-0 border cursor-pointer',
+                          'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all whitespace-nowrap shrink-0 border cursor-pointer',
                           canHide && 'pr-8',
-                          active
-                            ? isFrutigerAero
-                              ? 'frutiger-aero-button border-white/80'
-                              : isLight
-                                ? 'bg-[#059669]/10 text-[#059669] border-[#059669]/25 font-semibold'
-                                : 'bg-[#10B981]/10 text-[#10B981] border-[#10B981]/25 font-semibold'
-                            : isFrutigerAero
-                              ? 'border-transparent text-[#062038]/80 hover:bg-white/40'
-                              : isLight
-                                ? 'border-transparent text-[#4B5563] hover:bg-[#F5F6F8] hover:text-[#111315]'
-                                : 'border-transparent text-[#9CA3AF] hover:bg-[#20242B] hover:text-[#F3F4F6]'
+                          isEpicExtra
+                            ? active
+                              ? 'bg-gradient-to-r from-amber-400 via-fuchsia-500 to-cyan-400 text-black font-extrabold border-amber-200 shadow-[0_0_22px_rgba(245,158,11,0.45)]'
+                              : effectivePremiumTier === 'ultra'
+                                ? 'bg-gradient-to-r from-amber-500/20 via-pink-500/15 to-cyan-500/20 border-amber-400/55 text-amber-300 hover:border-amber-300 hover:shadow-[0_0_16px_rgba(245,158,11,0.3)] font-bold'
+                                : effectivePremiumTier === 'premium'
+                                  ? 'bg-gradient-to-r from-violet-500/20 to-emerald-500/20 border-violet-400/50 text-violet-300 hover:border-violet-300 font-bold'
+                                  : 'bg-sky-500/15 border-sky-400/40 text-sky-300 hover:border-sky-300 font-semibold'
+                            : active
+                              ? isFrutigerAero
+                                ? 'frutiger-aero-button border-white/80'
+                                : isLight
+                                  ? 'bg-[#059669]/10 text-[#059669] border-[#059669]/25 font-semibold'
+                                  : 'bg-[#10B981]/10 text-[#10B981] border-[#10B981]/25 font-semibold'
+                              : isFrutigerAero
+                                ? 'border-transparent text-[#062038]/80 hover:bg-white/40'
+                                : isLight
+                                  ? 'border-transparent text-[#4B5563] hover:bg-[#F5F6F8] hover:text-[#111315]'
+                                  : 'border-transparent text-[#9CA3AF] hover:bg-[#20242B] hover:text-[#F3F4F6]'
                         )}
                       >
-                        <item.icon className="w-4 h-4 shrink-0" />
+                        <item.icon className={clsx('w-4 h-4 shrink-0', isEpicExtra && !active && 'text-amber-400')} />
                         <span className="truncate">{item.label}</span>
                       </button>
                       {canHide && (
@@ -481,13 +558,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
           {/* Stylish Download Desktop App CTA directly BELOW Settings */}
           <div className="pt-3 mt-2 border-t border-current/10 shrink-0">
-            <a
-              href={DESKTOP_APP_DOWNLOAD_URL}
-              download
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => setIsDesktopDownloadOpen(true)}
               className={clsx(
-                'group relative w-full flex items-center gap-2.5 p-2.5 rounded-xl border transition-all duration-200 overflow-hidden',
+                'group relative w-full flex items-center gap-2.5 p-2.5 rounded-xl border transition-all duration-200 overflow-hidden text-left cursor-pointer',
                 isFrutigerAero
                   ? 'frutiger-aero-button border-white shadow-md hover:-translate-y-0.5'
                   : isLight
@@ -529,14 +604,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                         : 'text-[#9CA3AF]'
                   )}
                 >
-                  {language === 'ru' ? 'Нативная версия для ПК' : 'Native PC Installer'}
+                  {language === 'ru' ? 'Создать ссылку для ПК' : 'Generate PC Download Link'}
                 </p>
               </div>
               <Download className="w-4 h-4 shrink-0 opacity-80 transition-transform duration-200 group-hover:translate-y-0.5" />
-            </a>
+            </button>
           </div>
-        </div>
-      </aside>
+          </div>
+        </aside>
+      )}
 
       {/* Mobile Top Bar */}
       <header
@@ -624,6 +700,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
       {/* Main Content */}
       <main
+        id="epl-main-workspace"
         className={clsx(
           'flex-1 min-h-0 overflow-y-auto relative flex flex-col z-10',
           isFrutigerAero
@@ -639,6 +716,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <AuthModal isOpen={isAuthModalOpen} onClose={() => setIsAuthModalOpen(false)} />
 
       {selectedAppId && <AppDetailView />}
+
+      <DesktopDownloadModal />
+
+      <ExtraPremiumReceiver />
 
       {/* Mobile Bottom Sheet for Tab Customization & Download Desktop App */}
       {isMobileMenuOpen && (
@@ -670,14 +751,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               </button>
             </div>
 
-            {/* Download Desktop App CTA on Mobile */}
-            <a
-              href={DESKTOP_APP_DOWNLOAD_URL}
-              download
-              target="_blank"
-              rel="noopener noreferrer"
+            {/* Download Desktop App CTA on Mobile (Generates Google Drive Download Link) */}
+            <button
+              type="button"
+              onClick={() => {
+                setIsMobileMenuOpen(false);
+                setIsDesktopDownloadOpen(true);
+              }}
               className={clsx(
-                'flex items-center gap-3 p-3 rounded-xl border transition-all',
+                'flex items-center gap-3 p-3 rounded-xl border transition-all text-left w-full cursor-pointer',
                 isFrutigerAero
                   ? 'frutiger-aero-button border-white'
                   : isLight
@@ -691,11 +773,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-bold truncate">Download Desktop App</div>
                 <div className="text-[11px] opacity-80 truncate">
-                  {language === 'ru' ? 'Скачать версию для компьютера' : 'Download Desktop Build'}
+                  {language === 'ru' ? 'Сгенерировать ссылку на скачивание' : 'Generate Download Link'}
                 </div>
               </div>
               <Download className="w-4 h-4 shrink-0" />
-            </a>
+            </button>
 
             {/* Mobile Tab Visibility Manager */}
             <div className="flex items-center justify-between">
@@ -760,93 +842,136 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* Mobile Bottom Nav (Fixed smooth horizontal scrolling across ALL tabs) */}
-      <footer
-        className={clsx(
-          'md:hidden shrink-0 w-full flex items-center border-t relative z-20 px-1 py-1.5 gap-1',
-          isFrutigerAero
-            ? 'frutiger-aero-glass border-white/50'
-            : isLight
-            ? 'border-[#E2E5EA] bg-[#FFFFFF]'
-            : 'border-[#262B33] bg-[#181B20]'
-        )}
-      >
+      {/* Mobile Floating Restore Nav Bar Button when Hidden */}
+      {isMobileNavHidden ? (
         <button
           type="button"
-          onClick={() => mobileNavRef.current?.scrollBy({ left: -160, behavior: 'smooth' })}
-          aria-label="Scroll tabs left"
-          className="p-1.5 rounded-lg opacity-65 hover:opacity-100 active:scale-95 shrink-0"
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </button>
-
-        <nav
-          ref={mobileNavRef}
-          className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden no-scrollbar touch-pan-x scroll-smooth snap-x"
-        >
-          <div className="inline-flex items-center gap-1 whitespace-nowrap px-0.5">
-            {visibleNavItems.map((item) => {
-              const active = currentView === item.id;
-              return (
-                <button
-                  key={item.id}
-                  ref={(el) => {
-                    mobileTabRefs.current[item.id] = el;
-                  }}
-                  onClick={() => handleNavClick(item.id)}
-                  className={clsx(
-                    'flex flex-col items-center justify-center gap-0.5 px-2.5 py-1.5 rounded-lg transition-colors min-w-[62px] whitespace-nowrap shrink-0 snap-start',
-                    active
-                      ? isFrutigerAero
-                        ? 'text-[#0284c7] bg-white/60 font-semibold'
-                        : isLight
-                        ? 'text-[#059669] bg-[#059669]/10 font-semibold'
-                        : 'text-[#10B981] bg-[#10B981]/10 font-semibold'
-                      : isFrutigerAero
-                      ? 'text-[#062038]/75'
-                      : isLight
-                      ? 'text-[#6B7280]'
-                      : 'text-[#9CA3AF]'
-                  )}
-                >
-                  <item.icon className="w-4 h-4 shrink-0" />
-                  <span className="text-[10px] font-medium leading-tight">{item.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </nav>
-
-        <button
-          type="button"
-          onClick={() => mobileNavRef.current?.scrollBy({ left: 160, behavior: 'smooth' })}
-          aria-label="Scroll tabs right"
-          className="p-1.5 rounded-lg opacity-65 hover:opacity-100 active:scale-95 shrink-0"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setIsMobileMenuOpen(true)}
-          title={language === 'ru' ? 'Вкладки и Desktop App' : 'Tabs & Desktop App'}
+          onClick={() => setIsMobileNavHidden(false)}
+          title={language === 'ru' ? 'Вернуть панель вкладок' : 'Show navigation bar'}
           className={clsx(
-            'relative p-2 rounded-lg border shrink-0 transition-colors',
+            'md:hidden fixed bottom-3 right-3 z-40 inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border shadow-lg backdrop-blur-md text-xs font-semibold cursor-pointer',
             isFrutigerAero
-              ? 'border-white/70 bg-white/40 text-[#0284c7]'
+              ? 'frutiger-aero-button border-white'
               : isLight
-              ? 'border-[#E2E5EA] bg-[#F5F6F8] text-[#111315]'
-              : 'border-[#262B33] bg-[#111315] text-[#F3F4F6]'
+                ? 'bg-white/95 border-[#E2E5EA] text-[#111315]'
+                : 'bg-[#181B20]/95 border-[#262B33] text-[#F3F4F6]'
           )}
         >
-          <SlidersHorizontal className="w-4 h-4" />
-          {hiddenPermittedItems.length > 0 && (
-            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#10B981] text-[#09120E] text-[9px] font-bold flex items-center justify-center">
-              {hiddenPermittedItems.length}
-            </span>
-          )}
+          <PanelBottomOpen className="w-4 h-4 text-[#10B981]" />
+          <span>{language === 'ru' ? 'Меню' : 'Menu'}</span>
         </button>
-      </footer>
+      ) : (
+        /* Mobile Bottom Nav (Fixed smooth horizontal scrolling across ALL tabs + Hide Panel toggle) */
+        <footer
+          className={clsx(
+            'md:hidden shrink-0 w-full flex items-center border-t relative z-20 px-1 py-1.5 gap-1',
+            isFrutigerAero
+              ? 'frutiger-aero-glass border-white/50'
+              : isLight
+              ? 'border-[#E2E5EA] bg-[#FFFFFF]'
+              : 'border-[#262B33] bg-[#181B20]'
+          )}
+        >
+          <button
+            type="button"
+            onClick={() => mobileNavRef.current?.scrollBy({ left: -160, behavior: 'smooth' })}
+            aria-label="Scroll tabs left"
+            className="p-1.5 rounded-lg opacity-65 hover:opacity-100 active:scale-95 shrink-0"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+
+          <nav
+            ref={mobileNavRef}
+            className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden no-scrollbar touch-pan-x scroll-smooth snap-x"
+          >
+            <div className="inline-flex items-center gap-1 whitespace-nowrap px-0.5">
+              {visibleNavItems.map((item) => {
+                const active = currentView === item.id;
+                const isEpicExtra = 'isEpicExtra' in item && item.isEpicExtra;
+                return (
+                  <button
+                    key={item.id}
+                    ref={(el) => {
+                      mobileTabRefs.current[item.id] = el;
+                    }}
+                    onClick={() => handleNavClick(item.id)}
+                    className={clsx(
+                      'flex flex-col items-center justify-center gap-0.5 px-2.5 py-1.5 rounded-lg transition-colors min-w-[62px] whitespace-nowrap shrink-0 snap-start',
+                      isEpicExtra
+                        ? active
+                          ? 'bg-gradient-to-r from-amber-400 via-fuchsia-500 to-cyan-400 text-black font-bold'
+                          : 'bg-amber-500/15 text-amber-300 border border-amber-400/40 font-semibold'
+                        : active
+                          ? isFrutigerAero
+                            ? 'text-[#0284c7] bg-white/60 font-semibold'
+                            : isLight
+                            ? 'text-[#059669] bg-[#059669]/10 font-semibold'
+                            : 'text-[#10B981] bg-[#10B981]/10 font-semibold'
+                          : isFrutigerAero
+                          ? 'text-[#062038]/75'
+                          : isLight
+                          ? 'text-[#6B7280]'
+                          : 'text-[#9CA3AF]'
+                    )}
+                  >
+                    <item.icon className="w-4 h-4 shrink-0" />
+                    <span className="text-[10px] font-medium leading-tight">
+                      {isEpicExtra ? 'Extra' : item.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
+
+          <button
+            type="button"
+            onClick={() => mobileNavRef.current?.scrollBy({ left: 160, behavior: 'smooth' })}
+            aria-label="Scroll tabs right"
+            className="p-1.5 rounded-lg opacity-65 hover:opacity-100 active:scale-95 shrink-0"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsMobileMenuOpen(true)}
+            title={language === 'ru' ? 'Вкладки и Desktop App' : 'Tabs & Desktop App'}
+            className={clsx(
+              'relative p-2 rounded-lg border shrink-0 transition-colors',
+              isFrutigerAero
+                ? 'border-white/70 bg-white/40 text-[#0284c7]'
+                : isLight
+                ? 'border-[#E2E5EA] bg-[#F5F6F8] text-[#111315]'
+                : 'border-[#262B33] bg-[#111315] text-[#F3F4F6]'
+            )}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            {hiddenPermittedItems.length > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-[#10B981] text-[#09120E] text-[9px] font-bold flex items-center justify-center">
+                {hiddenPermittedItems.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setIsMobileNavHidden(true)}
+            title={language === 'ru' ? 'Скрыть панель вкладок' : 'Hide navigation bar'}
+            className={clsx(
+              'p-2 rounded-lg border shrink-0 transition-colors',
+              isFrutigerAero
+                ? 'border-white/70 bg-white/40 text-[#062038]'
+                : isLight
+                ? 'border-[#E2E5EA] bg-[#F5F6F8] text-[#6B7280]'
+                : 'border-[#262B33] bg-[#111315] text-[#9CA3AF]'
+            )}
+          >
+            <PanelBottomClose className="w-4 h-4" />
+          </button>
+        </footer>
+      )}
     </div>
   );
 }

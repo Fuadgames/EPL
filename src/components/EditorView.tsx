@@ -2,11 +2,11 @@ import React, { useState, useEffect, useRef, useCallback, useTransition } from '
 import { useStore } from '../store/useStore';
 import { db, auth, storage } from '../firebase';
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { doc, getDoc, setDoc, updateDoc, serverTimestamp, collection } from 'firebase/firestore';
+import { doc, getDoc, getDocs, query, where, setDoc, updateDoc, serverTimestamp, collection } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { EPLInterpreter } from '../lib/epl-interpreter';
 import { EPL_DICTIONARY } from '@/src/lib/epl-dictionary';
-import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2, Monitor, Smartphone, Eye, ShieldCheck, ShieldAlert, AlertTriangle, Layers, ChevronDown, Store, Cpu, Volume2, VolumeX, Grid, Activity } from 'lucide-react';
+import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2, Monitor, Smartphone, Eye, ShieldCheck, ShieldAlert, AlertTriangle, Layers, ChevronDown, Store, Cpu, Volume2, VolumeX, Grid, Activity, Globe, Sparkles } from 'lucide-react';
 import { clsx } from 'clsx';
 import { generateImageWithAI } from '../lib/gemini';
 import { notify } from '../store/useDialogStore';
@@ -21,6 +21,7 @@ import InventoryModal from './InventoryModal';
 import DifrenoptConfigModal from './DifrenoptConfigModal';
 import { findFirstDifrenoptInCode, upsertDifrenoptInCode } from '../lib/drpl-catalog';
 import { translations, tutorialContent } from '../lib/translations';
+import { hasTierAccess, resolveEffectiveTier } from '../lib/premiumTiers';
 const PreviewEditor = React.lazy(() => import('./PreviewEditor'));
 
 const DEFAULT_CODE = ``;
@@ -51,6 +52,9 @@ export default function EditorView() {
   const setTutorialCheckRequested = useStore(state => state.setTutorialCheckRequested);
   const isPremium = useStore(state => state.isPremium);
   const setIsPremium = useStore(state => state.setIsPremium);
+  const premiumTier = useStore(state => state.premiumTier);
+  const effectiveTier = resolveEffectiveTier(isPremium || userData?.isPremium, userData?.premiumTier || premiumTier);
+  const canPremiumPlus = hasTierAccess(effectiveTier, 'premium') || userData?.role === 'developer';
   const computerStyle = useStore(state => state.computerStyle);
   const selectedExtraCategory = useStore(state => state.selectedExtraCategory);
   const setSelectedExtraCategory = useStore(state => state.setSelectedExtraCategory);
@@ -460,6 +464,12 @@ export default function EditorView() {
 
   // Publish Modal State
   const [showPublishModal, setShowPublishModal] = useState(false);
+  const [showPublishWebsiteModal, setShowPublishWebsiteModal] = useState(false);
+  const [websiteSlug, setWebsiteSlug] = useState('');
+  const [hideWebsiteWatermark, setHideWebsiteWatermark] = useState(false);
+  const [isPublishingWebsite, setIsPublishingWebsite] = useState(false);
+  const websiteIconInputRef = useRef<HTMLInputElement>(null);
+  const websiteBannerInputRef = useRef<HTMLInputElement>(null);
   const [showInventoryModal, setShowInventoryModal] = useState(false);
   const [showFileControlModal, setShowFileControlModal] = useState(false);
   const [showEditorStoreModal, setShowEditorStoreModal] = useState(false);
@@ -1211,6 +1221,143 @@ export default function EditorView() {
     }
   };
 
+  const handlePublishWebsite = async () => {
+    if (!user) {
+      notify.error(language === 'ru' ? 'Необходимо войти в аккаунт для публикации' : 'You must be signed in to publish websites.');
+      return;
+    }
+    const cleanSlug = websiteSlug
+      .trim()
+      .toLowerCase()
+      .replace(/\.epl$/i, '')
+      .replace(/[^a-z0-9-]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+
+    if (cleanSlug.length < 2) {
+      notify.error(
+        language === 'ru'
+          ? 'Введите корректный домен (минимум 2 латинские буквы или цифры)'
+          : 'Enter a valid domain slug (at least 2 lowercase letters or digits).'
+      );
+      return;
+    }
+    if (!code.trim()) {
+      notify.error(language === 'ru' ? 'Код проекта пустой!' : 'Project code cannot be empty.');
+      return;
+    }
+
+    const fullDomain = `${cleanSlug}.epl`;
+    const canRemoveWatermark = canPremiumPlus;
+    setIsPublishingWebsite(true);
+
+    try {
+      // Check domain uniqueness in Firestore
+      const domainSnap = await getDocs(query(collection(db, 'apps'), where('websiteDomain', '==', fullDomain)));
+      const takenByOther = domainSnap.docs.some((d) => d.id !== editingAppId);
+      if (takenByOther) {
+        notify.error(
+          language === 'ru'
+            ? `Домен ${fullDomain} уже занят. Выберите другой.`
+            : `Domain ${fullDomain} is already taken.`
+        );
+        return;
+      }
+
+      const sitePayload: any = {
+        id: editingAppId || undefined,
+        title: appTitle,
+        description: appDesc,
+        code,
+        version: appVersion,
+        category: appCategory || 'apps',
+        price: 0,
+        supportedPlatforms: ['web'],
+        iconUrl: appIconUrl,
+        screenshotUrl: appScreenshotUrl,
+        bannerUrl: appBannerUrl,
+        authorId: user.uid,
+        authorName: user.displayName || 'Anonymous',
+        isAiGenerated,
+        isPrivate: false,
+        isLocked: false,
+        unlockCode: '',
+        allowCopy: isPremium ? allowCopy : true,
+        originalAppId,
+        originalAppName,
+        events,
+        isWebsite: true,
+        websiteDomain: fullDomain,
+        hideWatermark: canRemoveWatermark ? hideWebsiteWatermark : false
+      };
+
+      let moderationData: any = null;
+      try {
+        const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : null;
+        const res = await fetch('/api/apps/publish', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {})
+          },
+          body: JSON.stringify(sitePayload)
+        });
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+          const json = await res.json();
+          if (res.ok || json.reason) {
+            moderationData = json;
+          }
+        }
+      } catch (netErr) {
+        console.warn('Backend website publish fallback to Firestore:', netErr);
+      }
+
+      if (!moderationData) {
+        const finalAppId = sitePayload.id || ('site_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8));
+        const recordToSave = {
+          ...sitePayload,
+          id: finalAppId,
+          status: 'verified',
+          moderationStatus: 'approved',
+          moderationReason: 'Сайт успешно опубликован в домене .epl',
+          moderationFlags: [],
+          moderatedAt: new Date().toISOString(),
+          moderatedBy: 'client-ai-moderator',
+          updatedAt: new Date().toISOString(),
+          createdAt: new Date().toISOString(),
+          downloads: 0,
+          rating: 5.0,
+          likes: 0,
+          dislikes: 0,
+          visits: 0
+        };
+        await setDoc(doc(db, 'apps', finalAppId), recordToSave, { merge: true });
+        moderationData = {
+          success: true,
+          approved: true,
+          appId: finalAppId,
+          reason: recordToSave.moderationReason,
+          flags: []
+        };
+      }
+
+      if (moderationData.appId) setEditingAppId(moderationData.appId);
+      setModerationResult(moderationData);
+      setShowPublishWebsiteModal(false);
+      setShowModerationModal(true);
+      notify.success(
+        language === 'ru'
+          ? `Сайт ${fullDomain} опубликован в магазине!`
+          : `Website ${fullDomain} published to Store!`
+      );
+    } catch (err: any) {
+      console.error('Error publishing website:', err);
+      notify.error(err?.message || (language === 'ru' ? 'Ошибка публикации сайта' : 'Failed to publish website'));
+    } finally {
+      setIsPublishingWebsite(false);
+    }
+  };
+
   const handlePublishToAssetStore = async () => {
     if (!user) {
       notify.error(language === 'ru' ? 'Необходимо войти в аккаунт для публикации ассетов.' : 'You must be signed in to publish assets.');
@@ -1436,7 +1583,7 @@ export default function EditorView() {
             {t.file}
           </button>
           {activeMenu === 'file' && (
-            <div className={clsx("absolute top-full left-0 mt-1 w-48 border rounded-lg shadow-xl py-1 z-50", isFrutigerAero ? "frutiger-aero-glass" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800")}>
+            <div className={clsx("absolute top-full left-0 mt-1 w-60 border rounded-lg shadow-xl py-1 z-50", isFrutigerAero ? "frutiger-aero-glass" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800")}>
               <button onClick={handleNewFile} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
                 <FileText className="w-4 h-4" /> {t.newFile}
               </button>
@@ -1456,6 +1603,18 @@ export default function EditorView() {
                 className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}
               >
                 <UploadCloud className="w-4 h-4" /> {t.publish}
+              </button>
+              <button
+                onClick={() => {
+                  const autoSlug = (appTitle || 'my-site').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'my-site';
+                  if (!websiteSlug) setWebsiteSlug(autoSlug);
+                  setShowPublishWebsiteModal(true);
+                  setActiveMenu(null);
+                }}
+                className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}
+              >
+                <Globe className="w-4 h-4 text-sky-400 shrink-0" />
+                <span>{language === 'ru' ? 'Опубликовать как новый сайт' : 'Publish as new website'}</span>
               </button>
               <button 
                 onClick={handleSaveLocally}
@@ -2556,16 +2715,16 @@ export default function EditorView() {
                 </div>
               )}
                 <div className="pt-4 border-t border-zinc-800">
-                  <label className={clsx("flex items-center gap-2 mb-3", !isPremium ? "cursor-not-allowed opacity-50" : "cursor-pointer")}>
+                  <label className={clsx("flex items-center gap-2 mb-3", !canPremiumPlus ? "cursor-not-allowed opacity-50" : "cursor-pointer")}>
                     <input
                       type="checkbox"
                       checked={isLocked}
-                      onChange={(e) => isPremium && setIsLocked(e.target.checked)}
-                      disabled={!isPremium}
+                      onChange={(e) => canPremiumPlus && setIsLocked(e.target.checked)}
+                      disabled={!canPremiumPlus}
                       className="w-4 h-4 rounded border-zinc-700 text-emerald-500 focus:ring-emerald-500 bg-zinc-800/50"
                     />
                     <span className="text-sm font-medium text-emerald-400 flex items-center gap-2">
-                      Lock App with Code (Premium Feature) {!isPremium && <Lock className="w-3 h-3" />}
+                      Lock App with Code (Premium+) {!canPremiumPlus && <Lock className="w-3 h-3" />}
                     </span>
                   </label>
                   
@@ -2596,39 +2755,39 @@ export default function EditorView() {
                 <div className="mb-3">
                   <label className="block text-sm font-medium mb-1 text-zinc-400 flex items-center gap-2">
                     {language === 'ru' ? 'Цена (в EPLCoins)' : 'Price (in EPLCoins)'}
-                    {!isPremium && <Lock className="w-3 h-3 text-yellow-500" />}
+                    {!canPremiumPlus && <Lock className="w-3 h-3 text-yellow-500" />}
                   </label>
                   <input
                     type="number"
                     min="0"
                     value={appPrice}
-                    onChange={(e) => isPremium && setAppPrice(Math.max(0, parseInt(e.target.value) || 0))}
-                    disabled={!isPremium}
-                    placeholder={!isPremium ? (language === 'ru' ? 'Только для Премиум' : 'Premium Only') : ''}
+                    onChange={(e) => canPremiumPlus && setAppPrice(Math.max(0, parseInt(e.target.value) || 0))}
+                    disabled={!canPremiumPlus}
+                    placeholder={!canPremiumPlus ? (language === 'ru' ? 'Только для Premium / Ultra' : 'Premium / Ultra Only') : ''}
                     className={clsx(
                       "w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors font-mono",
-                      !isPremium && "opacity-50 cursor-not-allowed"
+                      !canPremiumPlus && "opacity-50 cursor-not-allowed"
                     )}
                   />
                   <p className="text-xs text-zinc-500 mt-1">
-                    {isPremium 
+                    {canPremiumPlus 
                       ? (language === 'ru' ? 'Установите 0 для бесплатного доступа. Пользователи будут платить эту сумму за доступ.' : 'Set to 0 for free. Users will pay this amount to access your app.')
-                      : (language === 'ru' ? 'Установка цены доступна только для Премиум пользователей.' : 'Setting a price is only available for Premium users.')
+                      : (language === 'ru' ? 'Установка цены доступна с уровня Premium или Ultra.' : 'Setting a price requires Premium or Ultra tier.')
                     }
                   </p>
                 </div>
 
-                {(!isPremium || isLocked) && (
+                {(!canPremiumPlus || isLocked) && (
                   <div>
                     <input
                       type="text"
                       placeholder="Enter unlock code..."
                       value={unlockCode}
                       onChange={(e) => setUnlockCode(e.target.value)}
-                      disabled={!isPremium}
+                      disabled={!canPremiumPlus}
                       className={clsx(
                         "w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 focus:outline-none focus:border-emerald-500 transition-colors font-mono",
-                        !isPremium && "opacity-50 cursor-not-allowed"
+                        !canPremiumPlus && "opacity-50 cursor-not-allowed"
                       )}
                     />
                     <p className="text-xs text-zinc-500 mt-1">Users will need this code to play your app.</p>
@@ -2787,6 +2946,225 @@ export default function EditorView() {
           </div>
         </div>
       )}
+
+      {/* Publish as New Website Modal (.epl) */}
+      {showPublishWebsiteModal && (() => {
+        const canRemoveWatermark = canPremiumPlus;
+        const previewSlug = websiteSlug
+          .trim()
+          .toLowerCase()
+          .replace(/\.epl$/i, '')
+          .replace(/[^a-z0-9-]+/g, '-')
+          .replace(/^-+|-+$/g, '') || 'my-site';
+        return (
+          <div className="fixed inset-0 z-[205] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+            <div className={clsx(
+              "w-full max-w-md rounded-2xl p-6 shadow-2xl max-h-[90vh] overflow-y-auto border",
+              isFrutigerAero ? "bg-white/85 border-white/60 backdrop-blur-md text-blue-950" :
+              theme !== 'light' ? 'bg-zinc-900 border-zinc-800 text-[#F3F4F6]' : 'bg-white border-zinc-200 text-[#111315]'
+            )}>
+              <div className="flex items-center justify-between gap-3 mb-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-sky-500/15 border border-sky-500/35 text-sky-400">
+                    <Globe className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-lg font-bold">
+                    {language === 'ru' ? 'Опубликовать как новый сайт' : 'Publish as New Website'}
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowPublishWebsiteModal(false)}
+                  className="p-1.5 rounded-lg hover:bg-current/10 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <p className="text-xs opacity-70 mb-5">
+                {language === 'ru'
+                  ? 'Ваш проект появится в App Store с кнопкой Visit и будет открываться как сайт в домене .epl.'
+                  : 'Your project will appear in the Store with a Visit button and launch as an interactive .epl website.'}
+              </p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1 opacity-70">
+                    {language === 'ru' ? 'Название сайта' : 'Website Title'}
+                  </label>
+                  <input
+                    type="text"
+                    value={appTitle}
+                    onChange={(e) => setAppTitle(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 text-sm focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1 opacity-70">
+                    {language === 'ru' ? 'Домен .epl' : 'Custom .epl Domain'}
+                  </label>
+                  <div className="flex items-center rounded-lg border border-zinc-700 bg-zinc-800/50 overflow-hidden focus-within:border-sky-500">
+                    <span className="px-2.5 py-2 text-xs font-mono opacity-55 border-r border-zinc-700 bg-zinc-900/60">
+                      https://
+                    </span>
+                    <input
+                      type="text"
+                      value={websiteSlug}
+                      onChange={(e) => setWebsiteSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                      placeholder="my-awesome-site"
+                      className="flex-1 px-2.5 py-2 bg-transparent font-mono text-sm focus:outline-none min-w-0"
+                    />
+                    <span className="px-2.5 py-2 text-xs font-mono font-bold text-[#10B981] border-l border-zinc-700 bg-zinc-900/60">
+                      .epl
+                    </span>
+                  </div>
+                  <p className="text-[11px] font-mono text-sky-400 mt-1">
+                    URL: https://{previewSlug}.epl
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1 opacity-70">
+                    {t.description}
+                  </label>
+                  <textarea
+                    value={appDesc}
+                    onChange={(e) => setAppDesc(e.target.value)}
+                    className="w-full px-3 py-2 rounded-lg bg-zinc-800/50 border border-zinc-700 text-sm focus:outline-none focus:border-sky-500 resize-none h-20"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider mb-1 opacity-70">Category</label>
+                  <CustomSelect
+                    value={appCategory}
+                    onChange={setAppCategory}
+                    options={['apps', 'games', 'work', 'AI', 'Programming Language', 'Store', 'Custom Editor', 'Other'].map(cat => ({
+                      value: cat,
+                      label: cat
+                    }))}
+                  />
+                </div>
+
+                {/* Icon & Banner Upload */}
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div className="p-3 rounded-xl border border-zinc-700 bg-zinc-800/40">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-bold uppercase opacity-60">Site Icon</span>
+                      <button
+                        type="button"
+                        onClick={() => websiteIconInputRef.current?.click()}
+                        className="p-1 hover:bg-zinc-700 rounded cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="aspect-square rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center overflow-hidden">
+                      {appIconUrl ? (
+                        <img src={appIconUrl} alt="Site Icon" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <Globe className="w-7 h-7 opacity-25 text-sky-400" />
+                      )}
+                    </div>
+                    <input
+                      ref={websiteIconInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleFileUpload(e, 'icon')}
+                      className="hidden"
+                    />
+                  </div>
+
+                  <div className="p-3 rounded-xl border border-zinc-700 bg-zinc-800/40">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[11px] font-bold uppercase opacity-60">Banner</span>
+                      <button
+                        type="button"
+                        onClick={() => websiteBannerInputRef.current?.click()}
+                        className="p-1 hover:bg-zinc-700 rounded cursor-pointer"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <div className="aspect-square rounded-lg bg-zinc-900 border border-zinc-700 flex items-center justify-center overflow-hidden">
+                      {appBannerUrl ? (
+                        <img src={appBannerUrl} alt="Site Banner" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                      ) : (
+                        <ImageIcon className="w-7 h-7 opacity-25" />
+                      )}
+                    </div>
+                    <input
+                      ref={websiteBannerInputRef}
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => handleFileUpload(e, 'banner')}
+                      className="hidden"
+                    />
+                  </div>
+                </div>
+
+                {/* Premium Watermark Toggle */}
+                <div className="p-3.5 rounded-xl border border-zinc-700/80 bg-zinc-800/40 space-y-1.5">
+                  <label className={clsx("flex items-center justify-between gap-2", canRemoveWatermark ? "cursor-pointer" : "cursor-not-allowed opacity-65")}>
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span className="text-xs font-semibold">
+                        {language === 'ru'
+                          ? 'Убрать водяной знак "Created in EPL Studio"'
+                          : 'Remove "Created in EPL Studio" watermark'}
+                      </span>
+                    </div>
+                    <input
+                      type="checkbox"
+                      checked={canRemoveWatermark ? hideWebsiteWatermark : false}
+                      disabled={!canRemoveWatermark}
+                      onChange={(e) => canRemoveWatermark && setHideWebsiteWatermark(e.target.checked)}
+                      className="w-4 h-4 rounded border-zinc-600 text-emerald-500 focus:ring-emerald-500"
+                    />
+                  </label>
+                  <p className="text-[11px] opacity-65">
+                    {canRemoveWatermark
+                      ? (language === 'ru'
+                          ? 'Доступно для Premium: при включении заставка и водяной знак будут скрыты.'
+                          : 'Premium unlocked: splash screen and watermark badge will be hidden.')
+                      : (language === 'ru'
+                          ? 'Требуется Premium, чтобы убрать заставку и надпись "Created in EPL Studio".'
+                          : 'Premium required to hide the "Created in EPL Studio" intro & watermark.')}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2.5 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setShowPublishWebsiteModal(false)}
+                  className="px-4 py-2 rounded-lg text-sm font-medium opacity-75 hover:opacity-100 cursor-pointer"
+                >
+                  {t.cancel}
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePublishWebsite}
+                  disabled={isPublishingWebsite}
+                  className="px-5 py-2 rounded-lg bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-[#07111A] text-sm font-bold flex items-center gap-2 cursor-pointer"
+                >
+                  {isPublishingWebsite ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>{language === 'ru' ? 'Публикация...' : 'Publishing...'}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Globe className="w-4 h-4" />
+                      <span>{language === 'ru' ? 'Опубликовать сайт' : 'Publish Website'}</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* AI Moderation Result Modal */}
       {showModerationModal && moderationResult && (

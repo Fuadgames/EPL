@@ -5,8 +5,9 @@ import { User } from 'firebase/auth';
 import { ACHIEVEMENTS_DB, AchievementData } from '../lib/achievements';
 import { updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../firebase';
+import { PremiumTier } from '../types';
 
-export type View = 'store' | 'installed-apps' | 'editor' | 'my-apps' | 'profile' | 'public-profile' | 'settings' | 'player' | 'premium' | 'control' | 'asset-store' | 'leaderboards' | 'donate' | 'news';
+export type View = 'store' | 'installed-apps' | 'editor' | 'my-apps' | 'profile' | 'public-profile' | 'settings' | 'player' | 'premium' | 'extra-premium' | 'rate' | 'control' | 'asset-store' | 'leaderboards' | 'donate' | 'news';
 
 export interface ProjectFileItem {
   name: string;
@@ -65,12 +66,73 @@ export interface UserData {
   createdAt?: string;
   premiumExpiry?: string | null;
   isPremium?: boolean;
+  premiumTier?: PremiumTier;
   isBanned?: boolean;
   banReason?: string;
   roleVerification?: string;
   roleVerifiedBy?: string;
   roleVerifiedAt?: string;
 }
+
+export interface ExtraPremiumSettings {
+  matrixRain: boolean;
+  matrixColor: string;
+  matrixSpeed: number;
+  matrixOpacity: number;
+  confettiAutoRain: boolean;
+  confettiPreset: 'party' | 'royal' | 'cyber';
+  confettiBurstNonce: number;
+  accentGlowEnabled: boolean;
+  accentGlowColor: string;
+  typewriterSfxEnabled: boolean;
+  typewriterPack: 'mech' | 'synth' | 'retro';
+  typewriterVolume: number;
+  pomodoroEnabled: boolean;
+  pomodoroMinutes: number;
+  pomodoroDrone: boolean;
+  rgbCursorEnabled: boolean;
+  rgbCursorStyle: 'sparkles' | 'matrix' | 'gold';
+  screenFlipEnabled: boolean;
+  screenFlipMode: 'upside-down' | 'mirror' | 'tilt';
+  discoPartyEnabled: boolean;
+  discoSpeed: number;
+  earthquakeEnabled: boolean;
+  earthquakeIntensity: number;
+  textTransformEnabled: boolean;
+  textTransformMode: 'uwu' | 'leet' | 'reverse';
+  textTransformSample: string;
+  hackerHudEnabled: boolean;
+}
+
+export const DEFAULT_EXTRA_PREMIUM_SETTINGS: ExtraPremiumSettings = {
+  matrixRain: false,
+  matrixColor: '#10b981',
+  matrixSpeed: 1,
+  matrixOpacity: 0.25,
+  confettiAutoRain: false,
+  confettiPreset: 'party',
+  confettiBurstNonce: 0,
+  accentGlowEnabled: false,
+  accentGlowColor: '#10b981',
+  typewriterSfxEnabled: false,
+  typewriterPack: 'mech',
+  typewriterVolume: 0.25,
+  pomodoroEnabled: false,
+  pomodoroMinutes: 25,
+  pomodoroDrone: false,
+  rgbCursorEnabled: false,
+  rgbCursorStyle: 'sparkles',
+  screenFlipEnabled: false,
+  screenFlipMode: 'upside-down',
+  discoPartyEnabled: false,
+  discoSpeed: 2,
+  earthquakeEnabled: false,
+  earthquakeIntensity: 4,
+  textTransformEnabled: false,
+  textTransformMode: 'uwu',
+  textTransformSample: 'EPL Studio Extra Premium is awesome!',
+  hackerHudEnabled: false,
+};
 
 interface AppState {
   currentView: View;
@@ -110,6 +172,11 @@ interface AppState {
   setTutorialCheckRequested: (requested: boolean) => void;
   isPremium: boolean;
   setIsPremium: (isPremium: boolean) => void;
+  premiumTier: PremiumTier;
+  setPremiumTier: (tier: PremiumTier) => void;
+  extraPremiumSettings: ExtraPremiumSettings;
+  setExtraPremiumSetting: <K extends keyof ExtraPremiumSettings>(key: K, value: ExtraPremiumSettings[K]) => void;
+  resetExtraPremiumSettings: () => void;
   aiMode: 'fast' | 'thinking' | 'pro';
   setAiMode: (mode: 'fast' | 'thinking' | 'pro') => void;
   requestCount: number;
@@ -161,6 +228,14 @@ interface AppState {
   showTab: (tabId: string) => void;
   toggleTabVisibility: (tabId: string) => void;
   restoreAllTabs: () => void;
+  isSidebarHidden: boolean;
+  setIsSidebarHidden: (hidden: boolean) => void;
+  toggleSidebarHidden: () => void;
+  isMobileNavHidden: boolean;
+  setIsMobileNavHidden: (hidden: boolean) => void;
+  toggleMobileNavHidden: () => void;
+  isDesktopDownloadOpen: boolean;
+  setIsDesktopDownloadOpen: (open: boolean) => void;
 }
 
 export const useStore = create<AppState>()(persist((set, get) => ({
@@ -240,6 +315,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   setTutorialCheckRequested: (requested) => set({ tutorialCheckRequested: requested }),
   isPremium: false,
   setIsPremium: (isPremium) => set({ isPremium }),
+  premiumTier: 'none',
+  setPremiumTier: (premiumTier) => set({ premiumTier }),
+  extraPremiumSettings: DEFAULT_EXTRA_PREMIUM_SETTINGS,
+  setExtraPremiumSetting: (key, value) => set((state) => ({
+    extraPremiumSettings: { ...state.extraPremiumSettings, [key]: value },
+  })),
+  resetExtraPremiumSettings: () => set({ extraPremiumSettings: DEFAULT_EXTRA_PREMIUM_SETTINGS }),
   aiMode: 'fast',
   setAiMode: (mode) => set({ aiMode: mode }),
   requestCount: 0,
@@ -451,6 +533,14 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     }
   },
   restoreAllTabs: () => set({ hiddenTabs: [] }),
+  isSidebarHidden: false,
+  setIsSidebarHidden: (hidden) => set({ isSidebarHidden: hidden }),
+  toggleSidebarHidden: () => set((state) => ({ isSidebarHidden: !state.isSidebarHidden })),
+  isMobileNavHidden: false,
+  setIsMobileNavHidden: (hidden) => set({ isMobileNavHidden: hidden }),
+  toggleMobileNavHidden: () => set((state) => ({ isMobileNavHidden: !state.isMobileNavHidden })),
+  isDesktopDownloadOpen: false,
+  setIsDesktopDownloadOpen: (open) => set({ isDesktopDownloadOpen: open }),
 }), {
   name: 'app-storage',
   partialize: (state) => ({ 
@@ -460,6 +550,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     language: state.language,
     theme: state.theme,
     isPremium: state.isPremium,
+    premiumTier: state.premiumTier,
+    extraPremiumSettings: state.extraPremiumSettings,
     aiMode: state.aiMode,
     requestCount: state.requestCount,
     lastResetTime: state.lastResetTime,
@@ -474,6 +566,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     installedAppsList: state.installedAppsList,
     livePreviewEnabled: state.livePreviewEnabled,
     projectFiles: state.projectFiles,
-    hiddenTabs: state.hiddenTabs
+    hiddenTabs: state.hiddenTabs,
+    isSidebarHidden: state.isSidebarHidden,
+    isMobileNavHidden: state.isMobileNavHidden
   }),
 }));

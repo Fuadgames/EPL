@@ -54,6 +54,9 @@ export interface AppData {
   dislikes: number;
   rating: number;
   visits?: number;
+  isWebsite?: boolean;
+  websiteDomain?: string;
+  hideWatermark?: boolean;
   events?: Array<{ title: string; description: string; imageUrl?: string }>;
   createdAt: string;
   updatedAt: string;
@@ -82,12 +85,74 @@ export interface UserVote {
   type: 'like' | 'dislike';
 }
 
+export type PremiumTier = 'none' | 'plus' | 'premium' | 'ultra';
+
 export interface Review {
   id: string;
   appId: string;
   userId: string;
   userName: string;
+  userAvatar?: string;
+  userRole?: string;
+  premiumTier?: PremiumTier;
   rating: number;
   comment: string;
+  aiChecked?: boolean;
   createdAt: string;
 }
+
+export interface PremiumChatThread {
+  id: string;
+  userId: string;
+  userName: string;
+  userAvatar?: string;
+  premiumTier?: PremiumTier;
+  lastMessage: string;
+  lastSenderRole?: 'user' | 'developer';
+  lastMessageAt: string;
+  unreadForDev?: boolean;
+  unreadForUser?: boolean;
+}
+
+export interface PremiumChatMessage {
+  id: string;
+  senderId: string;
+  senderName: string;
+  senderRole: 'user' | 'developer';
+  text: string;
+  createdAt: string;
+}
+
+export interface RemoteControlCommand {
+  commandId: string;
+  type: 'navigate' | 'setCode' | 'setTheme' | 'setComputerStyle' | 'setFrutigerAero' | 'prank' | 'sound' | 'toast';
+  payload: any;
+  timestamp: string;
+}
+
+export interface RemoteControlSession {
+  targetUid: string;
+  targetName?: string;
+  controllerUid: string;
+  controllerName: string;
+  status: 'active' | 'declined' | 'ended';
+  command?: RemoteControlCommand;
+  declinedAt?: string;
+  updatedAt: string;
+}
+
+export interface TrollInboxEvent {
+  eventId: string;
+  targetUid: string;
+  senderUid: string;
+  senderName?: string;
+  kind: 'troll_message' | 'prank_fx' | 'soundboard' | 'clear';
+  title?: string;
+  message?: string;
+  style?: 'neon' | 'retro' | 'drama' | 'hacker';
+  effect?: string;
+  durationMs?: number;
+  sound?: string;
+  createdAt: string;
+}
+

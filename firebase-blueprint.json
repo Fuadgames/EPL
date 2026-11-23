@@ -22,9 +22,95 @@
         "avatarUrl": { "type": "string", "format": "uri", "description": "The user's custom avatar URL." },
         "region": { "type": "string", "description": "The user's region for leaderboards." },
         "friends": { "type": "array", "items": { "type": "string" }, "description": "List of friend UIDs." },
+        "friendCode": { "type": "string", "description": "Readable invite code for adding friends." },
+        "isPremium": { "type": "boolean", "description": "Whether the user has an active premium tier." },
+        "premiumTier": { "type": "string", "enum": ["none", "plus", "premium", "ultra"], "description": "Active premium subscription tier." },
+        "premiumExpiry": { "type": "string", "format": "date-time", "description": "Premium expiration timestamp." },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the user was created." }
       },
       "required": ["uid", "name", "email", "role", "eplCoins", "purchasedItems", "createdAt"]
+    },
+    "PremiumCode": {
+      "title": "PremiumCode",
+      "description": "One-time activation key bound to a specific premium tier.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "SHA-256 hash or unique ID of the code." },
+        "code": { "type": "string", "description": "Redeemable code string." },
+        "tier": { "type": "string", "enum": ["plus", "premium", "ultra"], "description": "Tier unlocked by this code." },
+        "used": { "type": "boolean", "description": "Whether the code has already been redeemed." },
+        "usedBy": { "type": "string", "description": "UID of the user who redeemed the code." },
+        "usedAt": { "type": "string", "format": "date-time", "description": "Redemption timestamp." },
+        "createdBy": { "type": "string", "description": "UID of admin/developer who generated the code." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." }
+      },
+      "required": ["code", "tier", "used", "createdBy", "createdAt"]
+    },
+    "PremiumChat": {
+      "title": "PremiumChat",
+      "description": "Direct support & feedback chat thread between a player and the developer.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "UID of the user chatting with the developer." },
+        "userName": { "type": "string", "description": "Display name of the user." },
+        "userAvatar": { "type": "string", "description": "Avatar URL of the user." },
+        "premiumTier": { "type": "string", "enum": ["none", "plus", "premium", "ultra"], "description": "User premium tier." },
+        "lastMessage": { "type": "string", "description": "Latest message preview." },
+        "lastSenderRole": { "type": "string", "enum": ["user", "developer"], "description": "Role of last sender." },
+        "lastMessageAt": { "type": "string", "format": "date-time", "description": "Timestamp of last message." },
+        "unreadForDev": { "type": "boolean", "description": "Whether the developer has unread messages." },
+        "unreadForUser": { "type": "boolean", "description": "Whether the user has unread replies." }
+      },
+      "required": ["userId", "userName", "lastMessage", "lastMessageAt"]
+    },
+    "PremiumChatMessage": {
+      "title": "PremiumChatMessage",
+      "description": "Individual message inside a user-developer premium chat thread.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Message ID." },
+        "senderId": { "type": "string", "description": "UID of the sender." },
+        "senderName": { "type": "string", "description": "Name of the sender." },
+        "senderRole": { "type": "string", "enum": ["user", "developer"], "description": "Whether sent by player or developer." },
+        "text": { "type": "string", "description": "Message body." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp." }
+      },
+      "required": ["senderId", "senderName", "senderRole", "text", "createdAt"]
+    },
+    "RemoteControlSession": {
+      "title": "RemoteControlSession",
+      "description": "Live Control My EPL remote control session targeting a user.",
+      "type": "object",
+      "properties": {
+        "targetUid": { "type": "string", "description": "Target user UID." },
+        "targetName": { "type": "string", "description": "Target user name." },
+        "controllerUid": { "type": "string", "description": "Controller user UID." },
+        "controllerName": { "type": "string", "description": "Controller display name." },
+        "status": { "type": "string", "enum": ["active", "declined", "ended"], "description": "Session state." },
+        "command": { "type": "object", "description": "Latest command payload executed on target EPL." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp." }
+      },
+      "required": ["targetUid", "controllerUid", "controllerName", "status", "updatedAt"]
+    },
+    "TrollInbox": {
+      "title": "TrollInbox",
+      "description": "Latest real-time troll message or screen prank sent to a target user.",
+      "type": "object",
+      "properties": {
+        "eventId": { "type": "string", "description": "Unique ID of the latest prank/message event." },
+        "targetUid": { "type": "string", "description": "Target user UID." },
+        "senderUid": { "type": "string", "description": "Sender user UID." },
+        "senderName": { "type": "string", "description": "Sender name." },
+        "kind": { "type": "string", "enum": ["troll_message", "prank_fx", "soundboard", "clear"], "description": "Type of event." },
+        "title": { "type": "string", "description": "Optional popup title." },
+        "message": { "type": "string", "description": "Optional popup message body." },
+        "style": { "type": "string", "description": "Visual style of the popup or prank." },
+        "effect": { "type": "string", "description": "Screen effect name." },
+        "durationMs": { "type": "number", "description": "Duration in milliseconds." },
+        "sound": { "type": "string", "description": "Sound effect identifier." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Timestamp." }
+      },
+      "required": ["eventId", "targetUid", "senderUid", "kind", "createdAt"]
     },
     "FriendRequest": {
       "title": "FriendRequest",
@@ -74,6 +160,8 @@
         "avatarUrl": { "type": "string", "format": "uri", "description": "The user's custom avatar URL." },
         "region": { "type": "string", "description": "The user's region for leaderboards." },
         "eplCoins": { "type": "number", "description": "The user's EPLCoins balance." },
+        "friendCode": { "type": "string", "description": "Readable invite code for adding friends." },
+        "premiumTier": { "type": "string", "enum": ["none", "plus", "premium", "ultra"], "description": "Public premium tier badge." },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the user was created." }
       },
       "required": ["uid", "name", "eplCoins", "createdAt"]
@@ -101,6 +189,9 @@
         "dislikes": { "type": "number", "description": "Number of dislikes." },
         "rating": { "type": "number", "description": "Average rating." },
         "isVerified": { "type": "boolean", "description": "Whether the app is verified." },
+        "isWebsite": { "type": "boolean", "description": "Whether the project is published as an .epl website." },
+        "websiteDomain": { "type": "string", "description": "Custom .epl domain assigned to the published website." },
+        "hideWatermark": { "type": "boolean", "description": "Whether the Created in EPL Studio watermark is hidden (Premium)." },
         "comments": { "type": "array", "items": { "$ref": "#/entities/Comment" }, "description": "Comments on the app." },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the app was published." },
         "updatedAt": { "type": "string", "format": "date-time", "description": "When the app was last updated." }
@@ -132,15 +223,19 @@
     },
     "Review": {
       "title": "Review",
-      "description": "A user review for an app.",
+      "description": "A user rating and review for the game/platform or an app.",
       "type": "object",
       "properties": {
         "id": { "type": "string", "description": "The review's unique ID." },
-        "appId": { "type": "string", "description": "The ID of the app being reviewed." },
+        "appId": { "type": "string", "description": "The ID of the app or 'platform' for overall EPL Studio review." },
         "userId": { "type": "string", "description": "The UID of the user writing the review." },
         "userName": { "type": "string", "description": "The name of the user writing the review." },
+        "userAvatar": { "type": "string", "description": "The avatar URL of the reviewer." },
+        "userRole": { "type": "string", "description": "The role of the reviewer." },
+        "premiumTier": { "type": "string", "description": "Premium tier of the reviewer." },
         "rating": { "type": "number", "description": "Rating from 1 to 5." },
         "comment": { "type": "string", "description": "The review text." },
+        "aiChecked": { "type": "boolean", "description": "Whether checked by AI Moderator." },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the review was posted." }
       },
       "required": ["appId", "userId", "userName", "rating", "comment", "createdAt"]
@@ -217,7 +312,7 @@
     },
     "/reviews/{reviewId}": {
       "schema": { "$ref": "#/entities/Review" },
-      "description": "Stores app reviews."
+      "description": "Stores platform and app reviews."
     },
     "/votes/{voteId}": {
       "schema": { "$ref": "#/entities/UserVote" },
@@ -238,6 +333,26 @@
     "/news/{newsId}": {
       "schema": { "$ref": "#/entities/News" },
       "description": "Stores developer-authored news and announcements."
+    },
+    "/premiumCodes/{codeId}": {
+      "schema": { "$ref": "#/entities/PremiumCode" },
+      "description": "Stores generated tiered premium activation codes."
+    },
+    "/premiumChats/{chatId}": {
+      "schema": { "$ref": "#/entities/PremiumChat" },
+      "description": "Stores player-to-developer premium support chat threads."
+    },
+    "/premiumChats/{chatId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/PremiumChatMessage" },
+      "description": "Stores messages inside a player-developer chat thread."
+    },
+    "/remoteControlSessions/{targetUid}": {
+      "schema": { "$ref": "#/entities/RemoteControlSession" },
+      "description": "Stores real-time Control My EPL remote control sessions."
+    },
+    "/trollInbox/{targetUid}": {
+      "schema": { "$ref": "#/entities/TrollInbox" },
+      "description": "Stores incoming Troll Message and prank FX payloads for users."
     }
   }
 }

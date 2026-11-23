@@ -5,12 +5,12 @@ import { clsx } from 'clsx';
 import {
   ShieldCheck, CheckCircle, XCircle, Users, Coins, Search, Ban, AlertCircle, X, Trash2,
   RefreshCw, Check, FileCode, ShieldAlert, BadgeCheck, Clock, AlertTriangle, Bot, Send,
-  Terminal, CheckCircle2, Zap, Copy, Shield
+  Terminal, CheckCircle2, Zap, Copy, Shield, MessageSquare, Crown, Sparkles, Star, KeyRound
 } from 'lucide-react';
-import { collection, getDocs, doc, updateDoc, deleteDoc, query, where, onSnapshot, setDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, deleteDoc, query, where, onSnapshot, setDoc, orderBy } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { db, auth } from '../firebase';
-import { AppData } from '../types';
+import { AppData, PremiumChatThread, PremiumChatMessage, PremiumTier } from '../types';
 import { getDefaultAvatar } from '../lib/avatar';
 import UserRoleBadge from './UserRoleBadge';
 import VerifiedBadge from './VerifiedBadge';
@@ -51,9 +51,17 @@ export default function ControlView() {
   const effectiveRole = actualRole === 'developer' && simulatedRole ? simulatedRole : actualRole;
   const isDeveloper = actualRole === 'developer' || effectiveRole === 'developer';
 
-  const [activeTab, setActiveTab] = useState<'apps' | 'users' | 'assets' | 'roles' | 'premium' | 'requests' | 'moderation' | 'ai-help'>(
+  const [activeTab, setActiveTab] = useState<'apps' | 'users' | 'assets' | 'roles' | 'premium' | 'premium-chat' | 'requests' | 'moderation' | 'ai-help'>(
     isDeveloper ? 'moderation' : 'apps'
   );
+  const [selectedCodeTier, setSelectedCodeTier] = useState<'plus' | 'premium' | 'ultra'>('premium');
+  const [generatingCode, setGeneratingCode] = useState(false);
+  const [latestPackCodes, setLatestPackCodes] = useState<Array<{ code: string; tier: 'plus' | 'premium' | 'ultra' }>>([]);
+  const [premiumChats, setPremiumChats] = useState<PremiumChatThread[]>([]);
+  const [selectedChatUid, setSelectedChatUid] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<PremiumChatMessage[]>([]);
+  const [chatReplyInput, setChatReplyInput] = useState('');
+  const [sendingChatReply, setSendingChatReply] = useState(false);
   const [search, setSearch] = useState('');
   const [localPermissions, setLocalPermissions] = useState<{ [userId: string]: any }>({});
   const [saving, setSaving] = useState<string | null>(null);
@@ -175,7 +183,52 @@ export default function ControlView() {
     if (activeTab === 'moderation' && !isDeveloper) {
       setActiveTab('apps');
     }
-  }, [activeTab, isDeveloper]);
+    if (activeTab === 'premium-chat' && !(actualRole === 'developer' && effectiveRole === 'developer')) {
+      setActiveTab('apps');
+    }
+  }, [activeTab, isDeveloper, actualRole, effectiveRole]);
+
+  // Developer-only subscription to Premium Chat threads
+  useEffect(() => {
+    if (actualRole !== 'developer' || effectiveRole !== 'developer') {
+      setPremiumChats([]);
+      return;
+    }
+    const unsub = onSnapshot(
+      collection(db, 'premiumChats'),
+      (snap) => {
+        const list = snap.docs
+          .map(d => ({ ...(d.data() as any), id: d.id } as PremiumChatThread))
+          .sort((a, b) => new Date(b.lastMessageAt || 0).getTime() - new Date(a.lastMessageAt || 0).getTime());
+        setPremiumChats(list);
+      },
+      (err) => {
+        console.warn('premiumChats listener warning:', err);
+      }
+    );
+    return () => unsub();
+  }, [actualRole, effectiveRole]);
+
+  // Selected chat messages listener
+  useEffect(() => {
+    if (actualRole !== 'developer' || effectiveRole !== 'developer' || !selectedChatUid) {
+      setChatMessages([]);
+      return;
+    }
+    const q = query(collection(db, 'premiumChats', selectedChatUid, 'messages'), orderBy('createdAt', 'asc'));
+    const unsub = onSnapshot(
+      q,
+      (snap) => {
+        setChatMessages(snap.docs.map(d => ({ ...(d.data() as any), id: d.id } as PremiumChatMessage)));
+      },
+      (err) => {
+        console.warn('premiumChats messages warning:', err);
+      }
+    );
+    // Clear unread flag for dev
+    updateDoc(doc(db, 'premiumChats', selectedChatUid), { unreadForDev: false }).catch(() => {});
+    return () => unsub();
+  }, [actualRole, effectiveRole, selectedChatUid]);
 
   useEffect(() => {
     setLoading(true);
@@ -1267,39 +1320,154 @@ export default function ControlView() {
     }
   };
 
-  const handleGenerateCode = async () => {
-    if (!userData?.uid) {
+  const sha256Hex = async (text: string): Promise<string> => {
+    if (typeof window !== 'undefined' && window.crypto?.subtle) {
+      const buf = await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+      return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    }
+    return `code_${text}_${Date.now()}`;
+  };
+
+  const handleGenerateCode = async (tierArg?: 'plus' | 'premium' | 'ultra', generatePack = false) => {
+    const adminUid = userData?.uid || (userData as any)?.id || auth.currentUser?.uid;
+    if (!adminUid) {
       showToast(language === 'ru' ? 'Ошибка: пользователь не авторизован' : 'Error: User not authenticated', 'error');
       return;
     }
+
+    const targetTier = tierArg || selectedCodeTier;
+    setGeneratingCode(true);
 
     try {
       const headers = await getAuthHeaders();
       const res = await fetch('/api/premium/generate', {
         method: 'POST',
         headers,
-        body: JSON.stringify({ adminUid: userData.uid }),
+        body: JSON.stringify({ adminUid, tier: targetTier, generatePack }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to generate code');
 
-      const newEntry = {
-        id: data.id || data.code,
-        code: data.code,
-        used: false,
-        createdAt: new Date().toISOString(),
-        createdBy: userData.uid,
-      };
-      await setDoc(doc(db, 'premiumCodes', newEntry.id), newEntry, { merge: true }).catch(() => {});
+      const rawText = await res.text();
+      let data: any = null;
+      try {
+        data = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok || !data?.code) {
+        throw new Error(data?.error || `Server error (${res.status})`);
+      }
+
+      const generatedList: Array<{ id?: string; code: string; tier: 'plus' | 'premium' | 'ultra'; createdAt?: string }> =
+        Array.isArray(data.codes) && data.codes.length > 0
+          ? data.codes
+          : [{ id: data.id, code: data.code, tier: data.tier || targetTier, createdAt: data.createdAt }];
+
+      const savedEntries: any[] = [];
+      for (const item of generatedList) {
+        const docId = item.id || (await sha256Hex(item.code));
+        const entry = {
+          id: docId,
+          code: item.code,
+          tier: item.tier || targetTier,
+          used: false,
+          createdAt: item.createdAt || new Date().toISOString(),
+          createdBy: adminUid,
+        };
+        await setDoc(doc(db, 'premiumCodes', docId), entry, { merge: true }).catch(() => {});
+        savedEntries.push(entry);
+      }
+
       setPremiumCodes(prev => {
-        if (prev.some(c => c.code === data.code || c.id === newEntry.id)) return prev;
-        return [newEntry, ...prev];
+        const map = new Map<string, any>();
+        savedEntries.forEach(e => map.set(e.code, e));
+        prev.forEach(c => {
+          if (c?.code && !map.has(c.code)) map.set(c.code, c);
+        });
+        return Array.from(map.values());
       });
-      setPremiumCode(data.code);
-      showToast(language === 'ru' ? `Новый код сгенерирован: ${data.code}` : `New code generated: ${data.code}`, 'success');
+
+      setLatestPackCodes(savedEntries.map(e => ({ code: e.code, tier: e.tier })));
+      setPremiumCode(savedEntries[0]?.code || data.code);
+      showToast(
+        generatePack
+          ? (language === 'ru' ? 'Сгенерировано 3 кода (Plus, Premium, Ultra)!' : 'Generated 3 tier codes (Plus, Premium, Ultra)!')
+          : (language === 'ru' ? `Новый код (${targetTier.toUpperCase()}): ${data.code}` : `New ${targetTier.toUpperCase()} code: ${data.code}`),
+        'success'
+      );
     } catch (error: any) {
       console.error('Error generating premium code:', error);
-      showToast(error.message || 'Error generating premium code', 'error');
+      // Client-side Firestore fallback for authorized Admins/Developers if API fails
+      try {
+        const tiersToGen: Array<'plus' | 'premium' | 'ultra'> = generatePack ? ['plus', 'premium', 'ultra'] : [targetTier];
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+        const mkPart = () => Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
+        const fallbackEntries: any[] = [];
+        for (const tKey of tiersToGen) {
+          const prefix = tKey === 'plus' ? 'PLUS' : tKey === 'ultra' ? 'ULTR' : 'PREM';
+          const codeStr = `${prefix}-${mkPart()}-${mkPart()}`;
+          const hashId = await sha256Hex(codeStr);
+          const entry = {
+            id: hashId,
+            code: codeStr,
+            tier: tKey,
+            used: false,
+            createdAt: new Date().toISOString(),
+            createdBy: adminUid,
+          };
+          await setDoc(doc(db, 'premiumCodes', hashId), entry, { merge: true });
+          fallbackEntries.push(entry);
+        }
+        setPremiumCodes(prev => [...fallbackEntries, ...prev]);
+        setLatestPackCodes(fallbackEntries.map(e => ({ code: e.code, tier: e.tier })));
+        setPremiumCode(fallbackEntries[0].code);
+        showToast(
+          language === 'ru'
+            ? `Код сохранён через резервный канал: ${fallbackEntries[0].code}`
+            : `Code generated via cloud sync: ${fallbackEntries[0].code}`,
+          'success'
+        );
+      } catch (fbErr: any) {
+        showToast(fbErr?.message || error?.message || 'Error generating premium code', 'error');
+      }
+    } finally {
+      setGeneratingCode(false);
+    }
+  };
+
+  const handleSendDevChatReply = async () => {
+    const text = chatReplyInput.trim();
+    if (!text || !selectedChatUid || !userData) return;
+    const devUid = userData.uid || (userData as any).id || auth.currentUser?.uid || 'dev';
+    const msgId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const now = new Date().toISOString();
+    setSendingChatReply(true);
+    try {
+      await setDoc(doc(db, 'premiumChats', selectedChatUid, 'messages', msgId), {
+        id: msgId,
+        senderId: devUid,
+        senderName: userData.name || 'Developer',
+        senderRole: 'developer',
+        text,
+        createdAt: now,
+      });
+      const currentThread = premiumChats.find(c => (c.id || c.userId) === selectedChatUid);
+      await setDoc(doc(db, 'premiumChats', selectedChatUid), {
+        userId: selectedChatUid,
+        userName: currentThread?.userName || 'User',
+        userAvatar: currentThread?.userAvatar || '',
+        premiumTier: currentThread?.premiumTier || 'none',
+        lastMessage: text,
+        lastSenderRole: 'developer',
+        lastMessageAt: now,
+        unreadForDev: false,
+        unreadForUser: true,
+      }, { merge: true });
+      setChatReplyInput('');
+    } catch (err: any) {
+      handleFirestoreError(err, OperationType.WRITE, `premiumChats/${selectedChatUid}/messages/${msgId}`);
+    } finally {
+      setSendingChatReply(false);
     }
   };
 
@@ -1418,6 +1586,12 @@ export default function ControlView() {
             { id: 'assets', label: t.assetStoreManagement || 'Asset Store', show: effectiveRole === 'admin' || effectiveRole === 'developer' },
             { id: 'roles', label: t.roleControl || 'Role Control', show: effectiveRole === 'developer' || effectiveRole === 'admin' },
             { id: 'premium', label: language === 'ru' ? 'Премиум коды' : 'Premium Codes', show: effectiveRole === 'developer' || effectiveRole === 'admin' },
+            {
+              id: 'premium-chat',
+              label: 'Premium Chat',
+              show: actualRole === 'developer' && effectiveRole === 'developer',
+              badge: premiumChats.filter(c => c.unreadForDev).length,
+            },
             { id: 'requests', label: language === 'ru' ? 'Запросы' : 'Sent Requests', show: true },
           ]
             .filter(tab => tab.show)
@@ -1426,7 +1600,7 @@ export default function ControlView() {
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as any)}
                 className={clsx(
-                  'px-3.5 py-2 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer',
+                  'px-3.5 py-2 rounded-lg border text-xs font-semibold transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 cursor-pointer',
                   activeTab === tab.id
                     ? 'bg-[#10B981] border-[#10B981] text-[#0A0C0E]'
                     : isLight
@@ -1434,7 +1608,12 @@ export default function ControlView() {
                       : 'bg-[#181B20] border-[#262B33] text-[#9CA3AF] hover:text-[#F3F4F6]'
                 )}
               >
-                {tab.label}
+                <span>{tab.label}</span>
+                {'badge' in tab && (tab.badge ?? 0) > 0 && (
+                  <span className="px-1.5 py-0.2 rounded font-mono-num text-[10px] font-bold bg-amber-500 text-black">
+                    {tab.badge}
+                  </span>
+                )}
               </button>
             ))}
 
@@ -2421,43 +2600,151 @@ export default function ControlView() {
         ) : activeTab === 'premium' ? (
           <div className="space-y-5">
             <div className={clsx(cardClass, 'p-6')}>
-              <h2 className={clsx('text-base font-bold mb-1', isLight ? 'text-[#111315]' : 'text-[#F3F4F6]')}>
-                {language === 'ru' ? 'Генератор премиум кодов' : 'Premium Code Generator'}
-              </h2>
-              <p className="text-xs text-[#9CA3AF] mb-5">
-                {language === 'ru' ? 'Сгенерируйте одноразовый ключ для активации подписки.' : 'Generate a one-time key for premium activation.'}
-              </p>
-
-              <div className="flex flex-col gap-3">
-                <div className={clsx(subSurfaceClass, 'p-4 font-mono text-center text-2xl tracking-widest text-[#10B981]')}>
-                  {premiumCode || 'XXXX-XXXX-XXXX'}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+                <div>
+                  <h2 className={clsx('text-base font-bold flex items-center gap-2', isLight ? 'text-[#111315]' : 'text-[#F3F4F6]')}>
+                    <KeyRound className="w-4 h-4 text-[#10B981]" />
+                    {language === 'ru' ? 'Генератор 3 уровней премиум-кодов' : '3-Tier Premium Code Generator'}
+                  </h2>
+                  <p className="text-xs text-[#9CA3AF] mt-0.5">
+                    {language === 'ru'
+                      ? 'Выберите уровень (Plus, Premium, Ultra) или создайте сразу 3 отдельных кода для каждого уровня.'
+                      : 'Choose a tier (Plus, Premium, Ultra) or generate a complete 3-code pack across all tiers.'}
+                  </p>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-2.5">
-                  <button
-                    onClick={handleGenerateCode}
-                    className="flex-1 py-2.5 px-5 bg-[#10B981] hover:bg-[#059669] text-[#0A0C0E] rounded-lg text-sm font-semibold transition-colors cursor-pointer"
-                  >
-                    {language === 'ru' ? 'Сгенерировать новый код' : 'Generate New Code'}
-                  </button>
+                <button
+                  type="button"
+                  disabled={generatingCode}
+                  onClick={() => handleGenerateCode(undefined, true)}
+                  className="px-4 py-2 rounded-lg bg-gradient-to-r from-amber-500 via-pink-500 to-cyan-500 text-white text-xs font-bold shadow-md hover:opacity-95 transition-opacity cursor-pointer disabled:opacity-50 whitespace-nowrap shrink-0 flex items-center gap-1.5"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>{language === 'ru' ? 'Создать 3 кода (Plus + Prem + Ultra)' : 'Generate All 3 Tiers Pack'}</span>
+                </button>
+              </div>
 
-                  {premiumCode && (
+              {/* 3 Tier Buttons */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+                {[
+                  {
+                    id: 'plus' as const,
+                    label: 'Plus',
+                    sub: language === 'ru' ? 'Базовый (простой стиль)' : 'Starter tier',
+                    activeBorder: 'border-slate-400 bg-slate-500/15 text-slate-200',
+                    icon: Star,
+                  },
+                  {
+                    id: 'premium' as const,
+                    label: 'Premium',
+                    sub: language === 'ru' ? 'Изумрудно-фиолетовый' : 'Crystalline tier',
+                    activeBorder: 'border-violet-400 bg-gradient-to-br from-violet-500/20 to-emerald-500/15 text-emerald-300',
+                    icon: Sparkles,
+                  },
+                  {
+                    id: 'ultra' as const,
+                    label: 'Ultra',
+                    sub: language === 'ru' ? 'Эпичный золотой (ВСЁ)' : 'Epic Flagship (ALL)',
+                    activeBorder: 'border-amber-400 bg-gradient-to-br from-amber-500/25 via-rose-500/15 to-cyan-500/20 text-amber-300',
+                    icon: Crown,
+                  },
+                ].map(tItem => {
+                  const IconComp = tItem.icon;
+                  const isSel = selectedCodeTier === tItem.id;
+                  return (
                     <button
-                      onClick={() => {
-                        navigator.clipboard.writeText(premiumCode);
-                        notify.success(language === 'ru' ? 'Код скопирован!' : 'Code copied!');
-                      }}
+                      key={tItem.id}
+                      type="button"
+                      onClick={() => setSelectedCodeTier(tItem.id)}
                       className={clsx(
-                        'py-2.5 px-5 rounded-lg border text-sm font-semibold transition-colors flex items-center justify-center gap-2 cursor-pointer',
-                        subSurfaceClass,
-                        isLight ? 'text-[#111315] hover:bg-zinc-200' : 'text-[#F3F4F6] hover:bg-[#22262E]'
+                        'p-3.5 rounded-xl border text-left transition-all cursor-pointer flex items-center gap-3',
+                        isSel
+                          ? tItem.activeBorder
+                          : clsx(subSurfaceClass, 'opacity-80 hover:opacity-100')
                       )}
                     >
-                      <Copy className="w-4 h-4" />
-                      {language === 'ru' ? 'Копировать код' : 'Copy Code'}
+                      <IconComp className="w-5 h-5 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold">{tItem.label}</div>
+                        <div className="text-[11px] opacity-75 truncate">{tItem.sub}</div>
+                      </div>
                     </button>
-                  )}
+                  );
+                })}
+              </div>
+
+              {/* Generated Code Display */}
+              {latestPackCodes.length > 1 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mb-4">
+                  {latestPackCodes.map(item => (
+                    <div key={item.code} className={clsx(subSurfaceClass, 'p-3 flex items-center justify-between gap-2')}>
+                      <div className="min-w-0">
+                        <span
+                          className={clsx(
+                            'text-[10px] font-bold uppercase px-1.5 py-0.5 rounded inline-block mb-1',
+                            item.tier === 'ultra'
+                              ? 'bg-amber-500/20 text-amber-300'
+                              : item.tier === 'premium'
+                                ? 'bg-violet-500/20 text-violet-300'
+                                : 'bg-slate-500/20 text-slate-300'
+                          )}
+                        >
+                          {item.tier}
+                        </span>
+                        <div className="font-mono text-sm font-bold tracking-wider truncate text-[#10B981]">
+                          {item.code}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText(item.code);
+                          notify.success(language === 'ru' ? 'Код скопирован!' : 'Code copied!');
+                        }}
+                        className="p-2 rounded-lg hover:bg-white/10 text-[#9CA3AF] hover:text-white cursor-pointer shrink-0"
+                      >
+                        <Copy className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
                 </div>
+              ) : (
+                <div className={clsx(subSurfaceClass, 'p-4 font-mono text-center text-2xl tracking-widest text-[#10B981] mb-3')}>
+                  {premiumCode || 'XXXX-XXXX-XXXX'}
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                <button
+                  type="button"
+                  disabled={generatingCode}
+                  onClick={() => handleGenerateCode(selectedCodeTier, false)}
+                  className="flex-1 py-2.5 px-5 bg-[#10B981] hover:bg-[#059669] text-[#0A0C0E] rounded-lg text-sm font-semibold transition-colors cursor-pointer disabled:opacity-50"
+                >
+                  {generatingCode
+                    ? (language === 'ru' ? 'Генерация...' : 'Generating...')
+                    : language === 'ru'
+                      ? `Сгенерировать код (${selectedCodeTier.toUpperCase()})`
+                      : `Generate ${selectedCodeTier.toUpperCase()} Code`}
+                </button>
+
+                {premiumCode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(premiumCode);
+                      notify.success(language === 'ru' ? 'Код скопирован!' : 'Code copied!');
+                    }}
+                    className={clsx(
+                      'py-2.5 px-5 rounded-lg border text-sm font-semibold transition-colors flex items-center justify-center gap-2 cursor-pointer',
+                      subSurfaceClass,
+                      isLight ? 'text-[#111315] hover:bg-zinc-200' : 'text-[#F3F4F6] hover:bg-[#22262E]'
+                    )}
+                  >
+                    <Copy className="w-4 h-4" />
+                    {language === 'ru' ? 'Копировать код' : 'Copy Code'}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -2468,36 +2755,225 @@ export default function ControlView() {
               <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
                 {[...premiumCodes]
                   .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
-                  .map(c => (
-                    <div key={c.id} className={clsx(subSurfaceClass, 'p-3.5 flex items-center justify-between')}>
-                      <div className="flex flex-col">
-                        <span className="font-mono text-sm font-bold">{c.code}</span>
-                        <span className="text-[11px] font-mono-num text-[#9CA3AF]">{new Date(c.createdAt).toLocaleString()}</span>
-                      </div>
-                      <div className="flex items-center gap-2.5">
-                        {c.used ? (
-                          <span className="text-[11px] px-2 py-0.5 bg-red-500/15 text-red-400 border border-red-500/30 rounded font-semibold">
-                            {language === 'ru' ? 'Использован' : 'Used'}
+                  .map(c => {
+                    const tierLabel: PremiumTier =
+                      c.tier === 'plus' || c.tier === 'ultra' || c.tier === 'premium'
+                        ? c.tier
+                        : String(c.code || '').startsWith('PLUS-')
+                          ? 'plus'
+                          : String(c.code || '').startsWith('ULTR-')
+                            ? 'ultra'
+                            : 'premium';
+                    return (
+                      <div key={c.id || c.code} className={clsx(subSurfaceClass, 'p-3.5 flex items-center justify-between gap-2')}>
+                        <div className="flex flex-col min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-sm font-bold truncate">{c.code}</span>
+                            <span
+                              className={clsx(
+                                'text-[10px] px-2 py-0.5 rounded font-bold uppercase border',
+                                tierLabel === 'ultra'
+                                  ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                                  : tierLabel === 'premium'
+                                    ? 'bg-violet-500/15 text-violet-300 border-violet-500/40'
+                                    : 'bg-slate-500/15 text-slate-300 border-slate-500/40'
+                              )}
+                            >
+                              {tierLabel}
+                            </span>
+                          </div>
+                          <span className="text-[11px] font-mono-num text-[#9CA3AF]">
+                            {c.createdAt ? new Date(c.createdAt).toLocaleString() : ''}
                           </span>
-                        ) : (
-                          <span className="text-[11px] px-2 py-0.5 bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30 rounded font-semibold">
-                            {language === 'ru' ? 'Активен' : 'Active'}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {c.used ? (
+                            <span className="text-[11px] px-2 py-0.5 bg-red-500/15 text-red-400 border border-red-500/30 rounded font-semibold">
+                              {language === 'ru' ? 'Использован' : 'Used'}
+                            </span>
+                          ) : (
+                            <span className="text-[11px] px-2 py-0.5 bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30 rounded font-semibold">
+                              {language === 'ru' ? 'Активен' : 'Active'}
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              navigator.clipboard.writeText(c.code);
+                              notify.success(language === 'ru' ? 'Код скопирован!' : 'Code copied!');
+                            }}
+                            className="p-1.5 rounded hover:bg-[#22262E] text-[#9CA3AF] hover:text-[#F3F4F6] transition-colors cursor-pointer"
+                            title="Copy code"
+                          >
+                            <Copy className="w-3.5 h-3.5" />
+                          </button>
+                          {c.id && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await deleteDoc(doc(db, 'premiumCodes', c.id)).catch(() => {});
+                                setPremiumCodes(prev => prev.filter(item => item.id !== c.id));
+                              }}
+                              className="p-1.5 rounded hover:bg-red-500/15 text-[#9CA3AF] hover:text-red-400 transition-colors cursor-pointer"
+                              title="Delete code"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                {premiumCodes.length === 0 && (
+                  <p className="text-xs text-[#9CA3AF] text-center py-6">
+                    {language === 'ru' ? 'Коды ещё не созданы' : 'No codes generated yet'}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : activeTab === 'premium-chat' && actualRole === 'developer' && effectiveRole === 'developer' ? (
+          <div className={clsx(cardClass, 'overflow-hidden grid grid-cols-1 md:grid-cols-3 min-h-[560px]')}>
+            {/* Left column: players list */}
+            <div className={clsx('border-b md:border-b-0 md:border-r flex flex-col', isLight ? 'border-[#E2E5EA]' : 'border-[#262B33]')}>
+              <div className="p-4 border-b border-current/10 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="w-4 h-4 text-[#10B981]" />
+                  <h2 className="text-sm font-bold">
+                    {language === 'ru' ? 'Игроки в чате' : 'Player Messages'}
+                  </h2>
+                </div>
+                <span className="text-xs font-mono-num text-[#9CA3AF]">{premiumChats.length}</span>
+              </div>
+              <div className="flex-1 overflow-y-auto divide-y divide-current/5">
+                {premiumChats.map(chat => {
+                  const cid = chat.id || chat.userId;
+                  const active = selectedChatUid === cid;
+                  return (
+                    <button
+                      key={cid}
+                      type="button"
+                      onClick={() => setSelectedChatUid(cid)}
+                      className={clsx(
+                        'w-full p-3.5 flex items-center gap-3 text-left transition-colors cursor-pointer',
+                        active
+                          ? 'bg-[#10B981]/15'
+                          : isLight
+                            ? 'hover:bg-[#F5F6F8]'
+                            : 'hover:bg-[#22262E]'
+                      )}
+                    >
+                      <img
+                        src={chat.userAvatar || getDefaultAvatar(cid)}
+                        alt=""
+                        className="w-10 h-10 rounded-lg object-cover border border-current/15 shrink-0"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <span className="text-xs font-bold truncate">{chat.userName || 'Player'}</span>
+                          {chat.unreadForDev && (
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500 text-black text-[9px] font-bold uppercase shrink-0">
+                              NEW
+                            </span>
+                          )}
+                        </div>
+                        {chat.premiumTier && chat.premiumTier !== 'none' && (
+                          <span className="text-[10px] uppercase font-bold text-[#10B981] mr-1.5">
+                            [{chat.premiumTier}]
                           </span>
                         )}
-                        <button
-                          onClick={() => {
-                            navigator.clipboard.writeText(c.code);
-                            notify.success(language === 'ru' ? 'Код скопирован!' : 'Code copied!');
-                          }}
-                          className="p-1.5 rounded hover:bg-[#22262E] text-[#9CA3AF] hover:text-[#F3F4F6] transition-colors cursor-pointer"
-                          title="Copy code"
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
+                        <p className="text-[11px] text-[#9CA3AF] truncate mt-0.5">{chat.lastMessage}</p>
+                      </div>
+                    </button>
+                  );
+                })}
+                {premiumChats.length === 0 && (
+                  <div className="p-6 text-center text-xs text-[#9CA3AF]">
+                    {language === 'ru'
+                      ? 'Пока никто не написал разработчику через вкладку Premium.'
+                      : 'No players have messaged the developer yet.'}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right column: conversation */}
+            <div className="md:col-span-2 flex flex-col h-[560px]">
+              {selectedChatUid ? (
+                <>
+                  <div className="p-4 border-b border-current/10 flex items-center justify-between">
+                    <div className="flex items-center gap-2.5">
+                      <img
+                        src={premiumChats.find(c => (c.id || c.userId) === selectedChatUid)?.userAvatar || getDefaultAvatar(selectedChatUid)}
+                        alt=""
+                        className="w-8 h-8 rounded-lg object-cover"
+                      />
+                      <div>
+                        <div className="text-sm font-bold">
+                          {premiumChats.find(c => (c.id || c.userId) === selectedChatUid)?.userName || 'Player'}
+                        </div>
+                        <div className="text-[11px] text-[#9CA3AF] font-mono">UID: {selectedChatUid}</div>
                       </div>
                     </div>
-                  ))}
-              </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                    {chatMessages.map(m => {
+                      const isDevMsg = m.senderRole === 'developer';
+                      return (
+                        <div key={m.id} className={clsx('flex flex-col max-w-[80%]', isDevMsg ? 'ml-auto items-end' : 'mr-auto items-start')}>
+                          <div
+                            className={clsx(
+                              'px-3.5 py-2.5 rounded-xl text-xs sm:text-sm leading-relaxed border',
+                              isDevMsg
+                                ? 'bg-[#10B981] text-[#0A0C0E] border-[#10B981] font-medium'
+                                : isLight
+                                  ? 'bg-[#F5F6F8] text-[#111315] border-[#E2E5EA]'
+                                  : 'bg-[#111315] text-[#F3F4F6] border-[#262B33]'
+                            )}
+                          >
+                            {m.text}
+                          </div>
+                          <span className="text-[10px] text-[#9CA3AF] mt-1 px-1">
+                            {m.senderName} • {m.createdAt ? new Date(m.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSendDevChatReply();
+                    }}
+                    className={clsx('p-3.5 border-t flex items-center gap-2', isLight ? 'bg-[#F5F6F8] border-[#E2E5EA]' : 'bg-[#111315] border-[#262B33]')}
+                  >
+                    <input
+                      type="text"
+                      value={chatReplyInput}
+                      onChange={(e) => setChatReplyInput(e.target.value)}
+                      placeholder={language === 'ru' ? 'Ответить игроку...' : 'Reply to player...'}
+                      className={clsx(inputClass, 'flex-1 px-3.5 py-2')}
+                    />
+                    <button
+                      type="submit"
+                      disabled={!chatReplyInput.trim() || sendingChatReply}
+                      className="px-4 py-2 rounded-lg bg-[#10B981] hover:bg-[#059669] text-[#0A0C0E] text-xs font-semibold transition-colors disabled:opacity-50 flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      <span>{language === 'ru' ? 'Отправить' : 'Send'}</span>
+                    </button>
+                  </form>
+                </>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-[#9CA3AF]">
+                  <MessageSquare className="w-10 h-10 mb-2 opacity-40" />
+                  <p className="text-sm font-semibold">
+                    {language === 'ru' ? 'Выберите игрока слева для переписки' : 'Select a player from the list to reply'}
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         ) : activeTab === 'roles' ? (

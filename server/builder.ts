@@ -938,6 +938,18 @@ export function generateStandaloneAppHtml(app: BuildAppMetadata, iconDataUriOver
             entities2d.set(id, Object.assign({ _type: type, name: id, x: 100, y: 200, vx: 0, vy: 0, facing: 1, hp: 100, maxHp: Number(p.hp || 100), w: Number(p.w || dw), h: Number(p.h || dh) }, p));
             return;
           }
+          if (type === 'synth_music') { return; }
+          if (type === 'storage_save') {
+            try { localStorage.setItem('drpl_save_' + (p.key || 'highscore'), JSON.stringify(p.value ?? 0)); } catch (e) {}
+            stateVars[p.key || 'highscore'] = p.value ?? 0;
+            return;
+          }
+          if (type === 'dialog2d') {
+            const id = p.id || 'dialog2d_box';
+            widgets.set(id, { _type: 'ui_modal', id: id, title: p.speaker || 'Guide', body: p.text || '', open: true, x: p.x || 18, y: p.y || 320, w: p.w || 360 });
+            renderWidget(id);
+            return;
+          }
           if (type === 'state_store') {
             Object.keys(p).forEach(function(k) { if (k !== '_args') stateVars[k] = p[k]; });
             return;

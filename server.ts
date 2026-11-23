@@ -115,13 +115,19 @@ async function startServer() {
       req.originalUrl?.startsWith('/api/apps/publish') || 
       req.originalUrl?.startsWith('/api/ai/moderate-app') ||
       req.originalUrl?.startsWith('/api/ai/moderate-user') ||
+      req.originalUrl?.startsWith('/api/ai/moderate-review') ||
+      req.originalUrl?.startsWith('/api/ai/moderate-all-reviews') ||
       req.originalUrl?.startsWith('/api/ai/admin-help') ||
       req.originalUrl?.startsWith('/api/admin/') ||
+      req.originalUrl?.startsWith('/api/extra/') ||
       req.path === '/apps/publish' || 
       req.path === '/ai/moderate-app' ||
       req.path === '/ai/moderate-user' ||
+      req.path === '/ai/moderate-review' ||
+      req.path === '/ai/moderate-all-reviews' ||
       req.path === '/ai/admin-help' ||
-      req.path?.startsWith('/admin/')
+      req.path?.startsWith('/admin/') ||
+      req.path?.startsWith('/extra/')
     ) {
       return next();
     }
@@ -146,6 +152,73 @@ async function startServer() {
   // Health and API Version
   app.get("/api/health", (req, res) => {
     res.json({ status: 'ok', version: '2.5.0', service: 'EPL Studio API v2', timestamp: new Date().toISOString() });
+  });
+
+  // Google Drive Direct Download Link Generator for EPL Studio Desktop App
+  const DESKTOP_DRIVE_FILE_ID = '122nysFUK_GBpxPBcwfV0kMSGhbNuRoSy';
+  app.get("/api/desktop-app/generate-link", rateLimiter(30, 60000), async (_req, res) => {
+    const driveViewUrl = `https://drive.google.com/file/d/${DESKTOP_DRIVE_FILE_ID}/view?usp=drive_link`;
+    const fallbackUrl = `https://drive.usercontent.google.com/download?id=${DESKTOP_DRIVE_FILE_ID}&export=download&confirm=t`;
+    let fileName = 'EPL Studio Desktop Setup 1.0.0.exe';
+    let fileSize = '108M';
+    let directUrl = fallbackUrl;
+    let resolvedLive = false;
+
+    try {
+      const probeRes = await fetch(`https://drive.google.com/uc?export=download&id=${DESKTOP_DRIVE_FILE_ID}`, {
+        method: 'GET',
+        redirect: 'follow',
+        signal: AbortSignal.timeout(9000),
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36',
+        },
+      });
+
+      const contentType = probeRes.headers.get('content-type') || '';
+      if (contentType.includes('text/html')) {
+        const html = await probeRes.text();
+        const nameSizeMatch = html.match(/class="uc-name-size"[^>]*>\s*<a[^>]*>([^<]+)<\/a>\s*(?:\(([^)]+)\))?/i);
+        if (nameSizeMatch?.[1]) {
+          fileName = nameSizeMatch[1].trim();
+        }
+        if (nameSizeMatch?.[2]) {
+          fileSize = nameSizeMatch[2].trim();
+        }
+
+        const formMatch = html.match(/<form[^>]*id="download-form"[^>]*action="([^"]+)"[^>]*>([\s\S]*?)<\/form>/i);
+        if (formMatch?.[1]) {
+          const targetUrl = new URL(formMatch[1]);
+          const formBody = formMatch[2] || '';
+          const hiddenInputs = formBody.matchAll(/<input[^>]*type="hidden"[^>]*>/gi);
+          for (const inputTag of hiddenInputs) {
+            const tagStr = inputTag[0];
+            const nameMatch = tagStr.match(/name="([^"]+)"/i);
+            const valMatch = tagStr.match(/value="([^"]*)"/i);
+            if (nameMatch?.[1]) {
+              targetUrl.searchParams.set(nameMatch[1], valMatch?.[1] ?? '');
+            }
+          }
+          directUrl = targetUrl.toString();
+          resolvedLive = true;
+        }
+      } else if (probeRes.ok && probeRes.url) {
+        directUrl = probeRes.url;
+        resolvedLive = true;
+      }
+    } catch (err: any) {
+      console.warn('Google Drive link generation fallback used:', err?.message || err);
+    }
+
+    res.json({
+      fileId: DESKTOP_DRIVE_FILE_ID,
+      fileName,
+      fileSize,
+      directUrl,
+      fallbackUrl,
+      driveViewUrl,
+      resolvedLive,
+      generatedAt: new Date().toISOString(),
+    });
   });
 
   // Project File Upload & Serving (/tmp/epl_uploads)
@@ -370,7 +443,9 @@ async function startServer() {
   };
 
   // Durable file-backed store for hashed premium promo codes
+  type PremiumTierCode = 'plus' | 'premium' | 'ultra';
   interface StoredPremiumCode {
+    tier?: PremiumTierCode;
     used: boolean;
     createdAt: string;
     createdBy: string;
@@ -876,6 +951,171 @@ ${code.slice(0, 12000)}
     } catch (err: any) {
       console.error('Moderation error:', err.message);
       res.status(500).json({ error: err.message || 'Moderation failed' });
+    }
+  });
+
+  async function moderateReviewWithAI(comment: string, rating: number, userName?: string): Promise<ModerationResult> {
+    const normalized = normalizeForModeration(comment || '');
+    const matchedTerms = EXPLICIT_ABUSE_TERMS.filter(t => normalized.includes(t));
+
+    if (matchedTerms.length > 0) {
+      return {
+        approved: false,
+        reason: `ИИ-модератор удалил отзыв: обнаружены запрещённые выражения или спам (${matchedTerms.slice(0, 3).join(', ')})`,
+        flags: ['profanity', 'restricted_terms'],
+        riskScore: 9,
+        modelUsed: 'safety-filter',
+        checkedByAI: true
+      };
+    }
+
+    const prompt = `Проведи модерацию отзыва пользователя о платформе/игре EPL Studio.
+
+ПРАВИЛА:
+- Честная критика (даже оценка 1 звезда или замечания о багах/дизайне без матов и угроз) РАЗРЕШЕНА (approved: true).
+- ЗАПРЕЩЕНО и должно быть ОТКЛОНЕНО/УДАЛЕНО (approved: false):
+  1. Маты, ненормативная лексика, оскорбления, травля или завуалированный мат (х*й, бля, сука, fuck, shit и т.д.).
+  2. Контент 18+ / NSFW / сексуальные описания.
+  3. Рекламный спам, фишинговые ссылки, угрозы взломом или дефейсом ("hacked by", "взломали").
+
+Отзыв:
+- Автор: "${userName || 'User'}"
+- Оценка: ${rating}/5
+- Текст отзыва: "${(comment || '').slice(0, 2000)}"
+
+Ответь СТРОГО валидным JSON без markdown:
+{
+  "approved": boolean,
+  "reason": "Краткое объяснение на русском",
+  "flags": string[],
+  "riskScore": number
+}`;
+
+    const aiRes = await callOpenRouterNemotron(
+      [
+        {
+          role: "system",
+          content: "Ты — ИИ-модератор отзывов EPL Studio. Отличай конструктивную критику от матов, 18+, спама и взломов. Возвращай ТОЛЬКО JSON."
+        },
+        { role: "user", content: prompt }
+      ],
+      "EPL Studio Review Moderation",
+      { temperature: 0.05, maxTokens: 600, timeoutMs: 5500 }
+    );
+
+    if (aiRes.parsed && typeof aiRes.parsed.approved === 'boolean') {
+      return {
+        approved: !!aiRes.parsed.approved,
+        reason: aiRes.parsed.reason || (aiRes.parsed.approved ? 'Отзыв прошёл проверку ИИ-модератора' : 'Отзыв удалён ИИ-модератором за нарушение правил'),
+        flags: Array.isArray(aiRes.parsed.flags) ? aiRes.parsed.flags : [],
+        riskScore: typeof aiRes.parsed.riskScore === 'number' ? aiRes.parsed.riskScore : (aiRes.parsed.approved ? 0 : 8),
+        modelUsed: aiRes.modelUsed,
+        checkedByAI: true
+      };
+    }
+
+    return {
+      approved: true,
+      reason: 'Отзыв прошёл базовую проверку безопасности',
+      flags: [],
+      riskScore: 0,
+      modelUsed: 'local-heuristic',
+      checkedByAI: false
+    };
+  }
+
+  app.post("/api/ai/moderate-review", rateLimiter(30, 60000), async (req, res) => {
+    try {
+      const token = getBearerToken(req);
+      const { reviewId, comment, rating, userName, userId } = req.body || {};
+      if (!comment || typeof comment !== 'string') {
+        return res.status(400).json({ error: 'Missing review comment' });
+      }
+
+      const result = await moderateReviewWithAI(comment, Number(rating) || 5, userName);
+      let deletedByAi = false;
+
+      if (!result.approved && reviewId && typeof reviewId === 'string') {
+        if (token) {
+          await firestoreRestDelete('reviews', reviewId, token).then(() => { deletedByAi = true; }).catch(() => {});
+        }
+        if (!deletedByAi && serverDb) {
+          await serverDeleteDoc(serverDoc(serverDb, 'reviews', reviewId)).then(() => { deletedByAi = true; }).catch(() => {});
+        }
+        const logId = `review_mod_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+        const logPayload = {
+          id: logId,
+          appId: reviewId,
+          appTitle: `Review by ${userName || 'User'}`,
+          authorId: userId || 'unknown',
+          authorName: userName || 'User',
+          approved: false,
+          reason: result.reason,
+          flags: result.flags,
+          riskScore: result.riskScore,
+          model: 'AI Review Moderator',
+          createdAt: new Date().toISOString(),
+          codeSnippet: comment.slice(0, 300)
+        };
+        if (token) {
+          await firestoreRestPatch('aiModerationLogs', logId, logPayload, token).catch(() => {});
+        } else if (serverDb) {
+          await serverSetDoc(serverDoc(serverDb, 'aiModerationLogs', logId), logPayload).catch(() => {});
+        }
+      }
+
+      res.json({ ...result, deletedByAi });
+    } catch (err: any) {
+      console.error('Review moderation error:', err.message);
+      res.status(500).json({ error: err.message || 'Review moderation failed' });
+    }
+  });
+
+  app.post("/api/ai/moderate-all-reviews", rateLimiter(10, 60000), async (req, res) => {
+    try {
+      const token = getBearerToken(req);
+      let reviewsList: any[] = [];
+      if (token) {
+        reviewsList = await firestoreRestList('reviews', token, 100).catch(() => []);
+      }
+      if (reviewsList.length === 0 && serverDb) {
+        const snap = await serverGetDocs(serverCollection(serverDb, 'reviews')).catch(() => null);
+        if (snap) {
+          reviewsList = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        }
+      }
+
+      const deletedIds: string[] = [];
+      const details: Array<{ id: string; userName: string; reason: string }> = [];
+
+      for (const rev of reviewsList) {
+        if (!rev?.id || !rev?.comment) continue;
+        const modRes = await moderateReviewWithAI(String(rev.comment), Number(rev.rating) || 5, rev.userName);
+        if (!modRes.approved) {
+          let removed = false;
+          if (token) {
+            await firestoreRestDelete('reviews', rev.id, token).then(() => { removed = true; }).catch(() => {});
+          }
+          if (!removed && serverDb) {
+            await serverDeleteDoc(serverDoc(serverDb, 'reviews', rev.id)).then(() => { removed = true; }).catch(() => {});
+          }
+          if (removed) {
+            deletedIds.push(rev.id);
+            details.push({ id: rev.id, userName: rev.userName || 'User', reason: modRes.reason });
+          }
+        }
+      }
+
+      res.json({
+        success: true,
+        scanned: reviewsList.length,
+        deletedCount: deletedIds.length,
+        deletedIds,
+        details
+      });
+    } catch (err: any) {
+      console.error('Moderate all reviews error:', err.message);
+      res.status(500).json({ error: err.message || 'Failed to scan reviews' });
     }
   });
 
@@ -2009,66 +2249,91 @@ ${code.slice(0, 12000)}
     }
   });
 
-  // Secure Server-side Premium Code Generation (Stored as SHA-256 hash in durable server store + optional Firestore mirror)
+  // Secure Server-side Premium Code Generation (Supports 3 tiers: plus, premium, ultra)
   app.post("/api/premium/generate", rateLimiter(30, 60000), async (req, res) => {
     try {
       const token = getBearerToken(req);
-      const { adminUid } = req.body || {};
+      const { adminUid, tier, generatePack } = req.body || {};
+      const validTiers: PremiumTierCode[] = ['plus', 'premium', 'ultra'];
+      const normalizeTier = (t: any): PremiumTierCode =>
+        validTiers.includes(t) ? t : 'premium';
+
       const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
       const part = () => Array.from(crypto.randomBytes(4))
         .map(b => alphabet[b % alphabet.length]).join('').slice(0, 4);
-      const code = `${part()}-${part()}-${part()}`;
 
-      const hash = crypto.createHash('sha256').update(code).digest('hex');
+      const tiersToCreate: PremiumTierCode[] = generatePack
+        ? ['plus', 'premium', 'ultra']
+        : [normalizeTier(tier)];
+
+      const createdEntries: Array<{ id: string; code: string; tier: PremiumTierCode; used: boolean; createdAt: string; createdBy: string }> = [];
       const now = new Date().toISOString();
 
-      premiumCodesStore.set(hash, {
-        used: false,
-        createdAt: now,
-        createdBy: adminUid || 'system'
-      });
-      savePremiumCodesToDisk();
+      for (const targetTier of tiersToCreate) {
+        const prefix = targetTier === 'plus' ? 'PLUS' : targetTier === 'ultra' ? 'ULTR' : 'PREM';
+        const code = `${prefix}-${part()}-${part()}`;
+        const hash = crypto.createHash('sha256').update(code).digest('hex');
 
-      if (token) {
-        await Promise.all([
-          firestoreRestPatch('premiumCodes', hash, {
-            code,
-            used: false,
-            createdAt: now,
-            createdBy: adminUid || 'system'
-          }, token).catch(() => {}),
-          firestoreRestPatch('audit', `pcode_${Date.now()}`, {
-            type: 'premium_code_generated',
-            codeHash: hash,
-            by: adminUid || 'admin',
-            at: now
-          }, token).catch(() => {})
-        ]);
-      } else if (serverDb) {
-        await Promise.all([
-          serverSetDoc(serverDoc(serverDb, 'premiumCodes', hash), {
-            code,
-            used: false,
-            createdAt: now,
-            createdBy: adminUid || 'system'
-          }).catch(() => {}),
-          serverSetDoc(serverDoc(serverDb, 'audit', `pcode_${Date.now()}`), {
-            type: 'premium_code_generated',
-            codeHash: hash,
-            by: adminUid || 'admin',
-            at: now
-          }).catch(() => {})
-        ]);
+        premiumCodesStore.set(hash, {
+          tier: targetTier,
+          used: false,
+          createdAt: now,
+          createdBy: adminUid || 'system'
+        });
+
+        const entry = {
+          id: hash,
+          code,
+          tier: targetTier,
+          used: false,
+          createdAt: now,
+          createdBy: adminUid || 'system'
+        };
+        createdEntries.push(entry);
+
+        if (token) {
+          await Promise.all([
+            firestoreRestPatch('premiumCodes', hash, entry, token).catch(() => {}),
+            firestoreRestPatch('audit', `pcode_${targetTier}_${Date.now()}`, {
+              type: 'premium_code_generated',
+              tier: targetTier,
+              codeHash: hash,
+              by: adminUid || 'admin',
+              at: now
+            }, token).catch(() => {})
+          ]);
+        } else if (serverDb) {
+          await Promise.all([
+            serverSetDoc(serverDoc(serverDb, 'premiumCodes', hash), entry).catch(() => {}),
+            serverSetDoc(serverDoc(serverDb, 'audit', `pcode_${targetTier}_${Date.now()}`), {
+              type: 'premium_code_generated',
+              tier: targetTier,
+              codeHash: hash,
+              by: adminUid || 'admin',
+              at: now
+            }).catch(() => {})
+          ]);
+        }
       }
 
-      res.json({ success: true, code });
+      savePremiumCodesToDisk();
+
+      const first = createdEntries[0];
+      res.json({
+        success: true,
+        id: first.id,
+        code: first.code,
+        tier: first.tier,
+        createdAt: first.createdAt,
+        codes: createdEntries
+      });
     } catch (err: any) {
       console.error('Generate code error:', err.message);
       res.status(500).json({ error: err.message || 'Failed to generate code' });
     }
   });
 
-  // Secure Server-side Premium Code Redemption (Atomic & Hashed verification)
+  // Secure Server-side Premium Code Redemption (Atomic & Hashed verification with Tier support)
   app.post("/api/premium/redeem", rateLimiter(20, 60000), async (req, res) => {
     try {
       const token = getBearerToken(req);
@@ -2079,15 +2344,24 @@ ${code.slice(0, 12000)}
 
       const cleanCode = code.trim().toUpperCase();
       const hash = crypto.createHash('sha256').update(cleanCode).digest('hex');
+      const inferTierFromCode = (c: string): PremiumTierCode => {
+        if (c.startsWith('PLUS-')) return 'plus';
+        if (c.startsWith('ULTR-')) return 'ultra';
+        return 'premium';
+      };
 
       let codeRecord = premiumCodesStore.get(hash);
+      let matchedDocId = hash;
 
-      // Fallback lookup from Firestore if code was created prior to disk persistence
+      // Fallback lookup from Firestore (check hashed ID first, then legacy plaintext code ID)
       if (!codeRecord && token) {
         try {
-          const restDoc = await firestoreRestGet('premiumCodes', hash, token);
+          const restDoc = (await firestoreRestGet('premiumCodes', hash, token))
+            || (await firestoreRestGet('premiumCodes', cleanCode, token));
           if (restDoc) {
+            matchedDocId = restDoc.id || hash;
             codeRecord = {
+              tier: (restDoc.tier as PremiumTierCode) || inferTierFromCode(cleanCode),
               used: !!restDoc.used,
               createdAt: restDoc.createdAt || new Date().toISOString(),
               createdBy: restDoc.createdBy || 'system',
@@ -2098,10 +2372,15 @@ ${code.slice(0, 12000)}
         } catch (_) {}
       } else if (!codeRecord && serverDb) {
         try {
-          const snap = await serverGetDoc(serverDoc(serverDb, 'premiumCodes', hash));
+          let snap = await serverGetDoc(serverDoc(serverDb, 'premiumCodes', hash));
+          if (!snap.exists()) {
+            snap = await serverGetDoc(serverDoc(serverDb, 'premiumCodes', cleanCode));
+          }
           if (snap.exists()) {
+            matchedDocId = snap.id;
             const d = snap.data();
             codeRecord = {
+              tier: (d.tier as PremiumTierCode) || inferTierFromCode(cleanCode),
               used: !!d.used,
               createdAt: d.createdAt || new Date().toISOString(),
               createdBy: d.createdBy || 'system',
@@ -2120,12 +2399,14 @@ ${code.slice(0, 12000)}
         return res.status(400).json({ error: 'Этот промокод уже был активирован' });
       }
 
+      const resolvedTier: PremiumTierCode = codeRecord.tier || inferTierFromCode(cleanCode);
       const now = new Date().toISOString();
       const oneYearExpiry = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();
 
       codeRecord.used = true;
       codeRecord.usedBy = userId;
       codeRecord.usedAt = now;
+      codeRecord.tier = resolvedTier;
       premiumCodesStore.set(hash, codeRecord);
       savePremiumCodesToDisk();
 
@@ -2133,15 +2414,21 @@ ${code.slice(0, 12000)}
         await Promise.all([
           firestoreRestPatch('users', userId, {
             isPremium: true,
+            premiumTier: resolvedTier,
             premiumExpiry: oneYearExpiry
           }, token).catch(() => {}),
-          firestoreRestPatch('premiumCodes', hash, {
+          firestoreRestPatch('users_public', userId, {
+            premiumTier: resolvedTier
+          }, token).catch(() => {}),
+          firestoreRestPatch('premiumCodes', matchedDocId, {
             used: true,
             usedBy: userId,
-            usedAt: now
+            usedAt: now,
+            tier: resolvedTier
           }, token).catch(() => {}),
           firestoreRestPatch('audit', `redeem_${userId}_${Date.now()}`, {
             type: 'premium_redeemed',
+            tier: resolvedTier,
             userId,
             codeHash: hash,
             at: now
@@ -2151,15 +2438,21 @@ ${code.slice(0, 12000)}
         await Promise.all([
           serverSetDoc(serverDoc(serverDb, 'users', userId), {
             isPremium: true,
+            premiumTier: resolvedTier,
             premiumExpiry: oneYearExpiry
           }, { merge: true }).catch(() => {}),
-          serverSetDoc(serverDoc(serverDb, 'premiumCodes', hash), {
+          serverSetDoc(serverDoc(serverDb, 'users_public', userId), {
+            premiumTier: resolvedTier
+          }, { merge: true }).catch(() => {}),
+          serverSetDoc(serverDoc(serverDb, 'premiumCodes', matchedDocId), {
             used: true,
             usedBy: userId,
-            usedAt: now
+            usedAt: now,
+            tier: resolvedTier
           }, { merge: true }).catch(() => {}),
           serverSetDoc(serverDoc(serverDb, 'audit', `redeem_${userId}_${Date.now()}`), {
             type: 'premium_redeemed',
+            tier: resolvedTier,
             userId,
             codeHash: hash,
             at: now
@@ -2167,11 +2460,111 @@ ${code.slice(0, 12000)}
         ]);
       }
 
-      return res.json({ success: true, isPremium: true, premiumExpiry: oneYearExpiry });
+      return res.json({ success: true, isPremium: true, tier: resolvedTier, premiumExpiry: oneYearExpiry });
     } catch (err: any) {
       console.error('Redeem error:', err.message);
       res.status(500).json({ error: err.message || 'Redemption failed' });
     }
+  });
+
+  // =========================================================================
+  // Extra Premium Access Cross-Account Relay (Troll Inbox + Control My EPL)
+  // Combines fast in-memory queuing + Firestore mirroring so every target account
+  // reacts reliably regardless of auth mode, clock skew, or rapid back-to-back events.
+  // =========================================================================
+  const extraTrollQueues = new Map<string, any[]>();
+  const extraRemoteSessions = new Map<string, any>();
+
+  app.post("/api/extra/troll", rateLimiter(120, 60000), async (req, res) => {
+    try {
+      const token = getBearerToken(req);
+      const { targetUid, event } = req.body || {};
+      if (!targetUid || typeof targetUid !== 'string' || !event || typeof event !== 'object' || !event.eventId) {
+        return res.status(400).json({ error: 'Invalid targetUid or event payload' });
+      }
+
+      const normalizedEvent = {
+        ...event,
+        targetUid,
+        createdAt: event.createdAt || new Date().toISOString(),
+        serverTs: Date.now(),
+      };
+
+      const existing = extraTrollQueues.get(targetUid) || [];
+      const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+      const pruned = existing.filter((e) => (e.serverTs || Date.now()) >= cutoff && e.eventId !== normalizedEvent.eventId);
+      pruned.push(normalizedEvent);
+      if (pruned.length > 30) pruned.splice(0, pruned.length - 30);
+      extraTrollQueues.set(targetUid, pruned);
+
+      // Best-effort Firestore mirror (never fails the relay if token is absent)
+      if (token) {
+        firestoreRestPatch('trollInbox', targetUid, normalizedEvent, token).catch(() => {});
+      } else if (serverDb) {
+        serverSetDoc(serverDoc(serverDb, 'trollInbox', targetUid), normalizedEvent, { merge: true }).catch(() => {});
+      }
+
+      return res.json({ success: true, eventId: normalizedEvent.eventId });
+    } catch (err: any) {
+      console.error('Extra troll relay error:', err?.message || err);
+      return res.status(500).json({ error: err?.message || 'Failed to relay troll event' });
+    }
+  });
+
+  app.post("/api/extra/control", rateLimiter(180, 60000), async (req, res) => {
+    try {
+      const token = getBearerToken(req);
+      const { targetUid, session } = req.body || {};
+      if (!targetUid || typeof targetUid !== 'string' || !session || typeof session !== 'object') {
+        return res.status(400).json({ error: 'Invalid targetUid or session payload' });
+      }
+
+      const prev = extraRemoteSessions.get(targetUid);
+      const prevCommands: any[] = Array.isArray(prev?.recentCommands) ? prev.recentCommands : [];
+      const nextCommands = session.status === 'active' ? [...prevCommands] : [];
+      if (session.command && session.command.commandId) {
+        if (!nextCommands.some((c) => c.commandId === session.command.commandId)) {
+          nextCommands.push(session.command);
+          if (nextCommands.length > 25) nextCommands.splice(0, nextCommands.length - 25);
+        }
+      }
+
+      const nextSession = {
+        ...session,
+        targetUid,
+        updatedAt: session.updatedAt || new Date().toISOString(),
+        recentCommands: nextCommands,
+      };
+      extraRemoteSessions.set(targetUid, nextSession);
+
+      // Mirror core session object to Firestore cleanly
+      const firestorePayload = { ...session, targetUid, updatedAt: nextSession.updatedAt };
+      if (token) {
+        firestoreRestPatch('remoteControlSessions', targetUid, firestorePayload, token).catch(() => {});
+      } else if (serverDb) {
+        serverSetDoc(serverDoc(serverDb, 'remoteControlSessions', targetUid), firestorePayload, { merge: true }).catch(() => {});
+      }
+
+      return res.json({ success: true, status: nextSession.status });
+    } catch (err: any) {
+      console.error('Extra control relay error:', err?.message || err);
+      return res.status(500).json({ error: err?.message || 'Failed to relay control session' });
+    }
+  });
+
+  app.get("/api/extra/poll/:uid", (req, res) => {
+    const uid = req.params.uid;
+    if (!uid) return res.json({ events: [], remoteSession: null });
+    const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+    const events = (extraTrollQueues.get(uid) || []).filter((e) => (e.serverTs || Date.now()) >= cutoff);
+    const remoteSession = extraRemoteSessions.get(uid) || null;
+    return res.json({ events, remoteSession });
+  });
+
+  app.get("/api/extra/control-status/:targetUid", (req, res) => {
+    const targetUid = req.params.targetUid;
+    if (!targetUid) return res.json({ remoteSession: null });
+    return res.json({ remoteSession: extraRemoteSessions.get(targetUid) || null });
   });
 
   // API routes

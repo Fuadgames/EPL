@@ -36,10 +36,12 @@ import {
   Layers,
   Coins,
   FileCode,
+  Globe,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { AppData } from '../types';
 import BuildDownloadModal from './BuildDownloadModal';
+import WebsiteViewerModal from './WebsiteViewerModal';
 
 export default function AppDetailView() {
   const selectedAppId = useStore((state) => state.selectedAppId);
@@ -68,6 +70,7 @@ export default function AppDetailView() {
   const [buildPlatform, setBuildPlatform] = useState<string>('windows');
   const [isBuildModalOpen, setIsBuildModalOpen] = useState(false);
   const [gettingApp, setGettingApp] = useState(false);
+  const [visitingWebsite, setVisitingWebsite] = useState(false);
 
   const [showUnlockModal, setShowUnlockModal] = useState(false);
   const [enteredCode, setEnteredCode] = useState('');
@@ -367,6 +370,12 @@ export default function AppDetailView() {
                         <CheckCircle className="w-3.5 h-3.5" /> Verified
                       </span>
                     )}
+                    {(app.isWebsite || app.websiteDomain) && (
+                      <span className="inline-flex items-center gap-1 text-xs font-mono px-2.5 py-0.5 rounded border border-sky-500/35 bg-sky-500/10 text-sky-400">
+                        <Globe className="w-3.5 h-3.5" />
+                        <span>{app.websiteDomain || `${(app.title || 'site').toLowerCase().replace(/[^a-z0-9-]+/g, '-')}.epl`}</span>
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-wrap items-center gap-3 text-xs text-[#9CA3AF]">
                     <button
@@ -664,7 +673,18 @@ export default function AppDetailView() {
 
                 {/* Right Action Column */}
                 <div className="space-y-3">
-                  {!isPurchased ? (
+                  {app.isWebsite || app.websiteDomain ? (
+                    <button
+                      onClick={() => {
+                        setVisitingWebsite(true);
+                        updateDoc(doc(db, 'apps', app.id), { visits: increment(1) }).catch(() => {});
+                      }}
+                      className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-sky-500 hover:bg-sky-400 text-[#07111A] rounded-lg text-sm font-bold transition-colors whitespace-nowrap cursor-pointer"
+                    >
+                      <Globe className="w-4 h-4" />
+                      <span>Visit</span>
+                    </button>
+                  ) : !isPurchased ? (
                     <button
                       onClick={handleBuy}
                       disabled={buying}
@@ -811,6 +831,12 @@ export default function AppDetailView() {
         app={app}
         initialPlatform={buildPlatform}
         onClose={() => setIsBuildModalOpen(false)}
+      />
+
+      <WebsiteViewerModal
+        isOpen={visitingWebsite}
+        app={app}
+        onClose={() => setVisitingWebsite(false)}
       />
     </div>
   );

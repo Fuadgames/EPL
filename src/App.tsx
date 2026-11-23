@@ -10,6 +10,7 @@ import { useAchievementEnforcer } from './hooks/useAchievementEnforcer';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import SuccessPage from './components/SuccessPage';
 import { ShieldAlert, LogOut } from 'lucide-react';
+import { resolveEffectiveTier } from './lib/premiumTiers';
 
 // Safe lazy load with automatic retry for deployment updates or network hiccups
 function safeLazy<T extends React.ComponentType<any>>(factory: () => Promise<{ default: T }>) {
@@ -41,6 +42,8 @@ const PublicProfileView = safeLazy(() => import('./components/PublicProfileView'
 const PlayerView = safeLazy(() => import('./components/PlayerView'));
 const SettingsView = safeLazy(() => import('./components/SettingsView'));
 const PremiumView = safeLazy(() => import('./components/PremiumView'));
+const ExtraPremiumView = safeLazy(() => import('./components/ExtraPremiumView'));
+const RateView = safeLazy(() => import('./components/RateView'));
 const ControlView = safeLazy(() => import('./components/ControlView'));
 const AssetStoreView = safeLazy(() => import('./components/AssetStoreView'));
 const DonatePage = safeLazy(() => import('./components/DonatePage'));
@@ -66,6 +69,8 @@ function ViewRenderer() {
     case 'player': return <PlayerView />;
     case 'settings': return <SettingsView />;
     case 'premium': return <PremiumView />;
+    case 'extra-premium': return <ExtraPremiumView />;
+    case 'rate': return <RateView />;
     case 'donate': return <DonatePage />;
     case 'asset-store': return <AssetStoreView />;
     case 'control':
@@ -90,6 +95,7 @@ export default function App() {
 
   const isPremium = useStore(state => state.isPremium);
   const setIsPremium = useStore(state => state.setIsPremium);
+  const setPremiumTier = useStore(state => state.setPremiumTier);
   const premiumExpiry = useStore(state => state.premiumExpiry);
   const setPremiumExpiry = useStore(state => state.setPremiumExpiry);
 
@@ -98,10 +104,11 @@ export default function App() {
       const expiryDate = new Date(premiumExpiry);
       if (expiryDate < new Date()) {
         setIsPremium(false);
+        setPremiumTier('none');
         setPremiumExpiry(null);
       }
     }
-  }, [isPremium, premiumExpiry, setIsPremium, setPremiumExpiry]);
+  }, [isPremium, premiumExpiry, setIsPremium, setPremiumTier, setPremiumExpiry]);
 
   useEffect(() => {
     const root = document.documentElement;
@@ -143,7 +150,8 @@ export default function App() {
                 purchasedApps: [],
                 createdAt: new Date().toISOString(),
                 premiumExpiry: null,
-                isPremium: false
+                isPremium: false,
+                premiumTier: 'none'
               });
               await setDoc(doc(db, 'users_public', fbUser.uid), {
                 uid: fbUser.uid,
@@ -151,6 +159,7 @@ export default function App() {
                 avatarUrl: fbUser.photoURL || '',
                 region: 'Global',
                 eplCoins: 0,
+                premiumTier: 'none',
                 createdAt: new Date().toISOString()
               });
             } catch (err) {
@@ -182,6 +191,7 @@ export default function App() {
                 eplCoins: data.eplCoins || 0,
                 role: data.role || 'user',
                 isVerifiedAuthor: !!data.isVerifiedAuthor,
+                premiumTier: resolveEffectiveTier(data.isPremium, data.premiumTier),
                 isBanned: !!data.isBanned,
                 banReason: data.banReason || null,
                 roleVerification: data.roleVerification || null,
@@ -191,16 +201,20 @@ export default function App() {
               console.error("Error syncing users_public", err);
             }
 
-            if (data.isPremium !== undefined) {
-              setIsPremium(data.isPremium);
+            const resolvedTier = resolveEffectiveTier(data.isPremium, data.premiumTier);
+            if (data.isPremium !== undefined || data.premiumTier !== undefined) {
+              setIsPremium(resolvedTier !== 'none');
+              setPremiumTier(resolvedTier);
             }
             if (data.premiumExpiry) {
               const expiryDate = new Date(data.premiumExpiry);
               if (expiryDate < new Date()) {
                 setIsPremium(false);
+                setPremiumTier('none');
                 setPremiumExpiry(null);
               } else {
                 setIsPremium(true);
+                setPremiumTier(resolvedTier === 'none' ? 'premium' : resolvedTier);
                 setPremiumExpiry(data.premiumExpiry);
               }
             }
@@ -209,6 +223,7 @@ export default function App() {
       } else {
         setUserData(null);
         setIsPremium(false);
+        setPremiumTier('none');
         setPremiumExpiry(null);
       }
     });
@@ -217,7 +232,7 @@ export default function App() {
       unsubscribeAuth();
       if (unsubscribeUser) unsubscribeUser();
     };
-  }, [setUser, setUserData, setIsPremium, setPremiumExpiry]);
+  }, [setUser, setUserData, setIsPremium, setPremiumTier, setPremiumExpiry]);
 
   if (userData?.isBanned) {
     return (
@@ -248,6 +263,7 @@ export default function App() {
               setUser(null);
               setUserData(null);
               setIsPremium(false);
+              setPremiumTier('none');
               setPremiumExpiry(null);
             }}
             className="w-full py-2.5 px-4 bg-[#DC2626] hover:bg-red-700 text-white rounded-lg font-medium text-sm transition-colors inline-flex items-center justify-center gap-2"
