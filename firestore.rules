@@ -125,6 +125,24 @@ service cloud.firestore {
         && data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 64;
     }
 
+    function isValidEplShopItem(data, expectedId) {
+      return data.keys().hasAll(['id', 'title', 'price', 'stock', 'authorId', 'authorName', 'spec', 'status', 'createdAt', 'updatedAt'])
+        && data.id is string && data.id == expectedId
+        && data.title is string && data.title.size() > 0 && data.title.size() <= 160
+        && (!('description' in data) || (data.description is string && data.description.size() <= 4000))
+        && (!('coverUrl' in data) || (data.coverUrl is string && data.coverUrl.size() <= 900000))
+        && (!('screenshotUrl' in data) || (data.screenshotUrl is string && data.screenshotUrl.size() <= 900000))
+        && data.price is number && data.price >= 0
+        && (data.stock == 'infinite' || (data.stock is number && data.stock >= 0))
+        && (!('sales' in data) || (data.sales is number && data.sales >= 0))
+        && data.authorId is string && data.authorId.size() > 0 && data.authorId.size() <= 128
+        && data.authorName is string && data.authorName.size() > 0 && data.authorName.size() <= 100
+        && data.spec is map
+        && data.status in ['active', 'draft', 'archived']
+        && data.createdAt is string && data.createdAt.size() > 0 && data.createdAt.size() <= 64
+        && data.updatedAt is string && data.updatedAt.size() > 0 && data.updatedAt.size() <= 64;
+    }
+
     // ---------- users ----------
     match /users/{userId} {
       allow get: if isValidId(userId);
@@ -165,6 +183,22 @@ service cloud.firestore {
         || (signedIn() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'downloads', 'likes']))
       );
       allow delete: if isValidId(assetId) && (isStaff() || (signedIn() && resource.data.get('authorId', '') == request.auth.uid));
+    }
+
+    // ---------- eplShopItems (Developer full-site themes, tabs, widgets & mods) ----------
+    match /eplShopItems/{itemId} {
+      allow get: if isValidId(itemId);
+      allow list: if true;
+      allow create: if isValidId(itemId) && isDeveloper()
+                    && isValidEplShopItem(request.resource.data, itemId)
+                    && request.resource.data.authorId == request.auth.uid;
+      allow update: if isValidId(itemId) && (
+        (isDeveloper() && isValidEplShopItem(request.resource.data, itemId))
+        || (signedIn()
+            && isValidEplShopItem(request.resource.data, itemId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['stock', 'sales', 'updatedAt']))
+      );
+      allow delete: if isValidId(itemId) && isDeveloper();
     }
 
     // ---------- premium_codes: server only ----------

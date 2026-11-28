@@ -42,6 +42,7 @@ import { clsx } from 'clsx';
 import { AppData } from '../types';
 import BuildDownloadModal from './BuildDownloadModal';
 import WebsiteViewerModal from './WebsiteViewerModal';
+import { getAppCardDescription } from '../lib/demoProjects';
 
 export default function AppDetailView() {
   const selectedAppId = useStore((state) => state.selectedAppId);
@@ -63,7 +64,7 @@ export default function AppDetailView() {
   const [app, setApp] = useState<AppData | null>(null);
   const [loading, setLoading] = useState(true);
   const [userVote, setUserVote] = useState<'like' | 'dislike' | null>(null);
-  const [activeTab, setActiveTab] = useState<'description' | 'screenshots' | 'downloads' | 'events' | 'comments'>('description');
+  const [activeTab, setActiveTab] = useState<'description' | 'downloads' | 'events' | 'comments'>('description');
   const [comments, setComments] = useState<any[]>([]);
   const [newComment, setNewComment] = useState('');
   const [buying, setBuying] = useState(false);
@@ -323,20 +324,10 @@ export default function AppDetailView() {
             {/* Banner Hero */}
             <div
               className={clsx(
-                'relative h-48 sm:h-56 border-b flex items-center justify-center p-6 overflow-hidden',
-                isLight ? 'bg-[#F5F6F8] border-[#E2E5EA]' : 'bg-[#111315] border-[#262B33]'
+                'relative h-40 sm:h-48 border-b flex items-center justify-center p-6 overflow-hidden',
+                isLight ? 'bg-gradient-to-br from-[#F5F6F8] to-[#E5E7EB] border-[#E2E5EA]' : 'bg-gradient-to-br from-[#111315] to-[#181B20] border-[#262B33]'
               )}
-              style={
-                app.bannerUrl
-                  ? {
-                      backgroundImage: `url(${app.bannerUrl})`,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                    }
-                  : undefined
-              }
             >
-              {app.bannerUrl && <div className="absolute inset-0 bg-black/45" />}
               <div
                 className={clsx(
                   'relative w-24 h-24 sm:w-28 sm:h-28 rounded-xl border flex items-center justify-center font-bold text-4xl shadow-lg overflow-hidden',
@@ -377,7 +368,7 @@ export default function AppDetailView() {
                       </span>
                     )}
                   </div>
-                  <div className="flex flex-wrap items-center gap-3 text-xs text-[#9CA3AF]">
+                  <div className={clsx('flex flex-wrap items-center gap-3 text-xs', isLight ? 'text-[#4B5563]' : 'text-[#B4BCC8]')}>
                     <button
                       onClick={() => {
                         useStore.getState().setViewingProfileId(app.authorId);
@@ -417,7 +408,7 @@ export default function AppDetailView() {
                         ? 'bg-[#10B981] border-[#10B981] text-[#09120E] font-semibold'
                         : isLight
                         ? 'border-[#E2E5EA] hover:bg-[#F5F6F8] text-[#4B5563]'
-                        : 'border-[#262B33] hover:bg-[#20242B] text-[#9CA3AF]'
+                        : 'border-[#262B33] hover:bg-[#20242B] text-[#B4BCC8]'
                     )}
                   >
                     <ThumbsUp className={clsx('w-4 h-4', userVote === 'like' && 'fill-current')} />
@@ -431,7 +422,7 @@ export default function AppDetailView() {
                         ? 'bg-[#DC2626] border-[#DC2626] text-white font-semibold'
                         : isLight
                         ? 'border-[#E2E5EA] hover:bg-[#F5F6F8] text-[#4B5563]'
-                        : 'border-[#262B33] hover:bg-[#20242B] text-[#9CA3AF]'
+                        : 'border-[#262B33] hover:bg-[#20242B] text-[#B4BCC8]'
                     )}
                   >
                     <ThumbsDown className={clsx('w-4 h-4', userVote === 'dislike' && 'fill-current')} />
@@ -449,7 +440,7 @@ export default function AppDetailView() {
                       isLight ? 'border-[#E2E5EA]' : 'border-[#262B33]'
                     )}
                   >
-                    {(['description', 'screenshots', 'downloads', 'events', 'comments'] as const).map(
+                    {(['description', 'downloads', 'events', 'comments'] as const).map(
                       (tab) => (
                         <button
                           key={tab}
@@ -458,7 +449,9 @@ export default function AppDetailView() {
                             'px-3 py-2.5 text-sm font-medium transition-colors relative whitespace-nowrap capitalize border-b-2',
                             activeTab === tab
                               ? 'border-[#10B981] text-[#10B981]'
-                              : 'border-transparent text-[#6B7280] hover:text-current'
+                              : isLight
+                              ? 'border-transparent text-[#4B5563] hover:text-[#111315]'
+                              : 'border-transparent text-[#B4BCC8] hover:text-[#F3F4F6]'
                           )}
                         >
                           {tab}
@@ -469,8 +462,8 @@ export default function AppDetailView() {
 
                   {activeTab === 'description' && (
                     <section>
-                      <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap opacity-90">
-                        {app.description || (language === 'ru' ? 'Описание не добавлено.' : 'No description provided.')}
+                      <p className="text-sm sm:text-base leading-relaxed whitespace-pre-wrap">
+                        {getAppCardDescription(app, language)}
                       </p>
                     </section>
                   )}
@@ -511,35 +504,6 @@ export default function AppDetailView() {
                           )}
                         >
                           No events available.
-                        </div>
-                      )}
-                    </section>
-                  )}
-
-                  {activeTab === 'screenshots' && (
-                    <section>
-                      {app.screenshotUrl ? (
-                        <div
-                          className={clsx(
-                            'rounded-xl overflow-hidden border',
-                            isLight ? 'border-[#E2E5EA]' : 'border-[#262B33]'
-                          )}
-                        >
-                          <img
-                            src={app.screenshotUrl}
-                            alt={`${app.title} Screenshot`}
-                            className="w-full h-auto object-cover"
-                            referrerPolicy="no-referrer"
-                          />
-                        </div>
-                      ) : (
-                        <div
-                          className={clsx(
-                            'p-8 rounded-xl border text-center text-sm opacity-60',
-                            isLight ? 'border-[#E2E5EA]' : 'border-[#262B33]'
-                          )}
-                        >
-                          No screenshots available.
                         </div>
                       )}
                     </section>

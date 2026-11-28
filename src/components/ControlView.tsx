@@ -190,7 +190,7 @@ export default function ControlView() {
 
   // Developer-only subscription to Premium Chat threads
   useEffect(() => {
-    if (actualRole !== 'developer' || effectiveRole !== 'developer') {
+    if (!auth.currentUser || actualRole !== 'developer' || effectiveRole !== 'developer') {
       setPremiumChats([]);
       return;
     }

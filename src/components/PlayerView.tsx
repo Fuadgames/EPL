@@ -3,14 +3,21 @@ import { useStore } from '../store/useStore';
 import { db } from '../firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { EPLInterpreter } from '../lib/epl-interpreter';
-import { ArrowLeft, Play, StopCircle, Maximize2, Minimize2, RefreshCw, Volume2, VolumeX, Grid } from 'lucide-react';
+import { ArrowLeft, Play, StopCircle, Maximize2, Minimize2, RefreshCw, Volume2, VolumeX, Grid, Code2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import AppPreview from './AppPreview';
+import { DEMO_PROJECT_ID, FEATURED_DEMO_APP } from '../lib/demoProjects';
 
 export default function PlayerView() {
   const theme = useStore(state => state.theme);
+  const language = useStore(state => state.language);
   const playingAppId = useStore(state => state.playingAppId);
   const setCurrentView = useStore(state => state.setCurrentView);
+  const setCode = useStore(state => state.setCode);
+  const setEditingAppId = useStore(state => state.setEditingAppId);
+  const setCopiedAppData = useStore(state => state.setCopiedAppData);
+  const setSelectedExtraCategory = useStore(state => state.setSelectedExtraCategory);
+  const setLivePreviewEnabled = useStore(state => state.setLivePreviewEnabled);
   const aiAnswerMode = useStore(state => state.aiAnswerMode);
   const aiChangesEnabled = useStore(state => state.aiChangesEnabled);
   const unlockAchievement = useStore(state => state.unlockAchievement);
@@ -32,6 +39,11 @@ export default function PlayerView() {
 
   useEffect(() => {
     if (playingAppId) {
+      if (playingAppId === DEMO_PROJECT_ID) {
+        setError(null);
+        setAppData(FEATURED_DEMO_APP);
+        return;
+      }
       const fetchApp = async () => {
         try {
           const docRef = doc(db, 'apps', playingAppId);
@@ -172,10 +184,10 @@ export default function PlayerView() {
 
   if (error) {
     return (
-      <div className="h-full flex flex-col items-center justify-center p-8">
+      <div className="h-full flex flex-col items-center justify-center p-4 sm:p-8 text-center">
         <div className="text-red-500 mb-4">{error}</div>
         <button onClick={() => startTransition(() => setCurrentView('store'))} className="px-4 py-2 bg-zinc-800 text-white rounded-lg hover:bg-zinc-700">
-          Back to Store
+          {language === 'ru' ? 'Назад в магазин' : 'Back to Store'}
         </button>
       </div>
     );
@@ -192,39 +204,61 @@ export default function PlayerView() {
   return (
     <div className={clsx("h-full flex flex-col overflow-hidden", theme !== 'light' ? 'bg-[#111315]' : 'bg-[#F5F6F8]')}>
       <div className={clsx(
-        "flex items-center justify-between px-5 py-3 border-b",
+        "flex flex-wrap items-center justify-between gap-2 px-3 sm:px-5 py-2.5 sm:py-3 border-b",
         theme !== 'light' ? 'bg-[#181B20] border-[#262B33] text-[#F3F4F6]' : 'bg-white border-[#E2E5EA] text-[#111315]'
       )}>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
           <button 
             onClick={() => startTransition(() => setCurrentView('store'))}
             className={clsx(
-              "p-2 -ml-1 rounded-lg border transition-colors cursor-pointer",
+              "p-2 rounded-lg border transition-colors cursor-pointer shrink-0",
               theme !== 'light' ? "bg-[#111315] border-[#262B33] text-[#9CA3AF] hover:text-[#F3F4F6]" : "bg-[#F5F6F8] border-[#E2E5EA] text-[#525866] hover:text-[#111315]"
             )}
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <div>
-            <h2 className="text-base font-bold leading-tight">{appData.title}</h2>
-            <p className="text-xs text-[#9CA3AF]">by {appData.authorName}</p>
+          <div className="min-w-0">
+            <h2 className="text-sm sm:text-base font-bold leading-tight truncate">{appData.title}</h2>
+            <p className="text-xs text-[#B4BCC8] truncate">{language === 'ru' ? 'автор:' : 'by'} {appData.authorName}</p>
           </div>
         </div>
         
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2.5">
+          {(playingAppId === DEMO_PROJECT_ID || appData?.allowCopy !== false) && appData?.code && (
+            <button
+              onClick={() => {
+                handleStop();
+                setEditingAppId(null);
+                setCopiedAppData(null);
+                setSelectedExtraCategory('Normal');
+                setLivePreviewEnabled(true);
+                setCode(appData.code);
+                startTransition(() => setCurrentView('editor'));
+              }}
+              className={clsx(
+                "flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap",
+                theme !== 'light'
+                  ? "bg-[#111315] border-[#262B33] text-[#F3F4F6] hover:border-[#10B981] hover:text-[#10B981]"
+                  : "bg-[#F5F6F8] border-[#E2E5EA] text-[#111315] hover:border-[#059669] hover:text-[#059669]"
+              )}
+            >
+              <Code2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{language === 'ru' ? 'Открыть в редакторе' : 'Open in Editor'}</span>
+            </button>
+          )}
           {!isRunning ? (
-            <button onClick={handleRun} className="flex items-center gap-1.5 px-3.5 py-1.5 bg-[#10B981] hover:bg-[#059669] text-[#0A0C0E] rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap">
-              <Play className="w-3.5 h-3.5" /> Run
+            <button onClick={handleRun} className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 bg-[#10B981] hover:bg-[#059669] text-[#0A0C0E] rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap">
+              <Play className="w-3.5 h-3.5" /> {language === 'ru' ? 'Запуск' : 'Run'}
             </button>
           ) : (
-            <div className="flex items-center gap-2">
-              <button onClick={handleStop} className="flex items-center gap-1.5 px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap">
-                <StopCircle className="w-3.5 h-3.5" /> Stop
+            <div className="flex items-center gap-1.5 sm:gap-2">
+              <button onClick={handleStop} className="flex items-center gap-1.5 px-3 sm:px-3.5 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap">
+                <StopCircle className="w-3.5 h-3.5" /> {language === 'ru' ? 'Стоп' : 'Stop'}
               </button>
               <button 
                 onClick={handleRestart} 
                 className="flex items-center justify-center p-1.5 bg-[#111315] border border-[#262B33] hover:bg-[#22262E] text-[#F3F4F6] rounded-lg transition-colors cursor-pointer"
-                title="Restart"
+                title={language === 'ru' ? 'Перезагрузить' : 'Restart'}
               >
                 <RefreshCw className="w-4 h-4" />
               </button>
@@ -240,7 +274,7 @@ export default function PlayerView() {
                   ? "bg-[#111315] border-[#262B33] text-[#9CA3AF] hover:text-[#F3F4F6]"
                   : "bg-[#F5F6F8] border-[#E2E5EA] text-[#525866] hover:text-[#111315]"
             )}
-            title="Grid"
+            title={language === 'ru' ? 'Сетка' : 'Grid'}
           >
             <Grid className="w-4 h-4" />
           </button>
@@ -254,7 +288,7 @@ export default function PlayerView() {
                   ? "bg-[#111315] border-[#262B33] text-[#9CA3AF] hover:text-[#F3F4F6]"
                   : "bg-[#F5F6F8] border-[#E2E5EA] text-[#525866] hover:text-[#111315]"
             )}
-            title={isMuted ? 'Unmute Audio' : 'Mute Audio'}
+            title={isMuted ? (language === 'ru' ? 'Включить звук' : 'Unmute Audio') : (language === 'ru' ? 'Выключить звук' : 'Mute Audio')}
           >
             {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
           </button>
@@ -270,18 +304,22 @@ export default function PlayerView() {
         </div>
       </div>
 
-      <div className={clsx("flex items-center gap-2 px-4 py-2 border-b", theme !== 'light' ? "bg-[#181B20] border-[#262B33]" : "bg-white border-[#E2E5EA]")}>
-        <button onClick={() => setView('game')} className={clsx("px-3 py-1 rounded-md text-xs font-semibold cursor-pointer", view === 'game' ? "bg-[#10B981] text-[#0A0C0E]" : "text-[#9CA3AF] hover:text-[#F3F4F6]")}>Game</button>
-        <button onClick={() => setView('console')} className={clsx("px-3 py-1 rounded-md text-xs font-semibold cursor-pointer", view === 'console' ? "bg-[#10B981] text-[#0A0C0E]" : "text-[#9CA3AF] hover:text-[#F3F4F6]")}>Console</button>
+      <div className={clsx("flex items-center gap-2 px-3 sm:px-4 py-2 border-b", theme !== 'light' ? "bg-[#181B20] border-[#262B33]" : "bg-white border-[#E2E5EA]")}>
+        <button onClick={() => setView('game')} className={clsx("px-3 py-1 rounded-md text-xs font-semibold cursor-pointer", view === 'game' ? "bg-[#10B981] text-[#0A0C0E]" : "text-[#9CA3AF] hover:text-[#F3F4F6]")}>
+          {language === 'ru' ? 'Игра' : 'Game'}
+        </button>
+        <button onClick={() => setView('console')} className={clsx("px-3 py-1 rounded-md text-xs font-semibold cursor-pointer", view === 'console' ? "bg-[#10B981] text-[#0A0C0E]" : "text-[#9CA3AF] hover:text-[#F3F4F6]")}>
+          {language === 'ru' ? 'Консоль' : 'Console'}
+        </button>
       </div>
 
-      <div className="flex-1 flex items-center justify-center p-4 sm:p-8 bg-black/50 overflow-auto">
+      <div className="flex-1 flex items-center justify-center p-2 sm:p-8 bg-black/50 overflow-auto">
         {view === 'game' ? (
           <div 
             ref={containerRef}
             className={clsx(
               "relative overflow-hidden shadow-2xl transition-all",
-              isFullscreen ? "w-screen h-screen" : "w-full max-w-4xl aspect-video rounded-xl border border-[#262B33]"
+              isFullscreen ? "w-screen h-[100dvh]" : "w-full max-w-4xl aspect-video rounded-xl border border-[#262B33]"
             )}
             style={{
               backgroundColor: (Object.values(uiState.entities).find((e: any) => e.type === 'world') as any)?.background || '#ffffff',
@@ -292,7 +330,7 @@ export default function PlayerView() {
           >
             {Object.keys(uiState.entities).length === 0 && isRunning ? (
               <div className="h-full flex items-center justify-center text-zinc-500 text-sm italic">
-                App is running...
+                {language === 'ru' ? 'Приложение запущено...' : 'App is running...'}
               </div>
             ) : (
               <AppPreview
@@ -308,7 +346,7 @@ export default function PlayerView() {
           </div>
         ) : (
           <div className="w-full h-full bg-[#181B20] border border-[#262B33] rounded-xl p-4 font-mono text-xs text-[#D1D5DB] overflow-y-auto">
-            {output.map((line, i) => <div key={i}>{line}</div>)}
+            {output.map((line, i) => <div key={i} className="break-all">{line}</div>)}
           </div>
         )}
       </div>

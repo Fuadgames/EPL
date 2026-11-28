@@ -6,7 +6,7 @@ import { doc, getDoc, getDocs, query, where, setDoc, updateDoc, serverTimestamp,
 import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { EPLInterpreter } from '../lib/epl-interpreter';
 import { EPL_DICTIONARY } from '@/src/lib/epl-dictionary';
-import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, Languages, FolderOpen, Lock, Image as ImageIcon, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2, Monitor, Smartphone, Eye, ShieldCheck, ShieldAlert, AlertTriangle, Layers, ChevronDown, Store, Cpu, Volume2, VolumeX, Grid, Activity, Globe, Sparkles } from 'lucide-react';
+import { Play, StopCircle, UploadCloud, Save, Terminal, LayoutTemplate, Code2, File, Edit, View, HelpCircle, Moon, Sun, Trash2, FileText, X, FolderOpen, Lock, Image as ImageIcon, Camera, Loader2, RefreshCw, Move, FileCode, Copy, Link as LinkIcon, Upload, Maximize, Minimize, Users, Package, Undo2, Redo2, Monitor, Smartphone, Eye, ShieldCheck, ShieldAlert, AlertTriangle, Layers, ChevronDown, Store, Cpu, Volume2, VolumeX, Grid, Activity, Globe, Sparkles } from 'lucide-react';
 import { clsx } from 'clsx';
 import { generateImageWithAI } from '../lib/gemini';
 import { notify } from '../store/useDialogStore';
@@ -22,9 +22,10 @@ import DifrenoptConfigModal from './DifrenoptConfigModal';
 import { findFirstDifrenoptInCode, upsertDifrenoptInCode } from '../lib/drpl-catalog';
 import { translations, tutorialContent } from '../lib/translations';
 import { hasTierAccess, resolveEffectiveTier } from '../lib/premiumTiers';
+import { STARTER_EDITOR_CODE } from '../lib/demoProjects';
 const PreviewEditor = React.lazy(() => import('./PreviewEditor'));
 
-const DEFAULT_CODE = ``;
+const DEFAULT_CODE = STARTER_EDITOR_CODE;
 
 export default function EditorView() {
   const theme = useStore(state => state.theme);
@@ -39,7 +40,6 @@ export default function EditorView() {
   const aiAnswerMode = useStore(state => state.aiAnswerMode);
   const aiChangesEnabled = useStore(state => state.aiChangesEnabled);
   const language = useStore(state => state.language);
-  const setLanguage = useStore(state => state.setLanguage);
   const code = useStore(state => state.code);
   const setCodeGlobal = useStore(state => state.setCode);
   const tutorialMinimized = useStore(state => state.tutorialMinimized);
@@ -68,7 +68,7 @@ export default function EditorView() {
   const addProjectFile = useStore(state => state.addProjectFile);
   const [isPending, startTransition] = useTransition();
   const t = translations[language];
-  const [history, setHistory] = useState<string[]>([DEFAULT_CODE]);
+  const [history, setHistory] = useState<string[]>(() => [useStore.getState().code || DEFAULT_CODE]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [output, setOutput] = useState<string[]>([]);
   const [uiState, setUiState] = useState<{ entities: Record<string, any>; variables?: Record<string, any>; camera?: any; uiMode?: any }>({ entities: {}, variables: {}, camera: null, uiMode: null });
@@ -361,7 +361,7 @@ export default function EditorView() {
 
   useEffect(() => {
     if (selectedExtraCategory === null) {
-      setShowExtraCategoryModal(true);
+      setSelectedExtraCategory('Normal');
     }
   }, []);
 
@@ -369,9 +369,10 @@ export default function EditorView() {
 
   const confirmNewFile = (category: 'Normal' | 'OS' | 'Asset' | 'PreviewEditing' | 'CustomEditor' | string) => {
     if (extraModalAction === 'new') {
-      setCodeGlobal('');
+      const nextStarter = '';
+      setCodeSync(nextStarter);
       setEditingAppId(null);
-      setHistory(['']);
+      setHistory([nextStarter]);
       setHistoryIndex(0);
       if (historyTimeoutRef.current) {
         clearTimeout(historyTimeoutRef.current);
@@ -494,33 +495,6 @@ export default function EditorView() {
   const [events, setEvents] = useState<{ id: string; title: string; description: string; imageUrl: string }[]>([]);
   const [publishTab, setPublishTab] = useState<'general' | 'events'>('general');
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  const [rightPanelWidth, setRightPanelWidth] = useState(384);
-  const isResizing = useRef(false);
-
-  const handleMouseDown = (e: React.MouseEvent) => {
-    isResizing.current = true;
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = 'col-resize';
-    document.body.style.userSelect = 'none';
-  };
-
-  const handleMouseMove = (e: MouseEvent) => {
-    if (!isResizing.current) return;
-    const newWidth = window.innerWidth - e.clientX;
-    if (newWidth > 50 && newWidth < window.innerWidth - 50) {
-      setRightPanelWidth(newWidth);
-    }
-  };
-
-  const handleMouseUp = () => {
-    isResizing.current = false;
-    document.removeEventListener('mousemove', handleMouseMove);
-    document.removeEventListener('mouseup', handleMouseUp);
-    document.body.style.cursor = 'default';
-    document.body.style.userSelect = 'auto';
-  };
 
   const interpreterRef = useRef<EPLInterpreter | null>(null);
   const outputEndRef = useRef<HTMLDivElement>(null);
@@ -1113,8 +1087,8 @@ export default function EditorView() {
         linuxUrl,
         apkUrl,
         iconUrl: appIconUrl,
-        screenshotUrl: appScreenshotUrl,
-        bannerUrl: appBannerUrl,
+        screenshotUrl: '',
+        bannerUrl: appBannerUrl || '',
         authorId: user.uid,
         authorName: user.displayName || 'Anonymous',
         isAiGenerated,
@@ -1273,8 +1247,8 @@ export default function EditorView() {
         price: 0,
         supportedPlatforms: ['web'],
         iconUrl: appIconUrl,
-        screenshotUrl: appScreenshotUrl,
-        bannerUrl: appBannerUrl,
+        screenshotUrl: '',
+        bannerUrl: appBannerUrl || '',
         authorId: user.uid,
         authorName: user.displayName || 'Anonymous',
         isAiGenerated,
@@ -1570,8 +1544,8 @@ export default function EditorView() {
       <div 
         ref={menuRef}
         className={clsx(
-          "flex items-center gap-1 px-2 py-1 border-b text-sm relative z-50 whitespace-nowrap",
-          isFrutigerAero ? "frutiger-aero-glass" : theme !== 'light' ? 'bg-[#111315] border-[#262B33] text-[#D1D5DB]' : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#374151]',
+          "flex flex-wrap items-center gap-1 px-2 py-1 border-b text-sm relative z-50",
+          isFrutigerAero ? "frutiger-aero-glass" : theme !== 'light' ? 'bg-[#111315] border-[#262B33] text-[#E5E7EB]' : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#374151]',
           computerStyle && "bg-transparent border-emerald-500/30 text-emerald-500"
         )}
       >
@@ -1639,8 +1613,20 @@ export default function EditorView() {
             {t.edit}
           </button>
           {activeMenu === 'edit' && (
-            <div className={clsx("absolute top-full left-0 mt-1 w-52 border rounded-lg shadow-xl py-1 z-50", isFrutigerAero ? "frutiger-aero-glass" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800")}>
-              <button onClick={() => { setCodeGlobal(''); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2 text-red-500", isFrutigerAero ? "hover:bg-white/50" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
+            <div className={clsx("absolute top-full left-0 mt-1 w-60 border rounded-lg shadow-xl py-1 z-50", isFrutigerAero ? "frutiger-aero-glass" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800")}>
+              <button
+                onClick={() => {
+                  setSelectedExtraCategory('Normal');
+                  setCodeSync(STARTER_EDITOR_CODE);
+                  setHistory(prev => [...prev.slice(0, historyIndexRef.current + 1), STARTER_EDITOR_CODE]);
+                  setHistoryIndex(prev => prev + 1);
+                  setActiveMenu(null);
+                }}
+                className={clsx("w-full text-left px-4 py-2 flex items-center gap-2 text-xs font-semibold text-[#10B981]", isFrutigerAero ? "hover:bg-white/50" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}
+              >
+                <Sparkles className="w-4 h-4" /> {language === 'ru' ? 'Стартовый пример (блок + WASD)' : 'Load Starter Example'}
+              </button>
+              <button onClick={() => { setCodeGlobal(''); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2 text-red-400", isFrutigerAero ? "hover:bg-white/50" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
                 <Trash2 className="w-4 h-4" /> {t.clearCode}
               </button>
 
@@ -1688,15 +1674,17 @@ export default function EditorView() {
         <div className="relative">
           <button 
             onClick={() => setActiveMenu(activeMenu === 'extra_category' ? null : 'extra_category')}
-            className={clsx("px-3 py-1 rounded transition-colors font-medium flex items-center gap-1.5 cursor-pointer", activeMenu === 'extra_category' ? 'bg-zinc-200 dark:bg-zinc-800' : 'hover:bg-zinc-200 dark:hover:bg-zinc-800')}
+            className={clsx("px-2.5 sm:px-3 py-1 rounded transition-colors font-medium flex items-center gap-1.5 cursor-pointer whitespace-nowrap", activeMenu === 'extra_category' ? 'bg-zinc-200 dark:bg-zinc-800' : 'hover:bg-zinc-200 dark:hover:bg-zinc-800')}
           >
-            <Layers className="w-3.5 h-3.5 text-[#10B981]" />
-            <span>Extra Category: {selectedExtraCategory === 'BlockEditing' ? 'block editing' : selectedExtraCategory === 'PreviewEditing' ? 'Visual Editor' : selectedExtraCategory || 'Normal'}</span>
-            <ChevronDown className="w-3 h-3 opacity-60" />
+            <Layers className="w-3.5 h-3.5 text-[#10B981] shrink-0" />
+            <span className="truncate max-w-[170px] sm:max-w-none">
+              {language === 'ru' ? 'Режим' : 'Mode'}: {selectedExtraCategory === 'BlockEditing' ? (language === 'ru' ? 'Блоки' : 'Blocks') : selectedExtraCategory === 'PreviewEditing' ? (language === 'ru' ? 'Визуальный' : 'Visual') : selectedExtraCategory || 'Normal'}
+            </span>
+            <ChevronDown className="w-3 h-3 opacity-75 shrink-0" />
           </button>
           {activeMenu === 'extra_category' && (
-            <div className={clsx("absolute top-full left-0 mt-1 w-60 border rounded-xl shadow-2xl py-1.5 z-50", isFrutigerAero ? "frutiger-aero-glass text-blue-900" : "bg-white dark:bg-[#181B20] border-[#E2E5EA] dark:border-[#262B33] text-[#111315] dark:text-[#F1F3F5]")}>
-              <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-zinc-500 border-b border-zinc-800/50 mb-1">
+            <div className={clsx("absolute top-full left-0 mt-1 w-60 max-w-[calc(100vw-1rem)] border rounded-xl shadow-2xl py-1.5 z-50", isFrutigerAero ? "frutiger-aero-glass text-blue-900" : "bg-white dark:bg-[#181B20] border-[#E2E5EA] dark:border-[#262B33] text-[#111315] dark:text-[#F1F3F5]")}>
+              <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-[#B4BCC8] border-b border-zinc-800/50 mb-1">
                 {language === 'ru' ? 'Категория / Режим:' : 'Category Mode:'}
               </div>
 
@@ -1705,7 +1693,7 @@ export default function EditorView() {
                 className={clsx("w-full text-left px-3.5 py-2 flex items-center gap-2 text-xs font-medium hover:bg-zinc-800/50 cursor-pointer", (selectedExtraCategory === 'Normal' || !selectedExtraCategory) && "text-emerald-400 font-bold bg-emerald-500/10")}
               >
                 <Code2 className="w-4 h-4 text-emerald-400" />
-                <span>Normal (Текстовый код)</span>
+                <span>{language === 'ru' ? 'Normal (Текстовый код)' : 'Normal (Text Code)'}</span>
               </button>
 
               <button 
@@ -1713,7 +1701,7 @@ export default function EditorView() {
                 className={clsx("w-full text-left px-3.5 py-2 flex items-center gap-2 text-xs font-medium hover:bg-zinc-800/50 cursor-pointer", selectedExtraCategory === 'BlockEditing' && "text-[#10B981] font-bold bg-[#10B981]/10")}
               >
                 <Layers className="w-4 h-4 text-[#10B981]" />
-                <span>block editing (Скретч блоки)</span>
+                <span>{language === 'ru' ? 'Блочный редактор (блоки)' : 'Block Editing (Visual Blocks)'}</span>
               </button>
 
               <button 
@@ -1725,7 +1713,7 @@ export default function EditorView() {
                 className={clsx("w-full text-left px-3.5 py-2 flex items-center gap-2 text-xs font-medium hover:bg-zinc-800/50 cursor-pointer", selectedExtraCategory === 'PreviewEditing' && "text-blue-400 font-bold bg-blue-500/10")}
               >
                 <LayoutTemplate className="w-4 h-4 text-blue-400" />
-                <span>Visual Editor (Визуальный)</span>
+                <span>{language === 'ru' ? 'Визуальный редактор' : 'Visual Editor'}</span>
               </button>
 
               <button 
@@ -1733,7 +1721,7 @@ export default function EditorView() {
                 className={clsx("w-full text-left px-3.5 py-2 flex items-center gap-2 text-xs font-medium hover:bg-zinc-800/50 cursor-pointer", selectedExtraCategory === 'OS' && "text-cyan-400 font-bold bg-cyan-500/10")}
               >
                 <Monitor className="w-4 h-4 text-cyan-400" />
-                <span>OS Simulation (AllBIOS)</span>
+                <span>{language === 'ru' ? 'Симуляция ОС (AllBIOS)' : 'OS Simulation (AllBIOS)'}</span>
               </button>
 
               <button 
@@ -1741,7 +1729,7 @@ export default function EditorView() {
                 className={clsx("w-full text-left px-3.5 py-2 flex items-center gap-2 text-xs font-medium hover:bg-zinc-800/50 cursor-pointer", selectedExtraCategory === 'Asset' && "text-amber-400 font-bold bg-amber-500/10")}
               >
                 <Package className="w-4 h-4 text-amber-400" />
-                <span>Asset Store UI Mode</span>
+                <span>{language === 'ru' ? 'Режим ассета магазина' : 'Asset Store UI Mode'}</span>
               </button>
             </div>
           )}
@@ -1750,12 +1738,12 @@ export default function EditorView() {
         <div className="relative">
           <button 
             onClick={() => setActiveMenu(activeMenu === 'help' ? null : 'help')}
-            className={clsx("px-3 py-1 rounded transition-colors", activeMenu === 'help' ? 'bg-zinc-200 dark:bg-zinc-800' : 'hover:bg-zinc-200 dark:hover:bg-zinc-800')}
+            className={clsx("px-2.5 sm:px-3 py-1 rounded transition-colors", activeMenu === 'help' ? 'bg-zinc-200 dark:bg-zinc-800' : 'hover:bg-zinc-200 dark:hover:bg-zinc-800')}
           >
             {t.help}
           </button>
           {activeMenu === 'help' && (
-            <div className={clsx("absolute top-full left-0 mt-1 w-48 border rounded-lg shadow-xl py-1 z-50", isFrutigerAero ? "frutiger-aero-glass" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800")}>
+            <div className={clsx("absolute top-full right-0 sm:left-0 sm:right-auto mt-1 w-48 max-w-[calc(100vw-1rem)] border rounded-lg shadow-xl py-1 z-50", isFrutigerAero ? "frutiger-aero-glass" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800")}>
               <button onClick={() => { setShowHelpModal(true); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800")}>
                 <HelpCircle className="w-4 h-4" /> {t.syntaxGuide}
               </button>
@@ -1768,188 +1756,178 @@ export default function EditorView() {
             </div>
           )}
         </div>
-
-        <div className="relative">
-          <button 
-            onClick={() => setActiveMenu(activeMenu === 'lang' ? null : 'lang')}
-            className={clsx("px-3 py-1 rounded transition-colors", activeMenu === 'lang' ? 'bg-zinc-200 dark:bg-zinc-800' : 'hover:bg-zinc-200 dark:hover:bg-zinc-800')}
-          >
-            <Languages className="w-4 h-4" />
-          </button>
-          {activeMenu === 'lang' && (
-            <div className={clsx("absolute top-full left-0 mt-1 w-32 border rounded-lg shadow-xl py-1 z-50", isFrutigerAero ? "frutiger-aero-glass" : "bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800")}>
-              <button onClick={() => { setLanguage('en'); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800", language === 'en' && "text-emerald-500 font-bold")}>
-                English
-              </button>
-              <button onClick={() => { setLanguage('ru'); setActiveMenu(null); }} className={clsx("w-full text-left px-4 py-2 flex items-center gap-2", isFrutigerAero ? "hover:bg-white/50 text-blue-900" : "hover:bg-zinc-100 dark:hover:bg-zinc-800", language === 'ru' && "text-emerald-500 font-bold")}>
-                Русский
-              </button>
-            </div>
-          )}
-        </div>
       </div>
 
-      {/* Toolbar */}
+      {/* Toolbar — wraps cleanly at 1280px without horizontal clipping */}
       <div className={clsx(
-        "flex items-center justify-between gap-4 px-4 sm:px-6 py-3.5 border-b overflow-x-auto no-scrollbar",
+        "flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2.5 border-b",
         isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm" :
         theme !== 'light' ? 'bg-[#181B20] border-[#262B33]' : 'bg-white border-[#E2E5EA]'
       )}>
-        <div className="flex items-center gap-4 min-w-max">
-          <h2 className={clsx("text-lg font-bold flex items-center gap-2", isFrutigerAero ? "text-blue-900" : "")}>
-            <Code2 className={clsx("w-5 h-5", isFrutigerAero ? "text-blue-600" : "text-[#10B981]")} />
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className={clsx("text-base font-bold flex items-center gap-2 whitespace-nowrap shrink-0", isFrutigerAero ? "text-blue-900" : "")}>
+            <Code2 className={clsx("w-4 h-4", isFrutigerAero ? "text-blue-600" : "text-[#10B981]")} />
             <span className="hidden sm:inline">EPL Editor</span>
           </h2>
-          <div className={clsx("h-5 w-px mx-1 hidden sm:block", isFrutigerAero ? "bg-blue-800/20" : "bg-[#262B33]")}></div>
-          <div className="flex items-center gap-2">
+          <div className={clsx("h-4 w-px mx-0.5 hidden sm:block", isFrutigerAero ? "bg-blue-800/20" : "bg-[#262B33]")}></div>
+          <div className="flex flex-wrap items-center gap-1.5">
             {!isRunning ? (
               <>
                 <button 
                   onClick={() => setLivePreviewEnabled(!livePreviewEnabled)} 
                   className={clsx(
-                    "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer border",
+                    "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer border",
                     livePreviewEnabled 
                       ? (isFrutigerAero ? "bg-blue-500 text-white border-blue-600" : "bg-[#10B981]/15 border-[#10B981]/50 text-[#10B981]") 
-                      : (isFrutigerAero ? "bg-white/40 hover:bg-white/60 text-blue-900 border-white/40" : "bg-[#21252C] border-[#262B33] hover:bg-[#2A2F38] text-[#9BA1A6] hover:text-[#F1F3F5]")
+                      : (isFrutigerAero ? "bg-white/40 hover:bg-white/60 text-blue-900 border-white/40" : "bg-[#21252C] border-[#262B33] hover:bg-[#2A2F38] text-[#C4CAD3] hover:text-[#F1F3F5]")
                   )}
                   title={livePreviewEnabled ? "Live Preview is ON (real-time)" : "Live Preview is OFF"}
                 >
-                  <Eye className="w-4 h-4" />
+                  <Eye className="w-3.5 h-3.5" />
                   <span className="hidden md:inline">Live Preview</span>
                 </button>
                 <button onClick={() => handleRun('pc')} className={clsx(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap shrink-0 border",
+                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 border cursor-pointer",
                   isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-900 border-white/50" : theme !== 'light' ? "bg-[#21252C] border-[#262B33] hover:bg-[#2A2F38] text-[#F1F3F5]" : "bg-[#F5F6F8] border-[#E2E5EA] hover:bg-[#EBEEF2] text-[#111315]"
                 )}>
-                  <Monitor className="w-4 h-4" /> PC
+                  <Monitor className="w-3.5 h-3.5" /> {language === 'ru' ? 'ПК' : 'PC'}
                 </button>
                 <button onClick={() => handleRun('mobile')} className={clsx(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap shrink-0 border",
+                  "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 border cursor-pointer",
                   isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-900 border-white/50" : theme !== 'light' ? "bg-[#21252C] border-[#262B33] hover:bg-[#2A2F38] text-[#F1F3F5]" : "bg-[#F5F6F8] border-[#E2E5EA] hover:bg-[#EBEEF2] text-[#111315]"
                 )}>
-                  <Smartphone className="w-4 h-4" /> Mobile
+                  <Smartphone className="w-3.5 h-3.5" /> {language === 'ru' ? 'Телефон' : 'Mobile'}
                 </button>
                 <button onClick={() => handleRun('run')} className={clsx(
-                  "flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap shrink-0",
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer",
                   isFrutigerAero ? "frutiger-aero-button" : "bg-[#10B981] hover:bg-[#059669] text-[#111315]"
                 )}>
-                  <Play className="w-4 h-4" /> {t.run}
+                  <Play className="w-3.5 h-3.5" /> {t.run}
                 </button>
               </>
             ) : (
               <button onClick={handleStop} className={clsx(
-                "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer",
                 isFrutigerAero ? "bg-red-500/80 hover:bg-red-500 text-white border border-red-500/50 shadow-sm backdrop-blur-sm" : "bg-red-500 hover:bg-red-600 text-white"
               )}>
-                <StopCircle className="w-4 h-4" /> {t.stop}
+                <StopCircle className="w-3.5 h-3.5" /> {t.stop}
               </button>
             )}
             <button 
               onClick={handleRestart} 
               className={clsx(
-                "flex items-center justify-center p-1.5 rounded-xl transition-colors",
+                "flex items-center justify-center p-1.5 rounded-lg transition-colors cursor-pointer shrink-0",
                 isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
               )}
               title={language === 'ru' ? 'Перезагрузить' : 'Restart'}
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className="w-3.5 h-3.5" />
             </button>
-            <div className={clsx("h-6 w-px mx-1", isFrutigerAero ? "bg-blue-800/10" : "bg-zinc-700/30")}></div>
+            <div className={clsx("h-4 w-px mx-0.5", isFrutigerAero ? "bg-blue-800/10" : "bg-zinc-700/40")}></div>
             <button 
               onClick={undo}
               disabled={historyIndex <= 0}
               className={clsx(
-                "flex items-center justify-center p-1.5 rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed",
+                "flex items-center justify-center p-1.5 rounded-lg transition-colors disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer shrink-0",
                 isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
               )}
               title={language === 'ru' ? 'Отменить' : 'Undo'}
             >
-              <Undo2 className="w-4 h-4" />
+              <Undo2 className="w-3.5 h-3.5" />
             </button>
             <button 
               onClick={redo}
               disabled={historyIndex >= history.length - 1}
               className={clsx(
-                "flex items-center justify-center p-1.5 rounded-xl transition-colors disabled:opacity-30 disabled:cursor-not-allowed",
+                "flex items-center justify-center p-1.5 rounded-lg transition-colors disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer shrink-0",
                 isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
               )}
               title={language === 'ru' ? 'Повторить' : 'Redo'}
             >
-              <Redo2 className="w-4 h-4" />
+              <Redo2 className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
         
-        <div className="flex items-center gap-3 min-w-max">
-          <button 
-            onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
-            className={clsx(
-              "sm:hidden px-3 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
-              isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
-            )}
-          >
-            {isRightPanelOpen ? 'Hide UI' : 'Show UI'}
-          </button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {livePreviewEnabled && (
+            <button 
+              onClick={() => setIsRightPanelOpen(!isRightPanelOpen)}
+              className={clsx(
+                "sm:hidden px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 flex items-center gap-1",
+                isRightPanelOpen
+                  ? "bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/40"
+                  : isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
+              )}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>
+                {language === 'ru'
+                  ? (isRightPanelOpen ? 'Скрыть вид' : 'Предпросмотр')
+                  : (isRightPanelOpen ? 'Hide UI' : 'Show UI')}
+              </span>
+            </button>
+          )}
           <button 
             onClick={() => imageInputRef.current?.click()}
             disabled={isUploading}
             className={clsx(
-              "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer",
               isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
             )}
           >
-            <UploadCloud className="w-4 h-4" /> <span className="hidden sm:inline">{isUploading ? t.publishing : t.uploadFile}</span>
+            <UploadCloud className="w-3.5 h-3.5" /> <span className="hidden sm:inline">{isUploading ? t.publishing : t.uploadFile}</span>
           </button>
           <button 
             onClick={() => setShowInventoryModal(true)}
             className={clsx(
-              "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer",
               isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
             )}
           >
-            <Package className="w-4 h-4" /> <span className="hidden sm:inline">Inventory</span>
+            <Package className="w-3.5 h-3.5" /> <span className="hidden sm:inline">{language === 'ru' ? 'Инвентарь' : 'Inventory'}</span>
           </button>
           <input type="file" ref={imageInputRef} className="hidden" onChange={handleFileUpload} />
           {user && (
             <button 
               onClick={() => setShowPublishModal(true)}
               className={clsx(
-                "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer",
                 isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
               )}
             >
-              <UploadCloud className="w-4 h-4" /> <span className="hidden sm:inline">{t.publish}</span>
+              <UploadCloud className="w-3.5 h-3.5" /> <span className="hidden sm:inline">{t.publish}</span>
             </button>
           )}
           <button 
             onClick={() => setShowDrplStudioModal(true)}
             className={clsx(
-              "flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap shrink-0 border cursor-pointer",
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 border cursor-pointer",
               isFrutigerAero
                 ? "bg-white/60 hover:bg-white/80 text-blue-900 border-white/60"
                 : "bg-[#10B981]/15 hover:bg-[#10B981]/25 border-[#10B981]/50 text-[#10B981]"
             )}
             title="difrenopt Studio (DRPL 3D/2D/App Engine)"
           >
-            <Cpu className="w-4 h-4" /> <span className="hidden sm:inline">DRPL Studio</span>
+            <Cpu className="w-3.5 h-3.5" /> <span className="hidden sm:inline">DRPL Studio</span>
           </button>
           <button 
             onClick={() => setShowEditorStoreModal(true)}
             className={clsx(
-              "flex items-center gap-2 px-4 py-1.5 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap shrink-0",
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer",
               isFrutigerAero ? "frutiger-aero-button" : "bg-[#10B981] hover:bg-[#059669] text-[#111315]"
             )}
           >
-            <Store className="w-4 h-4" /> <span className="hidden sm:inline">Editor Store</span>
+            <Store className="w-3.5 h-3.5" /> <span className="hidden sm:inline">{language === 'ru' ? 'Магазин' : 'Editor Store'}</span>
           </button>
           <button 
             onClick={() => setShowFileControlModal(true)}
             className={clsx(
-              "flex items-center gap-2 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors whitespace-nowrap",
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 cursor-pointer",
               isFrutigerAero ? "bg-white/50 hover:bg-white/70 text-blue-800 border border-white/60 shadow-sm" : "bg-zinc-800 hover:bg-zinc-700 text-white"
             )}
           >
-            <FolderOpen className="w-4 h-4" /> <span className="hidden sm:inline">File Control</span>
+            <FolderOpen className="w-3.5 h-3.5" /> <span className="hidden sm:inline">{t.fileControl}</span>
           </button>
         </div>
       </div>
@@ -2046,25 +2024,15 @@ export default function EditorView() {
               />
             </div>
 
-            {/* Resize Handle */}
-            {livePreviewEnabled && (
-              <div 
-                className={clsx(
-                  "hidden sm:block w-2 hover:w-3 cursor-col-resize transition-all z-20 shrink-0",
-                  isFrutigerAero ? "bg-blue-500/20 hover:bg-blue-500/50 border-x border-white/20" : "bg-zinc-800 hover:bg-emerald-500"
-                )}
-                onMouseDown={handleMouseDown}
-              />
-            )}
-
             {/* Live Preview Side Panel */}
             {livePreviewEnabled && (
               <div 
                 style={{ 
-                  width: typeof window !== 'undefined' && window.innerWidth >= 640 ? `${Math.max(280, Math.min(rightPanelWidth, 800))}px` : undefined 
+                  width: typeof window !== 'undefined' && window.innerWidth >= 640 ? '384px' : undefined 
                 }}
                 className={clsx(
-                  "flex flex-col border-t sm:border-t-0 sm:border-l relative overflow-hidden transition-all shrink-0 h-80 sm:h-auto sm:flex-1 md:flex-initial",
+                  "flex-col border-t sm:border-t-0 sm:border-l relative overflow-hidden transition-all shrink-0 h-[38dvh] sm:h-auto sm:flex-1 md:flex-initial",
+                  isRightPanelOpen ? "flex" : "hidden sm:flex",
                   isFrutigerAero ? "bg-white/30 border-white/40 backdrop-blur-md" :
                   theme !== 'light' ? "bg-zinc-900/60 border-zinc-800" : "bg-zinc-50 border-zinc-200"
                 )}
@@ -2158,7 +2126,7 @@ export default function EditorView() {
                 {showLiveVars && (
                   <div className="px-3 py-1.5 border-b border-zinc-800 bg-zinc-950/90 flex flex-wrap gap-2 text-[10px] font-mono text-zinc-300 shrink-0">
                     {Object.keys(liveUiState.variables || {}).length === 0 ? (
-                      <span className="text-zinc-500 italic">{language === 'ru' ? 'Нет активных переменных' : 'No active variables'}</span>
+                      <span className="text-zinc-400 italic">{language === 'ru' ? 'Нет активных переменных' : 'No active variables'}</span>
                     ) : (
                       Object.entries(liveUiState.variables || {}).map(([k, v]) => (
                         <span key={k} className="px-1.5 py-0.5 rounded bg-zinc-900 border border-zinc-800">
@@ -2173,11 +2141,11 @@ export default function EditorView() {
                 <div className="flex-1 relative overflow-hidden bg-black flex items-center justify-center">
                   {Object.keys(liveUiState.entities).length === 0 ? (
                     <div className="text-center p-6 space-y-2">
-                      <div className="w-10 h-10 rounded-2xl bg-zinc-800/80 text-zinc-400 flex items-center justify-center mx-auto mb-2">
+                      <div className="w-10 h-10 rounded-2xl bg-zinc-800/80 text-zinc-300 flex items-center justify-center mx-auto mb-2">
                         <LayoutTemplate className="w-5 h-5" />
                       </div>
-                      <p className="text-xs text-zinc-400 font-medium">{t.noEntities}</p>
-                      <p className="text-[11px] text-zinc-600 max-w-xs">
+                      <p className="text-xs text-zinc-300 font-medium">{t.noEntities}</p>
+                      <p className="text-xs text-zinc-400 max-w-xs">
                         {language === 'ru' 
                           ? 'Напишите в коде create block или background чтобы увидеть результат.'
                           : 'Write EPL code like create block to see elements live.'}
@@ -2198,12 +2166,12 @@ export default function EditorView() {
                 {/* Live Console Drawer */}
                 {showLiveConsole && (
                   <div className="h-32 border-t border-zinc-800 bg-zinc-950 font-mono text-[11px] p-2.5 overflow-y-auto text-emerald-400 space-y-0.5 shrink-0">
-                    <div className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1 flex items-center justify-between font-sans">
+                    <div className="text-[10px] text-zinc-400 uppercase tracking-wider mb-1 flex items-center justify-between font-sans">
                       <span>Console output</span>
-                      <button onClick={() => setLiveOutput([])} className="hover:text-zinc-300">clear</button>
+                      <button onClick={() => setLiveOutput([])} className="hover:text-zinc-200">clear</button>
                     </div>
                     {liveOutput.length === 0 ? (
-                      <div className="italic text-zinc-600 text-xs">Ready.</div>
+                      <div className="italic text-zinc-400 text-xs">Ready.</div>
                     ) : (
                       liveOutput.map((l, idx) => (
                         <div key={idx} className="leading-tight break-all">{l}</div>
@@ -2220,19 +2188,19 @@ export default function EditorView() {
 
       {/* --- RUN MODE OVERLAYS --- */}
       {runMode === 'pc' && (
-        <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-8">
-          <div className="w-full max-w-5xl h-[80vh] flex flex-col bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
-            <div className="h-12 bg-zinc-800 border-b border-zinc-700 flex items-center justify-between px-4">
-              <span className="text-sm font-bold text-zinc-300">Preview (PC Standard)</span>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setShowStageGrid(v => !v)} className={clsx("p-1.5 rounded border text-xs cursor-pointer", showStageGrid ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400" : "bg-zinc-900 border-zinc-700 text-zinc-300")} title="Toggle Grid"><Grid className="w-4 h-4" /></button>
-                <button onClick={() => setIsStageMuted(v => !v)} className={clsx("p-1.5 rounded border text-xs cursor-pointer", isStageMuted ? "bg-amber-500/20 border-amber-500/40 text-amber-400" : "bg-zinc-900 border-zinc-700 text-zinc-300")} title="Mute/Unmute">{isStageMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}</button>
-                <button onClick={handleStop} className="px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded text-sm font-medium transition-colors cursor-pointer">Stop</button>
+        <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-2 sm:p-8">
+          <div className="w-full max-w-5xl h-[88dvh] sm:h-[80vh] flex flex-col bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
+            <div className="h-12 bg-zinc-800 border-b border-zinc-700 flex items-center justify-between px-3 sm:px-4">
+              <span className="text-xs sm:text-sm font-bold text-zinc-300 truncate">{language === 'ru' ? 'Предпросмотр (ПК)' : 'Preview (PC Standard)'}</span>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={() => setShowStageGrid(v => !v)} className={clsx("p-1.5 rounded border text-xs cursor-pointer", showStageGrid ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400" : "bg-zinc-900 border-zinc-700 text-zinc-300")} title={language === 'ru' ? 'Сетка' : 'Toggle Grid'}><Grid className="w-4 h-4" /></button>
+                <button onClick={() => setIsStageMuted(v => !v)} className={clsx("p-1.5 rounded border text-xs cursor-pointer", isStageMuted ? "bg-amber-500/20 border-amber-500/40 text-amber-400" : "bg-zinc-900 border-zinc-700 text-zinc-300")} title={language === 'ru' ? 'Звук' : 'Mute/Unmute'}>{isStageMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}</button>
+                <button onClick={handleStop} className="px-3 sm:px-4 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded text-xs sm:text-sm font-medium transition-colors cursor-pointer">{t.stop}</button>
               </div>
             </div>
-            <div className="flex-1 relative bg-black">
+            <div className="flex-1 relative bg-black overflow-hidden">
               {Object.keys(uiState.entities).length === 0 ? (
-                <div className="h-full flex items-center justify-center text-sm italic text-zinc-500">{t.noEntities}</div>
+                <div className="h-full flex items-center justify-center text-sm italic text-zinc-400">{t.noEntities}</div>
               ) : (
                 <AppPreview
                   entities={uiState.entities}
@@ -2250,27 +2218,27 @@ export default function EditorView() {
       )}
 
       {runMode === 'mobile' && (
-        <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-4">
-          <div className="mb-4 flex items-center gap-4">
-            <button onClick={() => setIsPhoneRotated(!isPhoneRotated)} className="px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 cursor-pointer">
-              <RefreshCw className="w-4 h-4" /> Rotate
+        <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-2 sm:p-4">
+          <div className="mb-3 flex flex-wrap items-center justify-center gap-2 sm:gap-4">
+            <button onClick={() => setIsPhoneRotated(!isPhoneRotated)} className="px-3 sm:px-4 py-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg text-xs sm:text-sm font-medium transition-colors flex items-center gap-2 cursor-pointer">
+              <RefreshCw className="w-4 h-4" /> {language === 'ru' ? 'Повернуть' : 'Rotate'}
             </button>
-            <button onClick={() => setIsStageMuted(v => !v)} className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors cursor-pointer" title="Mute/Unmute">
+            <button onClick={() => setIsStageMuted(v => !v)} className="p-2 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-lg transition-colors cursor-pointer" title={language === 'ru' ? 'Звук' : 'Mute/Unmute'}>
               {isStageMuted ? <VolumeX className="w-4 h-4 text-amber-400" /> : <Volume2 className="w-4 h-4" />}
             </button>
-            <button onClick={handleStop} className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2 cursor-pointer">
-              <StopCircle className="w-4 h-4" /> Stop
+            <button onClick={handleStop} className="px-3 sm:px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg text-xs sm:text-sm font-medium transition-colors flex items-center gap-2 cursor-pointer">
+              <StopCircle className="w-4 h-4" /> {t.stop}
             </button>
           </div>
           <div 
             className={clsx(
-              "relative bg-black border-[12px] border-zinc-800 rounded-[3rem] overflow-hidden shadow-2xl transition-all duration-300 ease-in-out",
-              isPhoneRotated ? "w-[800px] h-[375px]" : "w-[375px] h-[800px] max-h-[85vh]"
+              "relative bg-black border-[8px] sm:border-[12px] border-zinc-800 rounded-[2.25rem] sm:rounded-[3rem] overflow-hidden shadow-2xl transition-all duration-300 ease-in-out",
+              isPhoneRotated ? "w-[min(800px,calc(100vw-1.5rem))] h-[min(375px,68dvh)]" : "w-[min(375px,calc(100vw-1.5rem))] h-[min(800px,76dvh)]"
             )}
           >
             {/* Phone notch */}
-            {!isPhoneRotated && <div className="absolute top-0 inset-x-0 h-6 bg-zinc-800 rounded-b-xl w-32 mx-auto z-50"></div>}
-            {isPhoneRotated && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-6 h-32 bg-zinc-800 rounded-r-xl z-50"></div>}
+            {!isPhoneRotated && <div className="absolute top-0 inset-x-0 h-5 sm:h-6 bg-zinc-800 rounded-b-xl w-28 sm:w-32 mx-auto z-50"></div>}
+            {isPhoneRotated && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-5 sm:w-6 h-28 sm:h-32 bg-zinc-800 rounded-r-xl z-50"></div>}
             
             {Object.keys(uiState.entities).length === 0 ? (
               <div className="h-full flex items-center justify-center text-sm italic text-zinc-500">{t.noEntities}</div>
@@ -2290,18 +2258,18 @@ export default function EditorView() {
       )}
 
       {runMode === 'run' && selectedExtraCategory !== 'CustomEditor' && (
-        <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-4 sm:p-8">
-          <div className="w-full max-w-6xl h-[85vh] flex flex-col lg:flex-row bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
-            <div className="flex-[2] flex flex-col border-b lg:border-b-0 lg:border-r border-zinc-800">
-              <div className="px-4 py-2 text-xs font-medium uppercase tracking-wider flex items-center justify-between bg-zinc-800/50 border-b border-zinc-800">
+        <div className="fixed inset-0 z-[150] flex flex-col items-center justify-center bg-black/80 backdrop-blur-sm p-2 sm:p-8">
+          <div className="w-full max-w-6xl h-[90dvh] sm:h-[85vh] flex flex-col lg:flex-row bg-zinc-900 border border-zinc-700 rounded-xl overflow-hidden shadow-2xl">
+            <div className="flex-[2] min-h-0 flex flex-col border-b lg:border-b-0 lg:border-r border-zinc-800">
+              <div className="px-3 sm:px-4 py-2 text-xs font-medium uppercase tracking-wider flex items-center justify-between bg-zinc-800/50 border-b border-zinc-800">
                 <div className="flex items-center gap-2 text-zinc-300">
-                  <LayoutTemplate className="w-3.5 h-3.5" /> App UI
+                  <LayoutTemplate className="w-3.5 h-3.5" /> {language === 'ru' ? 'Экран приложения' : 'App UI'}
                 </div>
                 <div className="flex items-center gap-2">
-                  <button onClick={() => setShowStageGrid(v => !v)} className={clsx("p-1.5 rounded border text-xs cursor-pointer", showStageGrid ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400" : "bg-zinc-900 border-zinc-700 text-zinc-300")} title="Toggle Grid"><Grid className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => setIsStageMuted(v => !v)} className={clsx("p-1.5 rounded border text-xs cursor-pointer", isStageMuted ? "bg-amber-500/20 border-amber-500/40 text-amber-400" : "bg-zinc-900 border-zinc-700 text-zinc-300")} title="Mute/Unmute">{isStageMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>
+                  <button onClick={() => setShowStageGrid(v => !v)} className={clsx("p-1.5 rounded border text-xs cursor-pointer", showStageGrid ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400" : "bg-zinc-900 border-zinc-700 text-zinc-300")} title={language === 'ru' ? 'Сетка' : 'Toggle Grid'}><Grid className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => setIsStageMuted(v => !v)} className={clsx("p-1.5 rounded border text-xs cursor-pointer", isStageMuted ? "bg-amber-500/20 border-amber-500/40 text-amber-400" : "bg-zinc-900 border-zinc-700 text-zinc-300")} title={language === 'ru' ? 'Звук' : 'Mute/Unmute'}>{isStageMuted ? <VolumeX className="w-3.5 h-3.5" /> : <Volume2 className="w-3.5 h-3.5" />}</button>
                   <button onClick={handleStop} className="px-3 py-1.5 bg-red-500 hover:bg-red-600 text-white rounded text-xs font-bold transition-colors flex items-center gap-2 cursor-pointer">
-                    <StopCircle className="w-3.5 h-3.5" /> Stop
+                    <StopCircle className="w-3.5 h-3.5" /> {t.stop}
                   </button>
                 </div>
               </div>
@@ -2321,7 +2289,7 @@ export default function EditorView() {
                 )}
               </div>
             </div>
-            <div className="flex-[1] flex flex-col bg-black font-mono text-xs text-zinc-300 min-w-[300px]">
+            <div className="flex-[1] min-h-0 h-44 lg:h-auto flex flex-col bg-black font-mono text-xs text-zinc-300 min-w-0 lg:min-w-[300px]">
               <div className="h-[36px] px-4 flex items-center gap-2 border-b border-zinc-800 uppercase tracking-wider font-sans font-medium bg-zinc-900 text-zinc-400">
                 <Terminal className="w-3.5 h-3.5" /> {t.console}
               </div>
@@ -2330,7 +2298,7 @@ export default function EditorView() {
                   <div className="italic text-zinc-600">{t.ready}</div>
                 ) : (
                   output.map((line, i) => (
-                    <div key={i} className="mb-1">{line}</div>
+                    <div key={i} className="mb-1 break-all">{line}</div>
                   ))
                 )}
                 <div ref={outputEndRef} />
@@ -2408,13 +2376,15 @@ export default function EditorView() {
 
       {/* Extra Category Modal */}
       {showExtraCategoryModal && (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm p-3 sm:p-4">
           <div className={clsx(
-            "w-full max-w-md rounded-2xl p-6 shadow-2xl",
+            "w-full max-w-md rounded-2xl p-4 sm:p-6 shadow-2xl max-h-[90dvh] overflow-y-auto",
             isFrutigerAero ? "bg-white/80 border border-white/50 backdrop-blur-md" :
             theme !== 'light' ? 'bg-zinc-900 border border-zinc-800' : 'bg-white border border-zinc-200'
           )}>
-            <h2 className={clsx("text-xl font-bold mb-4", isFrutigerAero ? "text-blue-900" : "")}>Select Extra Category</h2>
+            <h2 className={clsx("text-lg sm:text-xl font-bold mb-4", isFrutigerAero ? "text-blue-900" : "")}>
+              {language === 'ru' ? 'Выберите режим проекта' : 'Select Extra Category'}
+            </h2>
             <div className="space-y-3">
               <button 
                 onClick={() => confirmNewFile('Normal')}

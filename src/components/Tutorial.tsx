@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useStore } from '../store/useStore';
-import { translations, tutorialContent } from '../lib/translations';
+import { getTranslations, getTutorialContent } from '../lib/translations';
 
 interface TutorialProps {
   onClose: () => void;
@@ -34,8 +34,8 @@ export default function Tutorial({ onClose }: TutorialProps) {
   const tutorialStepCompleted = useStore(state => state.tutorialStepCompleted);
   const setTutorialStepCompleted = useStore(state => state.setTutorialStepCompleted);
   const setTutorialCheckRequested = useStore(state => state.setTutorialCheckRequested);
-  const t = translations[language];
-  const levels = tutorialContent[language];
+  const t = getTranslations(language);
+  const levels = getTutorialContent(language);
 
   const level = levels[tutorialLevel];
   const step = level.steps[tutorialStep];
@@ -84,7 +84,7 @@ export default function Tutorial({ onClose }: TutorialProps) {
 
   if (tutorialMinimized) {
     return (
-      <div className="fixed bottom-6 right-6 z-[210] flex flex-col items-end gap-2.5">
+      <div className="fixed bottom-20 sm:bottom-6 right-3 sm:right-6 z-[210] flex flex-col items-end gap-2.5">
         <button
           onClick={handleCheck}
           className={clsx(

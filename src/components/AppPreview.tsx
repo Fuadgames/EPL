@@ -346,7 +346,7 @@ export default function AppPreview({
         className={clsx(
           'relative overflow-hidden',
           displayMobile
-            ? 'w-[375px] h-[812px] bg-white rounded-[40px] border-[8px] border-zinc-900 shadow-2xl shrink-0'
+            ? 'w-[min(375px,calc(100vw-1.5rem))] h-[min(812px,78dvh)] bg-white rounded-[36px] sm:rounded-[40px] border-[6px] sm:border-[8px] border-zinc-900 shadow-2xl shrink-0'
             : 'w-full h-full'
         )}
         style={{

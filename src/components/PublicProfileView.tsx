@@ -280,28 +280,17 @@ export default function PublicProfileView() {
                       : 'bg-white border-[#E2E5EA] hover:border-[#CBD5E1]'
                 )}
               >
-                <div className={clsx('aspect-[16/10] overflow-hidden relative', theme !== 'light' ? 'bg-[#111315]' : 'bg-[#F5F6F8]')}>
-                  {app.bannerUrl || app.screenshotUrl ? (
-                    <img
-                      src={app.bannerUrl || app.screenshotUrl}
-                      alt={app.title}
-                      className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                    />
+                <div className="p-4 flex items-center gap-3">
+                  {app.iconUrl ? (
+                    <img src={app.iconUrl} alt="" className="w-10 h-10 rounded-lg object-cover border border-current/15 shrink-0" />
                   ) : (
-                    <div className={clsx('w-full h-full flex items-center justify-center', theme !== 'light' ? 'bg-[#111315]' : 'bg-[#F5F6F8]')}>
-                      <ExternalLink className="w-10 h-10 text-[#10B981]/40" />
+                    <div className={clsx('w-10 h-10 rounded-lg flex items-center justify-center border border-current/15 shrink-0', theme !== 'light' ? 'bg-[#111315]' : 'bg-[#F5F6F8]')}>
+                      <ExternalLink className="w-5 h-5 text-[#10B981]/60" />
                     </div>
                   )}
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-transparent" />
-
-                  <div className="absolute bottom-3 left-3.5 right-3.5 flex items-end justify-between">
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      {app.iconUrl && <img src={app.iconUrl} alt="" className="w-9 h-9 rounded-lg object-cover border border-white/15 shrink-0" />}
-                      <div className="min-w-0">
-                        <h3 className="font-bold text-sm text-white leading-tight truncate">{app.title}</h3>
-                        <p className="text-[11px] text-zinc-300 capitalize">{app.category}</p>
-                      </div>
-                    </div>
+                  <div className="min-w-0">
+                    <h3 className="font-bold text-sm leading-tight truncate">{app.title}</h3>
+                    <p className="text-[11px] opacity-65 capitalize mt-0.5">{app.category}</p>
                   </div>
                 </div>
 

@@ -29,12 +29,14 @@ export default function DonatePage() {
     <div className="h-full overflow-y-auto p-4 sm:p-8">
       <div className="max-w-4xl mx-auto">
         <div className="mb-6 pb-4 border-b border-[#262B33]/60">
-          <h1 className={clsx('text-2xl font-bold tracking-tight flex items-center gap-2.5', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
-            <Star className="w-6 h-6 text-amber-400 fill-amber-400" />
-            Donate EPLCoins
+          <h1 className={clsx('text-xl sm:text-2xl font-bold tracking-tight flex items-center gap-2.5', isFrutigerAero ? 'text-blue-900' : theme !== 'light' ? 'text-[#F3F4F6]' : 'text-[#111315]')}>
+            <Star className="w-6 h-6 text-amber-400 fill-amber-400 shrink-0" />
+            {language === 'ru' ? 'Пополнение EPLCoins' : 'Donate EPLCoins'}
           </h1>
           <p className={clsx('text-xs mt-1', isFrutigerAero ? 'text-blue-800/70' : theme !== 'light' ? 'text-[#9CA3AF]' : 'text-[#525866]')}>
-            Support EPL Studio and boost your balance with EPLCoins.
+            {language === 'ru'
+              ? 'Поддержите EPL Studio и пополните баланс EPLCoins.'
+              : 'Support EPL Studio and boost your balance with EPLCoins.'}
           </p>
         </div>
 

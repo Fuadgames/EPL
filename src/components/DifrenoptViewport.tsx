@@ -13,10 +13,11 @@ import {
   createDrplSandboxFunction,
   type DrplRenderStats
 } from '../lib/drpl-engine';
+import { DRPL_COMPONENTS, DRPL_COMPONENT_BY_NAME, type DrplComponentDef } from '../lib/drpl-catalog';
 
 export interface VisualPatchEvent {
   type: 'add' | 'update' | 'delete';
-  mode: '3d' | '2d';
+  mode: '3d' | '2d' | 'app';
   name: string;
   kind: string;
   props: Record<string, any>;
@@ -34,7 +35,19 @@ export interface SelectedVisualEntity {
   d: number;
   radius: number;
   scale: number;
+  rx?: number;
+  ry?: number;
+  rz?: number;
   color: string;
+}
+
+function normalizeHexColor(val: unknown, fallback = '#10b981'): string {
+  const s = String(val || '').trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s;
+  if (/^#[0-9a-fA-F]{3}$/.test(s)) {
+    return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`;
+  }
+  return fallback;
 }
 
 interface DifrenoptViewportProps {
@@ -60,29 +73,7 @@ interface DifrenoptViewportProps {
 
 interface UiWidgetState {
   id: string;
-  kind:
-    | 'ui_card'
-    | 'ui_chart'
-    | 'ui_gauge'
-    | 'ui_button'
-    | 'ui_slider'
-    | 'ui_toggle'
-    | 'ui_progress'
-    | 'ui_tabs'
-    | 'ui_table'
-    | 'ui_terminal'
-    | 'ui_spectrum'
-    | 'ui_input'
-    | 'ui_text'
-    | 'ui_badge'
-    | 'ui_avatar'
-    | 'ui_code'
-    | 'ui_modal'
-    | 'ui_inventory'
-    | 'ui_statbar'
-    | 'ui_timer'
-    | 'ui_chat'
-    | 'ui_grid';
+  kind: string;
   props: Record<string, any>;
 }
 
@@ -205,6 +196,21 @@ export default function DifrenoptViewport({
   editMode = false,
   onVisualPatch
 }: DifrenoptViewportProps) {
+  const safeEntity = entity && typeof entity === 'object'
+    ? entity
+    : {
+        id: 'difrenopt_fallback',
+        name: 'engine',
+        mode: '3d',
+        quality: 'ultra',
+        fps: 60,
+        shadows: true,
+        bloom: true,
+        instancing: true,
+        culling: true,
+        drplCode: ''
+      };
+
   const hostRef = useRef<HTMLDivElement>(null);
   const canvas2dRef = useRef<HTMLCanvasElement>(null);
   const webglContainerRef = useRef<HTMLDivElement>(null);
@@ -231,6 +237,8 @@ export default function DifrenoptViewport({
   wireframeRef.current = wireframe;
 
   const [showInspector, setShowInspector] = useState(false);
+  const [showVisualLibrary, setShowVisualLibrary] = useState(false);
+  const [visualSearchQuery, setVisualSearchQuery] = useState('');
   const [runtimeError, setRuntimeError] = useState<string | null>(null);
   const [widgets, setWidgets] = useState<UiWidgetState[]>([]);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
@@ -244,13 +252,13 @@ export default function DifrenoptViewport({
     uiWidgets: 0,
     instancedCount: 0,
     culledCount: 0,
-    mode: String(entity.mode || '3d'),
+    mode: String(safeEntity.mode || '3d'),
     backend: 'webgl2'
   });
 
   // References to live engine callbacks for interactive HUD & camera reset & visual editing
   const runtimeControlsRef = useRef<{
-    invokeFn: (name: string) => void;
+    invokeFn: (name: string, widgetId?: string) => void;
     setBoundVar: (varName: string, val: any) => void;
     updateWidgetProp: (id: string, prop: string, val: any) => void;
     resetCamera: () => void;
@@ -338,13 +346,13 @@ export default function DifrenoptViewport({
     }
   }, []);
 
-  const drplCode = String(entity.drplCode || '');
-  const headerMode = String(entity.mode || '3d').toLowerCase();
-  const headerQuality = String(entity.quality || 'ultra').toLowerCase();
-  const headerShadows = toBool(entity.shadows, true);
-  const headerBloom = toBool(entity.bloom, true);
-  const headerCulling = toBool(entity.culling, true);
-  const headerTargetFps = Math.max(15, Math.min(120, toNum(entity.fps, 60)));
+  const drplCode = String(safeEntity.drplCode || '');
+  const headerMode = String(safeEntity.mode || '3d').toLowerCase();
+  const headerQuality = String(safeEntity.quality || 'ultra').toLowerCase();
+  const headerShadows = toBool(safeEntity.shadows, true);
+  const headerBloom = toBool(safeEntity.bloom, true);
+  const headerCulling = toBool(safeEntity.culling, true);
+  const headerTargetFps = Math.max(15, Math.min(120, toNum(safeEntity.fps, 60)));
 
   useEffect(() => {
     runtimeControlsRef.current.toggleWireframe(wireframe);
@@ -376,8 +384,8 @@ export default function DifrenoptViewport({
     const startHooks: Array<() => void> = [];
     const updateHooks: Array<(dt: number, time: number) => void> = [];
     const renderHooks: Array<(dt: number, time: number) => void> = [];
-    const keyHooks = new Map<string, Array<() => void>>();
-    const clickHooks = new Map<string, Array<() => void>>();
+    const keyHooks = new Map<string, Array<(key?: string) => void>>();
+    const clickHooks = new Map<string, Array<(target?: string) => void>>();
     const timerHooks: Array<{ interval: number; elapsed: number; fn: () => void }> = [];
     const eventBusHooks = new Map<string, Array<(payload?: any) => void>>();
     const keysPressed = new Set<string>();
@@ -394,16 +402,22 @@ export default function DifrenoptViewport({
       }, 2800);
     };
 
-    // Detect what render backends are requested
+    // Detect what render backends are requested across ALL 1100+ DRPL components
     let wants3D = headerMode === '3d' || headerMode === 'hybrid';
     let wants2D = headerMode === '2d' || headerMode === 'hybrid';
     let wantsApp = headerMode === 'app';
 
-    if (/\b(use3d|sky3d|terrain3d|water3d|car3d|mecha3d|boss3d|trees3d|city3d|asteroids3d|portal3d|box3d|sphere3d|pyramid3d|cone3d|cylinder3d|torus3d|capsule3d|plane3d|icosahedron3d|ring3d|text3d|grid3d|camera3d|raycast3d|hologram3d|checkpoint3d|platform3d|bouncepad3d|trail3d|shake3d)\b/.test(drplCode)) {
-      wants3D = true;
-    }
-    if (/\b(use2d|parallax2d|tilemap2d|player2d|enemy2d|platform2d|coin2d|camera2d|rect2d|triangle2d|circle2d|polygon2d|line2d|capsule2d|sprite2d|weather2d|spawner2d|checkpoint2d|spring2d|hazard2d|shield2d|dialog2d|tween2d)\b/.test(drplCode)) {
-      wants2D = true;
+    const fnDetectRe = /\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g;
+    let fnMatch: RegExpExecArray | null;
+    while ((fnMatch = fnDetectRe.exec(drplCode)) !== null) {
+      const fn = fnMatch[1];
+      if (fn === 'use3d') { wants3D = true; continue; }
+      if (fn === 'use2d') { wants2D = true; continue; }
+      const def = DRPL_COMPONENT_BY_NAME.get(fn);
+      if (def?.category === '3d') wants3D = true;
+      else if (def?.category === '2d') wants2D = true;
+      else if (fn.endsWith('3d') && fn !== 'distance3d' && fn !== 'move3d' && fn !== 'rotate3d' && fn !== 'scale3d') wants3D = true;
+      else if (fn.endsWith('2d') && fn !== 'sfx2d' && fn !== 'move2d') wants2D = true;
     }
     void wantsApp;
 
@@ -546,7 +560,8 @@ export default function DifrenoptViewport({
       if (!scene) return;
 
       const name = String(opts.name || `${kind}_${objects3D.size + 1}`);
-      const colorHex = String(opts.color || '#10b981');
+      const catalog3D = DRPL_COMPONENT_BY_NAME.get(kind);
+      const colorHex = String(opts.color || catalog3D?.runtimeMeta?.defaultColor || catalog3D?.color || '#10b981');
 
       if (kind === 'use3d') {
         if (opts.bg && scene) scene.background = new THREE.Color(String(opts.bg));
@@ -1406,6 +1421,164 @@ export default function DifrenoptViewport({
         return;
       }
 
+      // Check if this is an extended procedural 3D archetype or basic 3D primitive
+      const compDef = DRPL_COMPONENT_BY_NAME.get(kind);
+      const arch = compDef?.runtimeMeta?.archetype;
+      const basicPrimitives = new Set([
+        'box3d', 'sphere3d', 'cylinder3d', 'torus3d', 'pyramid3d',
+        'cone3d', 'capsule3d', 'plane3d', 'icosahedron3d', 'ring3d', 'projectile3d'
+      ]);
+
+      if (arch && !basicPrimitives.has(kind)) {
+        const grp = new THREE.Group();
+        const secCol = String(opts.glow || compDef?.runtimeMeta?.secondaryColor || '#38bdf8');
+        const emissiveOn = toBool(opts.emissive, arch.startsWith('fx_') || arch === 'nature_fire' || arch === 'nature_crystal');
+        const opacity = Math.max(0.1, Math.min(1, toNum(opts.opacity, arch === 'fx_dome' || arch === 'nature_pool' ? 0.65 : 1)));
+        const mainMat = trackMat(
+          new THREE.MeshStandardMaterial({
+            color: colorHex,
+            metalness: toNum(opts.metallic, arch.startsWith('vehicle_') || arch.startsWith('arch_') ? 0.55 : 0.25),
+            roughness: toNum(opts.roughness, 0.35),
+            emissive: emissiveOn ? colorHex : '#000000',
+            emissiveIntensity: emissiveOn ? 1.15 : 0,
+            transparent: opacity < 1,
+            opacity
+          })
+        );
+        const accentMat = trackMat(
+          new THREE.MeshStandardMaterial({
+            color: secCol,
+            emissive: secCol,
+            emissiveIntensity: 1.4,
+            roughness: 0.25
+          })
+        );
+        const darkMat = trackMat(new THREE.MeshStandardMaterial({ color: '#1e293b', roughness: 0.75, metalness: 0.4 }));
+
+        const addMesh = (geo: THREE.BufferGeometry, mat: THREE.Material, px = 0, py = 0, pz = 0, rx = 0, ry = 0, rz = 0) => {
+          const m = new THREE.Mesh(trackGeo(geo), mat);
+          m.position.set(px, py, pz);
+          if (rx || ry || rz) m.rotation.set(rx, ry, rz);
+          m.castShadow = opacity >= 0.85;
+          m.receiveShadow = true;
+          grp.add(m);
+          return m;
+        };
+
+        if (arch === 'arch_tower' || arch === 'arch_pillar') {
+          addMesh(new THREE.CylinderGeometry(0.95, 1.25, 5.2, 8), mainMat, 0, 2.6, 0);
+          addMesh(new THREE.ConeGeometry(1.35, 1.8, 8), accentMat, 0, 6.0, 0);
+          addMesh(new THREE.BoxGeometry(2.6, 0.4, 2.6), darkMat, 0, 0.2, 0);
+        } else if (arch === 'arch_castle') {
+          addMesh(new THREE.BoxGeometry(4.4, 2.8, 4.4), mainMat, 0, 1.4, 0);
+          for (const [cx, cz] of [[-2.1, -2.1], [2.1, -2.1], [-2.1, 2.1], [2.1, 2.1]]) {
+            addMesh(new THREE.CylinderGeometry(0.55, 0.65, 4.2, 8), mainMat, cx, 2.1, cz);
+            addMesh(new THREE.ConeGeometry(0.75, 1.1, 8), accentMat, cx, 4.7, cz);
+          }
+        } else if (arch === 'arch_bridge' || arch === 'arch_stairs' || arch === 'arch_ramp') {
+          const deck = addMesh(new THREE.BoxGeometry(toNum(opts.w, 4.5), 0.45, toNum(opts.d, 9)), mainMat, 0, 0.5, 0);
+          if (arch === 'arch_ramp') deck.rotation.x = -0.28;
+          addMesh(new THREE.BoxGeometry(0.25, 0.9, toNum(opts.d, 9)), accentMat, -2.1, 1.0, 0);
+          addMesh(new THREE.BoxGeometry(0.25, 0.9, toNum(opts.d, 9)), accentMat, 2.1, 1.0, 0);
+        } else if (arch === 'arch_gate') {
+          addMesh(new THREE.BoxGeometry(0.8, 4.2, 0.9), mainMat, -2.1, 2.1, 0);
+          addMesh(new THREE.BoxGeometry(0.8, 4.2, 0.9), mainMat, 2.1, 2.1, 0);
+          addMesh(new THREE.BoxGeometry(5.4, 0.9, 1.1), accentMat, 0, 4.4, 0);
+        } else if (arch === 'arch_dome' || arch === 'fx_dome') {
+          addMesh(new THREE.SphereGeometry(2.4, 20, 14, 0, Math.PI * 2, 0, Math.PI * 0.52), mainMat, 0, 0, 0);
+          addMesh(new THREE.TorusGeometry(2.4, 0.14, 10, 32), accentMat, 0, 0.1, 0, Math.PI / 2, 0, 0);
+        } else if (arch === 'arch_windmill' || arch === 'arch_crane') {
+          addMesh(new THREE.CylinderGeometry(0.7, 1.1, 5.0, 8), mainMat, 0, 2.5, 0);
+          const rotor = new THREE.Group();
+          rotor.position.set(0, 4.4, 0.8);
+          rotor.add(new THREE.Mesh(trackGeo(new THREE.BoxGeometry(0.35, 4.6, 0.12)), accentMat));
+          rotor.add(new THREE.Mesh(trackGeo(new THREE.BoxGeometry(4.6, 0.35, 0.12)), accentMat));
+          grp.add(rotor);
+          animatedUpdaters3D.push((dt) => { rotor.rotation.z += dt * 1.6; });
+        } else if (arch === 'arch_reactor' || arch === 'fx_orb') {
+          const core = addMesh(new THREE.OctahedronGeometry(1.15, 1), accentMat, 0, 2.0, 0);
+          const ring = addMesh(new THREE.TorusGeometry(1.8, 0.14, 10, 32), mainMat, 0, 2.0, 0);
+          addMesh(new THREE.CylinderGeometry(1.5, 1.8, 0.5, 12), darkMat, 0, 0.25, 0);
+          animatedUpdaters3D.push((dt) => { core.rotation.y += dt * 1.5; ring.rotation.x += dt * 1.1; });
+        } else if (arch === 'nature_tree' || arch === 'nature_oak' || arch === 'nature_palm') {
+          addMesh(new THREE.CylinderGeometry(0.22, 0.35, 2.0, 8), darkMat, 0, 1.0, 0);
+          if (arch === 'nature_oak') {
+            addMesh(new THREE.DodecahedronGeometry(1.45, 1), mainMat, 0, 2.8, 0);
+          } else {
+            addMesh(new THREE.ConeGeometry(1.3, 2.4, 8), mainMat, 0, 2.8, 0);
+            addMesh(new THREE.ConeGeometry(0.95, 1.8, 8), mainMat, 0, 4.0, 0);
+          }
+        } else if (arch === 'nature_crystal' || arch === 'nature_volcano') {
+          addMesh(new THREE.ConeGeometry(0.7, 2.6, 5), mainMat, 0, 1.3, 0);
+          addMesh(new THREE.ConeGeometry(0.45, 1.8, 5), accentMat, 0.6, 0.9, 0.3, 0.2, 0, -0.35);
+          addMesh(new THREE.ConeGeometry(0.4, 1.6, 5), mainMat, -0.55, 0.8, -0.2, -0.2, 0, 0.3);
+        } else if (arch === 'nature_rock' || arch === 'nature_cloud') {
+          addMesh(new THREE.DodecahedronGeometry(1.3, 0), mainMat, 0, 1.1, 0);
+          addMesh(new THREE.DodecahedronGeometry(0.85, 0), mainMat, 1.0, 0.8, 0.4);
+        } else if (arch === 'nature_planet' || arch === 'nature_ringed') {
+          const pl = addMesh(new THREE.SphereGeometry(1.6, 24, 18), mainMat, 0, 3.0, 0);
+          if (arch === 'nature_ringed') {
+            addMesh(new THREE.TorusGeometry(2.6, 0.22, 8, 40), accentMat, 0, 3.0, 0, Math.PI / 2.6, 0.2, 0);
+          }
+          animatedUpdaters3D.push((dt) => { pl.rotation.y += dt * 0.45; });
+        } else if (arch === 'nature_fire') {
+          addMesh(new THREE.CylinderGeometry(0.25, 0.35, 0.9, 8), darkMat, 0, 0.45, 0);
+          const flame = addMesh(new THREE.ConeGeometry(0.55, 1.4, 8), accentMat, 0, 1.4, 0);
+          animatedUpdaters3D.push((_, el) => { flame.scale.y = 0.85 + Math.sin(el * 11) * 0.25; });
+        } else if (arch.startsWith('vehicle_') || arch === 'mech_unit') {
+          addMesh(new THREE.BoxGeometry(1.9, 0.7, 3.6), mainMat, 0, 0.8, 0);
+          addMesh(new THREE.BoxGeometry(1.3, 0.55, 1.7), accentMat, 0, 1.4, -0.1);
+          if (arch === 'vehicle_heli' || arch === 'vehicle_ufo') {
+            const blade = addMesh(new THREE.BoxGeometry(4.2, 0.08, 0.28), accentMat, 0, 1.9, 0);
+            animatedUpdaters3D.push((dt) => { blade.rotation.y += dt * 14; });
+          } else {
+            for (const [wx, wz] of [[-1, 1.2], [1, 1.2], [-1, -1.2], [1, -1.2]]) {
+              addMesh(new THREE.CylinderGeometry(0.4, 0.4, 0.3, 12), darkMat, wx, 0.4, wz, 0, 0, Math.PI / 2);
+            }
+          }
+        } else if (arch.startsWith('actor_') || arch === 'weapon_turret') {
+          addMesh(new THREE.BoxGeometry(1.0, 1.3, 0.7), mainMat, 0, 1.65, 0);
+          addMesh(new THREE.SphereGeometry(0.42, 14, 12), accentMat, 0, 2.75, 0);
+          addMesh(new THREE.BoxGeometry(0.32, 0.95, 0.35), darkMat, -0.3, 0.5, 0);
+          addMesh(new THREE.BoxGeometry(0.32, 0.95, 0.35), darkMat, 0.3, 0.5, 0);
+          addMesh(new THREE.BoxGeometry(0.28, 1.0, 0.32), mainMat, -0.75, 1.7, 0);
+          addMesh(new THREE.BoxGeometry(0.28, 1.0, 0.32), mainMat, 0.75, 1.7, 0);
+        } else if (arch === 'prop_sword' || arch === 'prop_coin') {
+          const item = addMesh(
+            arch === 'prop_coin' ? new THREE.CylinderGeometry(0.75, 0.75, 0.16, 20) : new THREE.BoxGeometry(0.22, 2.4, 0.12),
+            accentMat,
+            0,
+            1.6,
+            0,
+            arch === 'prop_coin' ? Math.PI / 2 : 0
+          );
+          animatedUpdaters3D.push((dt, el) => {
+            item.rotation.y += dt * 2.2;
+            item.position.y = 1.6 + Math.sin(el * 3) * 0.2;
+          });
+        } else {
+          // Default arch_bunker / prop_crate / console / wall
+          addMesh(new THREE.BoxGeometry(toNum(opts.w, 2.4), toNum(opts.h, 2.0), toNum(opts.d, 2.4)), mainMat, 0, toNum(opts.h, 2.0) / 2, 0);
+          addMesh(new THREE.BoxGeometry(toNum(opts.w, 2.4) + 0.12, 0.2, toNum(opts.d, 2.4) + 0.12), accentMat, 0, toNum(opts.h, 2.0) - 0.1, 0);
+        }
+
+        grp.position.set(toNum(opts.x, 0), toNum(opts.y, 0), toNum(opts.z, 0));
+        grp.rotation.set(
+          toNum(opts.rx, 0) * (Math.PI / 180),
+          toNum(opts.ry, 0) * (Math.PI / 180),
+          toNum(opts.rz, 0) * (Math.PI / 180)
+        );
+        const sc = toNum(opts.scale, 1);
+        if (sc !== 1) grp.scale.set(sc, sc, sc);
+        if (toNum(opts.spin, 0) !== 0) {
+          const sp = toNum(opts.spin, 0);
+          animatedUpdaters3D.push((dt) => { grp.rotation.y += dt * sp; });
+        }
+        scene.add(grp);
+        objects3D.set(name, { root: grp, meta: { kind, ...opts } });
+        return;
+      }
+
       // Generic primitives: box3d, sphere3d, cylinder3d, torus3d, pyramid3d, cone3d, capsule3d, plane3d, icosahedron3d, ring3d, projectile3d
       let pGeo: THREE.BufferGeometry;
       let isFlatHorizontal = false;
@@ -1435,6 +1608,7 @@ export default function DifrenoptViewport({
         pGeo = trackGeo(new THREE.BoxGeometry(toNum(opts.w, 2), toNum(opts.h, 2), toNum(opts.d, 2)));
       }
       const emissiveOn = toBool(opts.emissive, kind === 'ring3d');
+      const opacity = Math.max(0.05, Math.min(1, toNum(opts.opacity, 1)));
       const pMat = trackMat(
         new THREE.MeshStandardMaterial({
           color: colorHex,
@@ -1442,17 +1616,30 @@ export default function DifrenoptViewport({
           roughness: toNum(opts.roughness, 0.3),
           emissive: emissiveOn ? colorHex : '#000000',
           emissiveIntensity: emissiveOn ? 1.4 : 0,
+          transparent: opacity < 1,
+          opacity,
           side: isFlatHorizontal ? THREE.DoubleSide : THREE.FrontSide
         })
       );
       const mesh = new THREE.Mesh(pGeo, pMat);
       if (isFlatHorizontal) mesh.rotation.x = -Math.PI / 2;
+      if (opts.rx !== undefined || opts.ry !== undefined || opts.rz !== undefined) {
+        mesh.rotation.set(
+          (isFlatHorizontal ? -Math.PI / 2 : 0) + toNum(opts.rx, 0) * (Math.PI / 180),
+          toNum(opts.ry, 0) * (Math.PI / 180),
+          toNum(opts.rz, 0) * (Math.PI / 180)
+        );
+      }
       mesh.castShadow = !isFlatHorizontal;
       mesh.receiveShadow = true;
       const defaultY = kind === 'plane3d' ? 0 : kind === 'ring3d' ? 0.08 : 1;
       mesh.position.set(toNum(opts.x, 0), toNum(opts.y, defaultY), toNum(opts.z, 0));
       const sc = toNum(opts.scale, 1);
       if (sc !== 1) mesh.scale.set(sc, sc, sc);
+      if (toNum(opts.spin, 0) !== 0) {
+        const sp = toNum(opts.spin, 0);
+        animatedUpdaters3D.push((dt) => { mesh.rotation.y += dt * sp; });
+      }
       scene.add(mesh);
       objects3D.set(name, { root: mesh, meta: { kind, ...opts } });
     };
@@ -1543,66 +1730,60 @@ export default function DifrenoptViewport({
             size: 1.5 + Math.random() * 2.5
           });
         }
-      } else if (
-        kind === 'player2d' ||
-        kind === 'enemy2d' ||
-        kind === 'platform2d' ||
-        kind === 'coin2d' ||
-        kind === 'rect2d' ||
-        kind === 'triangle2d' ||
-        kind === 'circle2d' ||
-        kind === 'polygon2d' ||
-        kind === 'line2d' ||
-        kind === 'capsule2d' ||
-        kind === 'sprite2d' ||
-        kind === 'checkpoint2d' ||
-        kind === 'spring2d' ||
-        kind === 'hazard2d'
-      ) {
+      } else if (kind === 'spawner2d' || kind === 'shield2d' || kind === 'dialog2d' || kind === 'tween2d' || kind === 'bullet2d' || kind === 'laser2d' || kind === 'particles2d' || kind === 'light2d' || kind === 'floater2d' || kind === 'camera2d' || kind === 'minimap2d' || kind === 'sfx2d') {
+        // handled by specialized branches below
+      } else {
+        const compDef2D = DRPL_COMPONENT_BY_NAME.get(kind);
+        const mappedKind = (compDef2D?.runtimeMeta?.archetype as Entity2D['kind']) ||
+          (['player2d', 'enemy2d', 'platform2d', 'coin2d', 'rect2d', 'triangle2d', 'circle2d', 'polygon2d', 'line2d', 'capsule2d', 'sprite2d', 'checkpoint2d', 'spring2d', 'hazard2d'].includes(kind)
+            ? (kind.replace('2d', '') as Entity2D['kind'])
+            : 'sprite');
         const name = String(opts.name || `${kind}_${entities2D.size + 1}`);
-        const k = kind.replace('2d', '') as Entity2D['kind'];
-        const x = toNum(opts.x, 120);
+        const k = mappedKind;
+        const x = toNum(opts.x, 160);
         const y = toNum(opts.y, 240);
-        const radius = toNum(opts.radius, k === 'circle' || k === 'polygon' ? 30 : 12);
+        const radius = toNum(opts.radius, compDef2D?.runtimeMeta?.radius || (k === 'circle' || k === 'polygon' ? 28 : 14));
         const w = toNum(
           opts.w,
-          k === 'platform' || k === 'line'
-            ? 160
-            : k === 'coin'
-              ? 22
-              : k === 'circle' || k === 'polygon'
-                ? radius * 2
-                : k === 'capsule' || k === 'hazard'
-                  ? 84
-                  : k === 'spring'
-                    ? 48
-                    : k === 'checkpoint'
-                      ? 30
-                      : k === 'rect' || k === 'triangle'
-                        ? 72
-                        : k === 'sprite'
-                          ? 48
-                          : 32
-        );
-        const h = toNum(
-          opts.h,
-          k === 'platform' || k === 'spring' || k === 'hazard'
-            ? 18
-            : k === 'line'
-              ? 6
+          compDef2D?.runtimeMeta?.w ||
+            (k === 'platform' || k === 'line'
+              ? 160
               : k === 'coin'
                 ? 22
                 : k === 'circle' || k === 'polygon'
                   ? radius * 2
-                  : k === 'capsule'
-                    ? 34
-                    : k === 'checkpoint'
-                      ? 52
-                      : k === 'rect' || k === 'triangle'
-                        ? 64
-                        : k === 'sprite'
-                          ? 48
-                          : 36
+                  : k === 'capsule' || k === 'hazard'
+                    ? 84
+                    : k === 'spring'
+                      ? 48
+                      : k === 'checkpoint'
+                        ? 30
+                        : k === 'rect' || k === 'triangle'
+                          ? 72
+                          : k === 'sprite'
+                            ? 52
+                            : 34)
+        );
+        const h = toNum(
+          opts.h,
+          compDef2D?.runtimeMeta?.h ||
+            (k === 'platform' || k === 'spring' || k === 'hazard'
+              ? 18
+              : k === 'line'
+                ? 6
+                : k === 'coin'
+                  ? 22
+                  : k === 'circle' || k === 'polygon'
+                    ? radius * 2
+                    : k === 'capsule'
+                      ? 34
+                      : k === 'checkpoint'
+                        ? 52
+                        : k === 'rect' || k === 'triangle'
+                          ? 64
+                          : k === 'sprite'
+                            ? 48
+                            : 36)
         );
         const hp = toNum(opts.hp, 100);
         entities2D.set(name, {
@@ -1618,6 +1799,7 @@ export default function DifrenoptViewport({
           jump: toNum(opts.jump, k === 'spring' ? toNum(opts.power, 680) : 460),
           color: String(
             opts.color ||
+              compDef2D?.color ||
               (k === 'player'
                 ? '#10b981'
                 : k === 'enemy' || k === 'hazard'
@@ -1638,9 +1820,9 @@ export default function DifrenoptViewport({
           border: opts.border ? String(opts.border) : undefined,
           radius,
           sides: toNum(opts.sides, 6),
-          spin: toNum(opts.spin, 0),
+          spin: toNum(opts.spin, compDef2D?.runtimeMeta?.spin || 0),
           angle: 0,
-          icon: opts.icon ? String(opts.icon) : 'rocket',
+          icon: opts.icon ? String(opts.icon) : (compDef2D?.runtimeMeta?.icon || kind.replace('2d', '')),
           hp,
           maxHp: hp,
           ai: opts.ai ? String(opts.ai) : 'patrol',
@@ -1650,7 +1832,8 @@ export default function DifrenoptViewport({
           startX: x,
           startY: y
         });
-      } else if (kind === 'spawner2d') {
+      }
+      if (kind === 'spawner2d') {
         const sx = toNum(opts.x, 380);
         const sy = toNum(opts.y, 220);
         const spawnKind = String(opts.kind || 'coin2d');
@@ -1870,9 +2053,11 @@ export default function DifrenoptViewport({
           return;
         }
         if (kind.startsWith('ui_')) {
+          const defUi = DRPL_COMPONENT_BY_NAME.get(kind);
+          const resolvedKind = defUi?.runtimeMeta?.widgetKind || kind;
           const id = String(opts.id || `${kind}_${widgetMap.size + 1}`);
-          widgetMap.set(id, { id, kind: kind as UiWidgetState['kind'], props: { ...opts } });
-          if (kind === 'ui_timer') {
+          widgetMap.set(id, { id, kind: resolvedKind, props: { ...(defUi?.color ? { color: defUi.color } : {}), ...opts, _rawKind: kind } });
+          if (resolvedKind === 'ui_timer') {
             timerHooks.push({
               interval: 1,
               elapsed: 0,
@@ -1889,13 +2074,41 @@ export default function DifrenoptViewport({
           uiDirty = true;
           return;
         }
-        if (kind.endsWith('3d')) {
+        const catalogDef = DRPL_COMPONENT_BY_NAME.get(kind);
+        if (catalogDef?.category === '3d' || kind.endsWith('3d')) {
           wants3D = true;
           spawn3DComponent(kind, opts);
           return;
         }
-        if (kind.endsWith('2d')) {
+        if (catalogDef?.category === '2d' || kind.endsWith('2d')) {
           spawn2DComponent(kind, opts);
+          return;
+        }
+        // Extended Audio / Game System nodes
+        if (kind.includes('synth_') || kind.includes('drum_') || kind.includes('sfx_')) {
+          const vol = toNum(opts.volume, 0.25);
+          const sfxType = kind.includes('laser') ? 'laser' : kind.includes('coin') ? 'coin' : kind.includes('jump') ? 'jump' : kind.includes('explos') ? 'explosion' : 'powerup';
+          playProceduralSfx(sfxType, vol);
+          return;
+        }
+        if (catalogDef?.category === 'app') {
+          const id = String(opts.id || `${kind}_${widgetMap.size + 1}`);
+          vars[id] = opts;
+          widgetMap.set(id, {
+            id,
+            kind: 'ui_card',
+            props: {
+              title: String(opts.title || catalogDef.name.toUpperCase()),
+              value: String(opts.value ?? opts.preset ?? 'ACTIVE'),
+              subtitle: catalogDef.roleEn,
+              x: toNum(opts.x, 20 + (widgetMap.size % 3) * 210),
+              y: toNum(opts.y, 20 + Math.floor(widgetMap.size / 3) * 105),
+              w: toNum(opts.w, 195),
+              h: toNum(opts.h, 92),
+              accent: String(opts.color || catalogDef.color)
+            }
+          });
+          uiDirty = true;
         }
       },
       registerFn: (name: string, fn: (...args: any[]) => any) => {
@@ -1904,16 +2117,17 @@ export default function DifrenoptViewport({
       onStart: (fn: () => void) => startHooks.push(fn),
       onUpdate: (fn: (dt: number, time: number) => void) => updateHooks.push(fn),
       onRender: (fn: (dt: number, time: number) => void) => renderHooks.push(fn),
-      onKey: (key: string, fn: () => void) => {
-        const k = String(key).toLowerCase();
+      onKey: (key: string, fn: (key?: string) => void) => {
+        const k = String(key || '*').toLowerCase();
         const arr = keyHooks.get(k) || [];
         arr.push(fn);
         keyHooks.set(k, arr);
       },
-      onClick: (target: string, fn: () => void) => {
-        const arr = clickHooks.get(target) || [];
+      onClick: (target: string, fn: (target?: string) => void) => {
+        const tKey = String(target || '*');
+        const arr = clickHooks.get(tKey) || [];
         arr.push(fn);
-        clickHooks.set(target, arr);
+        clickHooks.set(tKey, arr);
       },
       onTimer: (seconds: number, fn: () => void) => {
         timerHooks.push({ interval: Math.max(0.05, Number(seconds) || 1), elapsed: 0, fn });
@@ -2040,7 +2254,7 @@ export default function DifrenoptViewport({
     };
 
     runtimeControlsRef.current = {
-      invokeFn: (fnName: string) => {
+      invokeFn: (fnName: string, widgetId?: string) => {
         const fn = fnMap.get(fnName);
         if (fn) {
           try {
@@ -2049,9 +2263,18 @@ export default function DifrenoptViewport({
             setRuntimeError(err?.message || 'Callback error');
           }
         }
-        const hooks = clickHooks.get(fnName);
-        if (hooks) hooks.forEach(h => h());
-        onEvent?.('clicked?', fnName);
+        const resolvedTarget = widgetId || fnName;
+        const exactHooks = clickHooks.get(fnName) || [];
+        const idHooks = widgetId && widgetId !== fnName ? (clickHooks.get(widgetId) || []) : [];
+        const wildHooks = clickHooks.get('*') || [];
+        [...exactHooks, ...idHooks, ...wildHooks].forEach(h => {
+          try {
+            h(resolvedTarget);
+          } catch (err: any) {
+            setRuntimeError(err?.message || 'Click handler error');
+          }
+        });
+        onEvent?.('clicked?', resolvedTarget);
         if (uiDirty) {
           setWidgets(Array.from(widgetMap.values()));
           uiDirty = false;
@@ -2087,12 +2310,20 @@ export default function DifrenoptViewport({
           }
         });
       },
-      syncSelectedFromProps: (next: SelectedVisualEntity) => {
+      syncSelectedFromProps: (next: SelectedVisualEntity | null) => {
+        if (!next || !next.name) return;
         if (next.mode === '3d') {
           const entry = objects3D.get(next.name);
           if (entry) {
             entry.root.position.set(next.x, next.y, next.z);
             entry.root.scale.set(next.scale, next.scale, next.scale);
+            if (next.rx !== undefined || next.ry !== undefined || next.rz !== undefined) {
+              entry.root.rotation.set(
+                (next.rx || 0) * (Math.PI / 180),
+                (next.ry || 0) * (Math.PI / 180),
+                (next.rz || 0) * (Math.PI / 180)
+              );
+            }
             entry.root.traverse(child => {
               const mat = (child as THREE.Mesh).material;
               if (mat && !Array.isArray(mat) && 'color' in mat && (mat as any).color?.set) {
@@ -2135,7 +2366,7 @@ export default function DifrenoptViewport({
         const editorGrid = new THREE.GridHelper(70, 35, '#10b981', '#1e293b');
         scene.add(editorGrid);
       }
-      if (selectedEntityRef.current?.mode === '3d') {
+      if (selectedEntityRef.current?.mode === '3d' && selectedEntityRef.current?.name) {
         attachSelectionBox3D(selectedEntityRef.current.name);
       }
       startHooks.forEach(fn => fn());
@@ -2220,6 +2451,9 @@ export default function DifrenoptViewport({
           d: toNum(m.d, 2),
           radius: toNum(m.radius, 1),
           scale: toNum(entry.root.scale.x, toNum(m.scale, 1)),
+          rx: Math.round((entry.root.rotation.x * 180) / Math.PI),
+          ry: Math.round((entry.root.rotation.y * 180) / Math.PI),
+          rz: Math.round((entry.root.rotation.z * 180) / Math.PI),
           color: String(m.color || '#10b981')
         };
         setSelectedEntity(nextSel);
@@ -2270,8 +2504,8 @@ export default function DifrenoptViewport({
         const dragSnap = dragging3D;
         dragging3D = null;
         pointerDownScreen = null;
-        const entry = objects3D.get(dragSnap.name);
-        if (entry && dragSnap.moved) {
+        const entry = dragSnap?.name ? objects3D.get(dragSnap.name) : undefined;
+        if (entry && dragSnap?.moved && dragSnap.name) {
           const p = entry.root.position;
           const rounded = {
             x: Number(p.x.toFixed(2)),
@@ -2366,8 +2600,8 @@ export default function DifrenoptViewport({
       if (!dragging2D) return;
       const dragSnap = dragging2D;
       dragging2D = null;
-      const ent = entities2D.get(dragSnap.name);
-      if (ent && dragSnap.moved) {
+      const ent = dragSnap?.name ? entities2D.get(dragSnap.name) : undefined;
+      if (ent && dragSnap?.moved && dragSnap.name) {
         const x = Math.round(ent.x);
         const y = Math.round(ent.y);
         setSelectedEntity(prev => (prev && prev.name === dragSnap.name ? { ...prev, x, y } : prev));
@@ -2395,7 +2629,7 @@ export default function DifrenoptViewport({
       const activeTag = (e.target as HTMLElement | null)?.tagName;
       if (activeTag === 'INPUT' || activeTag === 'TEXTAREA') return;
 
-      if (editModeRef.current && (e.key === 'Delete' || e.key === 'Backspace') && selectedEntityRef.current) {
+      if (editModeRef.current && (e.key === 'Delete' || e.key === 'Backspace') && selectedEntityRef.current?.name) {
         e.preventDefault();
         const sel = selectedEntityRef.current;
         onVisualPatchRef.current?.({
@@ -2411,12 +2645,13 @@ export default function DifrenoptViewport({
       }
 
       const k = e.key === ' ' ? 'space' : e.key.toLowerCase();
+      const rawKey = e.key === ' ' ? 'Space' : e.key;
       keysPressed.add(k);
-      const hooks = keyHooks.get(k);
-      if (hooks) {
+      const hooks = [...(keyHooks.get(k) || []), ...(keyHooks.get('*') || [])];
+      if (hooks.length > 0) {
         hooks.forEach(h => {
           try {
-            h();
+            h(rawKey);
           } catch {
             // ignore
           }
@@ -3198,7 +3433,7 @@ export default function DifrenoptViewport({
         className={clsx(
           'absolute inset-0 w-full h-full',
           editMode && (stats.backend === 'canvas2d' || stats.mode === 'hybrid')
-            ? 'pointer-events-auto cursor-crosshair'
+            ? 'pointer-events-auto cursor-crosshair touch-none'
             : 'pointer-events-none',
           stats.backend === 'canvas2d' ? 'z-[1]' : 'z-[2]'
         )}
@@ -3286,7 +3521,8 @@ export default function DifrenoptViewport({
             }
 
             if (w.kind === 'ui_chart') {
-              const values: number[] = Array.isArray(p.values) && p.values.length > 1 ? p.values.map(Number) : [10, 20, 15, 30];
+              const rawSeries = Array.isArray(p.values) ? p.values : Array.isArray(p.points) ? p.points : null;
+              const values: number[] = rawSeries && rawSeries.length > 1 ? rawSeries.map(Number) : [10, 20, 15, 30];
               const cw = toNum(p.w, 360);
               const ch = toNum(p.h, 170);
               const maxVal = Math.max(1, ...values);
@@ -3366,12 +3602,12 @@ export default function DifrenoptViewport({
                     backgroundColor: String(p.color || '#10b981')
                   }}
                   onClick={() => {
-                    runtimeControlsRef.current.invokeFn(String(p.onClick || w.id));
+                    runtimeControlsRef.current.invokeFn(String(p.onClick || w.id), String(p.id || w.id));
                     onEvent?.('clicked?', String(p.id || w.id), String(p.onClick || ''));
                   }}
                   className="pointer-events-auto absolute rounded-lg font-bold text-xs text-[#0A0C0E] shadow-md hover:brightness-110 active:scale-[0.98] transition-all cursor-pointer px-3 truncate"
                 >
-                  {String(p.label || 'Action')}
+                  {String(p.label || p.text || 'Action')}
                 </button>
               );
             }
@@ -3678,6 +3914,26 @@ export default function DifrenoptViewport({
             }
 
             if (w.kind === 'ui_statbar') {
+              if (p.value !== undefined && p.hp === undefined) {
+                const val = Math.max(0, toNum(p.value, 50));
+                const max = Math.max(1, toNum(p.max, 100));
+                const col = String(p.color || '#10b981');
+                return (
+                  <div
+                    key={w.id}
+                    style={{ left: x, top: y, width: toNum(p.w, 230) }}
+                    className="pointer-events-auto absolute rounded-xl border border-[#262B33] bg-[#111315]/92 p-2.5 shadow-lg space-y-1.5"
+                  >
+                    <div className="flex justify-between text-[10px] font-mono">
+                      <span className="font-bold uppercase" style={{ color: col }}>{String(p.label || 'STAT')}</span>
+                      <span className="text-[#E5E7EB]">{Math.round(val)}/{max}</span>
+                    </div>
+                    <div className="h-2 rounded-full bg-[#262B33] overflow-hidden">
+                      <div className="h-full transition-all" style={{ width: `${Math.min(100, (val / max) * 100)}%`, backgroundColor: col }} />
+                    </div>
+                  </div>
+                );
+              }
               const hp = Math.max(0, toNum(p.hp, 85));
               const maxHp = Math.max(1, toNum(p.maxHp, 100));
               const mana = Math.max(0, toNum(p.mana, 60));
@@ -3788,7 +4044,198 @@ export default function DifrenoptViewport({
               );
             }
 
-            // ui_text fallback
+            if (w.kind === 'ui_colorpicker') {
+              const curr = normalizeHexColor(p.value || p.color, '#10b981');
+              return (
+                <div
+                  key={w.id}
+                  style={{ left: x, top: y, width: toNum(p.w, 200) }}
+                  className="pointer-events-auto absolute rounded-xl border border-[#262B33] bg-[#111315]/92 px-3 py-2 shadow-lg flex items-center justify-between gap-2"
+                >
+                  <span className="text-xs font-medium text-[#E5E7EB] truncate">{String(p.label || p.title || 'Color')}</span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-[#9CA3AF]">{curr}</span>
+                    <input
+                      type="color"
+                      value={curr}
+                      onChange={e => runtimeControlsRef.current.updateWidgetProp(w.id, 'value', e.target.value)}
+                      className="w-7 h-6 rounded border border-[#262B33] bg-transparent cursor-pointer"
+                    />
+                  </div>
+                </div>
+              );
+            }
+
+            if (w.kind === 'ui_stepper') {
+              const val = toNum(p.value, 1);
+              return (
+                <div
+                  key={w.id}
+                  style={{ left: x, top: y }}
+                  className="pointer-events-auto absolute rounded-xl border border-[#262B33] bg-[#111315]/92 px-3 py-1.5 shadow-lg flex items-center gap-2.5"
+                >
+                  <span className="text-xs text-[#9CA3AF]">{String(p.label || 'Step')}</span>
+                  <button
+                    type="button"
+                    onClick={() => runtimeControlsRef.current.updateWidgetProp(w.id, 'value', val - 1)}
+                    className="w-6 h-6 rounded bg-[#1F242D] text-white font-bold cursor-pointer"
+                  >
+                    -
+                  </button>
+                  <span className="font-mono text-sm font-bold text-[#10B981] min-w-[2ch] text-center">{val}</span>
+                  <button
+                    type="button"
+                    onClick={() => runtimeControlsRef.current.updateWidgetProp(w.id, 'value', val + 1)}
+                    className="w-6 h-6 rounded bg-[#1F242D] text-white font-bold cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
+              );
+            }
+
+            if (w.kind === 'ui_rating') {
+              const val = toNum(p.value, 4);
+              const col = String(p.color || '#facc15');
+              return (
+                <div
+                  key={w.id}
+                  style={{ left: x, top: y }}
+                  className="pointer-events-auto absolute rounded-xl border border-[#262B33] bg-[#111315]/92 px-3 py-2 shadow-lg flex items-center gap-1"
+                >
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => runtimeControlsRef.current.updateWidgetProp(w.id, 'value', star)}
+                      style={{ color: star <= val ? col : '#374151' }}
+                      className="text-base leading-none cursor-pointer"
+                    >
+                      ★
+                    </button>
+                  ))}
+                </div>
+              );
+            }
+
+            if (w.kind === 'ui_barchart') {
+              const vals: number[] = Array.isArray(p.values) ? p.values.map(Number) : [35, 65, 48, 82, 54, 91];
+              const maxV = Math.max(1, ...vals);
+              const col = String(p.color || '#10b981');
+              return (
+                <div
+                  key={w.id}
+                  style={{ left: x, top: y, width: toNum(p.w, 260), height: toNum(p.h, 140) }}
+                  className="pointer-events-auto absolute rounded-xl border border-[#262B33] bg-[#111315]/92 p-3 flex flex-col shadow-lg"
+                >
+                  <div className="text-xs font-semibold text-[#E5E7EB] mb-2">{String(p.title || 'Bar Chart')}</div>
+                  <div className="flex-1 flex items-end gap-1.5">
+                    {vals.map((v, i) => (
+                      <div key={i} className="flex-1 rounded-t-md transition-all" style={{ height: `${Math.round((v / maxV) * 100)}%`, backgroundColor: col }} />
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+
+            if (w.kind === 'ui_piano') {
+              const freqs = [261.6, 293.7, 329.6, 349.2, 392.0, 440.0, 493.9, 523.3];
+              const notes = ['C', 'D', 'E', 'F', 'G', 'A', 'B', 'C5'];
+              return (
+                <div
+                  key={w.id}
+                  style={{ left: x, top: y, width: toNum(p.w, 280) }}
+                  className="pointer-events-auto absolute rounded-xl border border-[#262B33] bg-[#111315]/94 p-2.5 shadow-lg"
+                >
+                  <div className="text-[10px] font-semibold uppercase text-[#9CA3AF] mb-1.5">{String(p.title || 'Synth Piano')}</div>
+                  <div className="grid grid-cols-8 gap-1 h-14">
+                    {notes.map((n, i) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => {
+                          playProceduralSfx(i % 2 === 0 ? 'coin' : 'powerup', 0.25);
+                          void freqs[i];
+                        }}
+                        className="rounded-b-md bg-slate-100 hover:bg-emerald-300 text-[#0A0C0E] font-mono text-[10px] font-bold flex items-end justify-center pb-1 cursor-pointer"
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+
+            if (w.kind === 'ui_drumpad') {
+              const pads = ['KICK', 'SNARE', 'HAT', 'CLAP', 'FX1', 'FX2', 'ZAP', 'BOOM'];
+              const col = String(p.color || '#ec4899');
+              return (
+                <div
+                  key={w.id}
+                  style={{ left: x, top: y, width: toNum(p.w, 260) }}
+                  className="pointer-events-auto absolute rounded-xl border border-[#262B33] bg-[#111315]/94 p-2.5 shadow-lg"
+                >
+                  <div className="text-[10px] font-semibold uppercase text-[#9CA3AF] mb-1.5">{String(p.title || 'Drum Pad')}</div>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {pads.map((pad, i) => (
+                      <button
+                        key={pad}
+                        type="button"
+                        onClick={() => playProceduralSfx(i < 2 ? 'hit' : i < 4 ? 'click' : 'laser', 0.3)}
+                        style={{ borderColor: `${col}55`, color: col }}
+                        className="py-2 rounded-lg border bg-[#0A0C0E] hover:bg-[#1E242E] font-mono text-[10px] font-bold cursor-pointer"
+                      >
+                        {pad}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            }
+
+            if (w.kind === 'ui_joystick' || w.kind === 'ui_dpad') {
+              const col = String(p.color || '#38bdf8');
+              return (
+                <div
+                  key={w.id}
+                  style={{ left: x, top: y }}
+                  className="pointer-events-auto absolute rounded-2xl border border-[#262B33] bg-[#111315]/90 p-2 shadow-lg grid grid-cols-3 gap-1 w-28"
+                >
+                  <div />
+                  <button type="button" onClick={() => onEvent?.('key_pressed?', 'W', 'W')} style={{ color: col }} className="h-7 rounded bg-[#1A1F28] font-bold text-xs cursor-pointer">▲</button>
+                  <div />
+                  <button type="button" onClick={() => onEvent?.('key_pressed?', 'A', 'A')} style={{ color: col }} className="h-7 rounded bg-[#1A1F28] font-bold text-xs cursor-pointer">◀</button>
+                  <button type="button" onClick={() => onEvent?.('key_pressed?', 'Space', 'Space')} style={{ color: col }} className="h-7 rounded-full bg-[#10B981]/20 font-bold text-[10px] cursor-pointer">●</button>
+                  <button type="button" onClick={() => onEvent?.('key_pressed?', 'D', 'D')} style={{ color: col }} className="h-7 rounded bg-[#1A1F28] font-bold text-xs cursor-pointer">▶</button>
+                  <div />
+                  <button type="button" onClick={() => onEvent?.('key_pressed?', 'S', 'S')} style={{ color: col }} className="h-7 rounded bg-[#1A1F28] font-bold text-xs cursor-pointer">▼</button>
+                  <div />
+                </div>
+              );
+            }
+
+            // ui_text or generic ui_* card fallback
+            if (p.title || p.label) {
+              const accent = String(p.accent || p.color || '#10b981');
+              return (
+                <div
+                  key={w.id}
+                  style={{ left: x, top: y, width: toNum(p.w, 190), borderColor: `${accent}55` }}
+                  className="pointer-events-auto absolute rounded-xl border bg-[#111315]/92 px-3 py-2 shadow-lg"
+                >
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[#9CA3AF] truncate">
+                    {String(p.title || p.label)}
+                  </div>
+                  {(p.text !== undefined || p.value !== undefined) && (
+                    <div className="text-sm font-bold font-mono mt-0.5 truncate" style={{ color: accent }}>
+                      {String(p.value ?? p.text)}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
             return (
               <div
                 key={w.id}
@@ -3807,96 +4254,184 @@ export default function DifrenoptViewport({
         </div>
       )}
 
-      {/* Edit Visual Overlay HUD (Quick-Add Palette + Selected Object Inspector) */}
+      {/* Edit Visual Overlay HUD (Quick-Add Palette + All 2000+ Library + Extended Inspector) */}
       {editMode && (
-        <div className="absolute inset-x-3 top-3 z-20 flex flex-wrap items-start justify-between gap-2 pointer-events-none">
-          {/* Left: Quick-Add Shape & Entity Palette */}
-          <div className="pointer-events-auto max-w-[68%] rounded-xl border border-[#10B981]/45 bg-[#111315]/94 p-2 shadow-2xl space-y-1.5">
+        <div className="absolute inset-x-2 sm:inset-x-3 top-2 sm:top-3 z-20 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-start justify-between gap-2 pointer-events-none max-h-[calc(100%-3.5rem)] overflow-y-auto">
+          {/* Left: Quick-Add Shape & Entity Palette + Searchable All-Components Picker */}
+          <div className="pointer-events-auto w-full sm:w-auto sm:max-w-[68%] rounded-xl border border-[#10B981]/45 bg-[#111315]/94 p-2 shadow-2xl space-y-1.5">
             <div className="flex items-center justify-between gap-3 text-[10px] font-mono text-[#10B981]">
               <span className="flex items-center gap-1 font-bold uppercase tracking-wider">
                 <Move className="w-3 h-3" />
                 <span>Edit Visual ({stats.backend === 'canvas2d' ? '2D' : '3D'})</span>
               </span>
-              <span className="text-[#9CA3AF] hidden sm:inline">
-                WASD: Cam • Drag: Move • Shift+Drag: Y • Del: Remove
-              </span>
-            </div>
-            <div className="flex flex-wrap gap-1">
-              {(stats.backend === 'canvas2d'
-                ? [
-                    { kind: 'rect2d', label: 'Rect', color: '#38bdf8' },
-                    { kind: 'triangle2d', label: 'Triangle', color: '#f97316' },
-                    { kind: 'circle2d', label: 'Circle', color: '#a855f7' },
-                    { kind: 'polygon2d', label: 'Polygon', color: '#ec4899' },
-                    { kind: 'line2d', label: 'Line', color: '#22d3ee' },
-                    { kind: 'capsule2d', label: 'Capsule', color: '#84cc16' },
-                    { kind: 'platform2d', label: 'Platform', color: '#64748b' },
-                    { kind: 'coin2d', label: 'Coin', color: '#facc15' },
-                    { kind: 'player2d', label: 'Hero', color: '#10b981' },
-                    { kind: 'enemy2d', label: 'Enemy', color: '#f43f5e' }
-                  ]
-                : [
-                    { kind: 'box3d', label: 'Box', color: '#38bdf8' },
-                    { kind: 'pyramid3d', label: 'Pyramid', color: '#f97316' },
-                    { kind: 'cone3d', label: 'Cone', color: '#f59e0b' },
-                    { kind: 'sphere3d', label: 'Sphere', color: '#a855f7' },
-                    { kind: 'cylinder3d', label: 'Cylinder', color: '#14b8a6' },
-                    { kind: 'torus3d', label: 'Torus', color: '#ec4899' },
-                    { kind: 'capsule3d', label: 'Capsule', color: '#84cc16' },
-                    { kind: 'plane3d', label: 'Plane', color: '#64748b' },
-                    { kind: 'light3d', label: 'Light', color: '#facc15' }
-                  ]
-              ).map(item => (
+              <div className="flex items-center gap-2">
+                <span className="text-[#9CA3AF] hidden md:inline">
+                  WASD: Cam • Drag: Move • Shift+Drag: Y • Del: Remove
+                </span>
                 <button
-                  key={item.kind}
                   type="button"
-                  onClick={() => {
-                    const is2d = stats.backend === 'canvas2d';
-                    const prefix = item.kind.replace(/(3d|2d)$/, '');
-                    const newName = `${prefix}_${Math.floor(10 + Math.random() * 89)}`;
-                    const baseProps: Record<string, any> = is2d
-                      ? { x: 180, y: 200, color: item.color }
-                      : {
-                          x: 0,
-                          y: item.kind === 'plane3d' ? 0 : item.kind === 'light3d' ? 6 : 1.5,
-                          z: 0,
-                          color: item.color
-                        };
-                    onVisualPatch?.({
-                      type: 'add',
-                      mode: is2d ? '2d' : '3d',
-                      name: newName,
-                      kind: item.kind,
-                      props: baseProps
-                    });
-                    setSelectedEntity({
-                      mode: is2d ? '2d' : '3d',
-                      name: newName,
-                      kind: item.kind,
-                      x: baseProps.x,
-                      y: baseProps.y,
-                      z: baseProps.z || 0,
-                      w: is2d ? 72 : 2,
-                      h: is2d ? 64 : 2,
-                      d: is2d ? 0 : 2,
-                      radius: 1,
-                      scale: 1,
-                      color: item.color
-                    });
-                  }}
-                  style={{ borderColor: `${item.color}55`, color: item.color, backgroundColor: `${item.color}16` }}
-                  className="px-2 py-1 rounded-md border text-[11px] font-mono font-bold flex items-center gap-1 hover:brightness-125 cursor-pointer"
+                  onClick={() => setShowVisualLibrary(v => !v)}
+                  className={clsx(
+                    'px-2 py-0.5 rounded border text-[10px] font-bold cursor-pointer transition-colors',
+                    showVisualLibrary
+                      ? 'bg-[#10B981] border-[#10B981] text-[#0A0C0E]'
+                      : 'bg-[#10B981]/15 border-[#10B981]/45 text-[#10B981] hover:bg-[#10B981]/25'
+                  )}
                 >
-                  <Plus className="w-3 h-3" />
-                  <span>{item.label}</span>
+                  + {DRPL_COMPONENTS.length} Components
                 </button>
-              ))}
+              </div>
             </div>
+
+            {showVisualLibrary ? (
+              <div className="space-y-1.5 pt-1 border-t border-[#262B33]">
+                <input
+                  type="text"
+                  value={visualSearchQuery}
+                  onChange={e => setVisualSearchQuery(e.target.value)}
+                  placeholder="Search any of 2000+ components (e.g. castle, dragon, piano, turret)..."
+                  className="w-full px-2.5 py-1 rounded-md border border-[#262B33] bg-[#0A0C0E] text-[11px] text-[#F3F4F6] focus:outline-none focus:border-[#10B981]"
+                />
+                <div className="max-h-36 overflow-y-auto flex flex-wrap gap-1 custom-scrollbar">
+                  {DRPL_COMPONENTS.filter(c => {
+                    const is2d = stats.backend === 'canvas2d';
+                    if (is2d && c.category === '3d') return false;
+                    if (!is2d && c.category === '2d') return false;
+                    const q = visualSearchQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    return c.name.toLowerCase().includes(q) || c.roleEn.toLowerCase().includes(q) || c.roleRu.toLowerCase().includes(q);
+                  })
+                    .slice(0, 48)
+                    .map((comp: DrplComponentDef) => (
+                      <button
+                        key={comp.id}
+                        type="button"
+                        onClick={() => {
+                          const is2d = comp.category === '2d';
+                          const isApp = comp.category === 'app';
+                          const newName = `${comp.name.replace(/(3d|2d)$/, '')}_${Math.floor(10 + Math.random() * 89)}`;
+                          const baseProps: Record<string, any> = isApp
+                            ? { id: newName, title: comp.name.toUpperCase(), x: 24, y: 24, color: comp.color }
+                            : is2d
+                              ? { x: 180, y: 200, color: comp.color }
+                              : { x: 0, y: 0.5, z: -4, color: comp.color };
+                          onVisualPatch?.({
+                            type: 'add',
+                            mode: isApp ? 'app' : is2d ? '2d' : '3d',
+                            name: newName,
+                            kind: comp.name,
+                            props: baseProps
+                          });
+                          if (!isApp) {
+                            setSelectedEntity({
+                              mode: is2d ? '2d' : '3d',
+                              name: newName,
+                              kind: comp.name,
+                              x: baseProps.x,
+                              y: baseProps.y,
+                              z: baseProps.z || 0,
+                              w: is2d ? 64 : 2,
+                              h: is2d ? 48 : 2,
+                              d: is2d ? 0 : 2,
+                              radius: 1,
+                              scale: 1,
+                              rx: 0,
+                              ry: 0,
+                              rz: 0,
+                              color: comp.color
+                            });
+                          }
+                        }}
+                        style={{ borderColor: `${comp.color}55`, color: comp.color, backgroundColor: `${comp.color}16` }}
+                        className="px-2 py-0.5 rounded border text-[10px] font-mono font-bold flex items-center gap-1 hover:brightness-125 cursor-pointer"
+                      >
+                        <Plus className="w-2.5 h-2.5" />
+                        <span>{comp.name}</span>
+                      </button>
+                    ))}
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-wrap gap-1">
+                {(stats.backend === 'canvas2d'
+                  ? [
+                      { kind: 'rect2d', label: 'Rect', color: '#38bdf8' },
+                      { kind: 'triangle2d', label: 'Triangle', color: '#f97316' },
+                      { kind: 'circle2d', label: 'Circle', color: '#a855f7' },
+                      { kind: 'polygon2d', label: 'Polygon', color: '#ec4899' },
+                      { kind: 'line2d', label: 'Line', color: '#22d3ee' },
+                      { kind: 'capsule2d', label: 'Capsule', color: '#84cc16' },
+                      { kind: 'platform2d', label: 'Platform', color: '#64748b' },
+                      { kind: 'coin2d', label: 'Coin', color: '#facc15' },
+                      { kind: 'player2d', label: 'Hero', color: '#10b981' },
+                      { kind: 'enemy2d', label: 'Enemy', color: '#f43f5e' }
+                    ]
+                  : [
+                      { kind: 'box3d', label: 'Box', color: '#38bdf8' },
+                      { kind: 'pyramid3d', label: 'Pyramid', color: '#f97316' },
+                      { kind: 'cone3d', label: 'Cone', color: '#f59e0b' },
+                      { kind: 'sphere3d', label: 'Sphere', color: '#a855f7' },
+                      { kind: 'cylinder3d', label: 'Cylinder', color: '#14b8a6' },
+                      { kind: 'torus3d', label: 'Torus', color: '#ec4899' },
+                      { kind: 'capsule3d', label: 'Capsule', color: '#84cc16' },
+                      { kind: 'plane3d', label: 'Plane', color: '#64748b' },
+                      { kind: 'light3d', label: 'Light', color: '#facc15' }
+                    ]
+                ).map(item => (
+                  <button
+                    key={item.kind}
+                    type="button"
+                    onClick={() => {
+                      const is2d = stats.backend === 'canvas2d';
+                      const prefix = item.kind.replace(/(3d|2d)$/, '');
+                      const newName = `${prefix}_${Math.floor(10 + Math.random() * 89)}`;
+                      const baseProps: Record<string, any> = is2d
+                        ? { x: 180, y: 200, color: item.color }
+                        : {
+                            x: 0,
+                            y: item.kind === 'plane3d' ? 0 : item.kind === 'light3d' ? 6 : 1.5,
+                            z: 0,
+                            color: item.color
+                          };
+                      onVisualPatch?.({
+                        type: 'add',
+                        mode: is2d ? '2d' : '3d',
+                        name: newName,
+                        kind: item.kind,
+                        props: baseProps
+                      });
+                      setSelectedEntity({
+                        mode: is2d ? '2d' : '3d',
+                        name: newName,
+                        kind: item.kind,
+                        x: baseProps.x,
+                        y: baseProps.y,
+                        z: baseProps.z || 0,
+                        w: is2d ? 72 : 2,
+                        h: is2d ? 64 : 2,
+                        d: is2d ? 0 : 2,
+                        radius: 1,
+                        scale: 1,
+                        rx: 0,
+                        ry: 0,
+                        rz: 0,
+                        color: item.color
+                      });
+                    }}
+                    style={{ borderColor: `${item.color}55`, color: item.color, backgroundColor: `${item.color}16` }}
+                    className="px-2 py-1 rounded-md border text-[11px] font-mono font-bold flex items-center gap-1 hover:brightness-125 cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Right: Selected Object Transform & Color Inspector */}
-          {selectedEntity && (
-            <div className="pointer-events-auto w-56 rounded-xl border border-[#262B33] bg-[#111315]/95 p-2.5 shadow-2xl space-y-2 text-xs">
+          {/* Right: Selected Object Transform, Rotation & Color Inspector */}
+          {selectedEntity && selectedEntity.name && (
+            <div className="pointer-events-auto w-full sm:w-60 rounded-xl border border-[#262B33] bg-[#111315]/95 p-2.5 shadow-2xl space-y-2 text-xs">
               <div className="flex items-center justify-between gap-2 border-b border-[#262B33] pb-1.5">
                 <div className="min-w-0">
                   <div className="font-mono font-bold text-[#10B981] truncate">{selectedEntity.name}</div>
@@ -3905,11 +4440,13 @@ export default function DifrenoptViewport({
                 <button
                   type="button"
                   onClick={() => {
+                    const target = selectedEntityRef.current || selectedEntity;
+                    if (!target?.name) return;
                     onVisualPatch?.({
                       type: 'delete',
-                      mode: selectedEntity.mode,
-                      name: selectedEntity.name,
-                      kind: selectedEntity.kind,
+                      mode: target.mode,
+                      name: target.name,
+                      kind: target.kind,
                       props: {}
                     });
                     setSelectedEntity(null);
@@ -3925,28 +4462,32 @@ export default function DifrenoptViewport({
               <div className="grid grid-cols-3 gap-1.5 font-mono text-[11px]">
                 {(['x', 'y', ...(selectedEntity.mode === '3d' ? ['z'] : [])] as const).map(axis => (
                   <label key={axis} className="block">
-                    <span className="text-[10px] uppercase text-[#9CA3AF]">{axis}</span>
+                    <span className="text-[10px] uppercase text-[#B4BCC8]">{axis}</span>
                     <input
                       type="number"
                       step={selectedEntity.mode === '3d' ? '0.2' : '5'}
                       value={selectedEntity[axis]}
                       onChange={e => {
+                        const target = selectedEntityRef.current || selectedEntity;
+                        if (!target) return;
                         const val = Number(e.target.value);
                         if (!Number.isFinite(val)) return;
-                        const next = { ...selectedEntity, [axis]: val };
+                        const next = { ...target, [axis]: val };
                         setSelectedEntity(next);
                         runtimeControlsRef.current.syncSelectedFromProps(next);
                       }}
                       onBlur={() => {
+                        const target = selectedEntityRef.current || selectedEntity;
+                        if (!target?.name) return;
                         onVisualPatch?.({
                           type: 'update',
-                          mode: selectedEntity.mode,
-                          name: selectedEntity.name,
-                          kind: selectedEntity.kind,
+                          mode: target.mode,
+                          name: target.name,
+                          kind: target.kind,
                           props: {
-                            x: selectedEntity.x,
-                            y: selectedEntity.y,
-                            ...(selectedEntity.mode === '3d' ? { z: selectedEntity.z } : {})
+                            x: target.x,
+                            y: target.y,
+                            ...(target.mode === '3d' ? { z: target.z } : {})
                           }
                         });
                       }}
@@ -3957,54 +4498,96 @@ export default function DifrenoptViewport({
               </div>
 
               {selectedEntity.mode === '3d' ? (
-                <label className="block font-mono text-[11px]">
-                  <span className="text-[10px] uppercase text-[#9CA3AF]">Scale</span>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0.1"
-                    value={selectedEntity.scale}
-                    onChange={e => {
-                      const val = Math.max(0.1, Number(e.target.value) || 1);
-                      const next = { ...selectedEntity, scale: val };
-                      setSelectedEntity(next);
-                      runtimeControlsRef.current.syncSelectedFromProps(next);
-                    }}
-                    onBlur={() => {
-                      onVisualPatch?.({
-                        type: 'update',
-                        mode: '3d',
-                        name: selectedEntity.name,
-                        kind: selectedEntity.kind,
-                        props: { scale: selectedEntity.scale }
-                      });
-                    }}
-                    className="w-full mt-0.5 px-1.5 py-1 rounded border border-[#262B33] bg-[#0A0C0E] text-[#F3F4F6] focus:outline-none focus:border-[#10B981]"
-                  />
-                </label>
+                <>
+                  <div className="grid grid-cols-3 gap-1.5 font-mono text-[11px]">
+                    {(['rx', 'ry', 'rz'] as const).map(rotAxis => (
+                      <label key={rotAxis} className="block">
+                        <span className="text-[10px] uppercase text-[#B4BCC8]">{rotAxis}°</span>
+                        <input
+                          type="number"
+                          step="15"
+                          value={selectedEntity[rotAxis] ?? 0}
+                          onChange={e => {
+                            const target = selectedEntityRef.current || selectedEntity;
+                            if (!target) return;
+                            const val = Number(e.target.value) || 0;
+                            const next = { ...target, [rotAxis]: val };
+                            setSelectedEntity(next);
+                            runtimeControlsRef.current.syncSelectedFromProps(next);
+                          }}
+                          onBlur={() => {
+                            const target = selectedEntityRef.current || selectedEntity;
+                            if (!target?.name) return;
+                            onVisualPatch?.({
+                              type: 'update',
+                              mode: '3d',
+                              name: target.name,
+                              kind: target.kind,
+                              props: { rx: target.rx ?? 0, ry: target.ry ?? 0, rz: target.rz ?? 0 }
+                            });
+                          }}
+                          className="w-full mt-0.5 px-1.5 py-1 rounded border border-[#262B33] bg-[#0A0C0E] text-[#F3F4F6] focus:outline-none focus:border-[#10B981]"
+                        />
+                      </label>
+                    ))}
+                  </div>
+                  <label className="block font-mono text-[11px]">
+                    <span className="text-[10px] uppercase text-[#B4BCC8]">Scale</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      value={selectedEntity.scale}
+                      onChange={e => {
+                        const target = selectedEntityRef.current || selectedEntity;
+                        if (!target) return;
+                        const val = Math.max(0.1, Number(e.target.value) || 1);
+                        const next = { ...target, scale: val };
+                        setSelectedEntity(next);
+                        runtimeControlsRef.current.syncSelectedFromProps(next);
+                      }}
+                      onBlur={() => {
+                        const target = selectedEntityRef.current || selectedEntity;
+                        if (!target?.name) return;
+                        onVisualPatch?.({
+                          type: 'update',
+                          mode: '3d',
+                          name: target.name,
+                          kind: target.kind,
+                          props: { scale: target.scale }
+                        });
+                      }}
+                      className="w-full mt-0.5 px-1.5 py-1 rounded border border-[#262B33] bg-[#0A0C0E] text-[#F3F4F6] focus:outline-none focus:border-[#10B981]"
+                    />
+                  </label>
+                </>
               ) : (
                 <div className="grid grid-cols-2 gap-1.5 font-mono text-[11px]">
                   {(['w', 'h'] as const).map(dim => (
                     <label key={dim} className="block">
-                      <span className="text-[10px] uppercase text-[#9CA3AF]">{dim}</span>
+                      <span className="text-[10px] uppercase text-[#B4BCC8]">{dim}</span>
                       <input
                         type="number"
                         step="4"
                         min="4"
                         value={selectedEntity[dim]}
                         onChange={e => {
+                          const target = selectedEntityRef.current || selectedEntity;
+                          if (!target) return;
                           const val = Math.max(4, Number(e.target.value) || 16);
-                          const next = { ...selectedEntity, [dim]: val };
+                          const next = { ...target, [dim]: val };
                           setSelectedEntity(next);
                           runtimeControlsRef.current.syncSelectedFromProps(next);
                         }}
                         onBlur={() => {
+                          const target = selectedEntityRef.current || selectedEntity;
+                          if (!target?.name) return;
                           onVisualPatch?.({
                             type: 'update',
                             mode: '2d',
-                            name: selectedEntity.name,
-                            kind: selectedEntity.kind,
-                            props: { w: selectedEntity.w, h: selectedEntity.h }
+                            name: target.name,
+                            kind: target.kind,
+                            props: { w: target.w, h: target.h }
                           });
                         }}
                         className="w-full mt-0.5 px-1.5 py-1 rounded border border-[#262B33] bg-[#0A0C0E] text-[#F3F4F6] focus:outline-none focus:border-[#10B981]"
@@ -4015,21 +4598,45 @@ export default function DifrenoptViewport({
               )}
 
               <div>
-                <div className="text-[10px] font-mono uppercase text-[#9CA3AF] mb-1">Color</div>
+                <div className="flex items-center justify-between text-[10px] font-mono uppercase text-[#B4BCC8] mb-1">
+                  <span>Color</span>
+                  <input
+                    type="color"
+                    value={normalizeHexColor(selectedEntity.color, '#10b981')}
+                    onChange={e => {
+                      const hex = e.target.value;
+                      const target = selectedEntityRef.current || selectedEntity;
+                      if (!target?.name) return;
+                      const next = { ...target, color: hex };
+                      setSelectedEntity(next);
+                      runtimeControlsRef.current.syncSelectedFromProps(next);
+                      onVisualPatch?.({
+                        type: 'update',
+                        mode: target.mode,
+                        name: target.name,
+                        kind: target.kind,
+                        props: { color: hex }
+                      });
+                    }}
+                    className="w-6 h-4 rounded border border-[#262B33] bg-transparent cursor-pointer"
+                  />
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {['#10b981', '#38bdf8', '#f97316', '#a855f7', '#ec4899', '#facc15', '#f43f5e', '#f8fafc'].map(hex => (
                     <button
                       key={hex}
                       type="button"
                       onClick={() => {
-                        const next = { ...selectedEntity, color: hex };
+                        const target = selectedEntityRef.current || selectedEntity;
+                        if (!target?.name) return;
+                        const next = { ...target, color: hex };
                         setSelectedEntity(next);
                         runtimeControlsRef.current.syncSelectedFromProps(next);
                         onVisualPatch?.({
                           type: 'update',
-                          mode: selectedEntity.mode,
-                          name: selectedEntity.name,
-                          kind: selectedEntity.kind,
+                          mode: target.mode,
+                          name: target.name,
+                          kind: target.kind,
                           props: { color: hex }
                         });
                       }}

@@ -40,7 +40,7 @@ export default function GlobalDialogs() {
   return (
     <>
       {/* Toast Stack */}
-      <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 max-w-sm w-full pointer-events-none px-4 sm:px-0">
+      <div className="fixed bottom-20 md:bottom-4 right-0 sm:right-4 z-[9999] flex flex-col gap-2 max-w-sm w-full pointer-events-none px-3 sm:px-0">
         {toasts.map((toast) => (
           <div
             key={toast.id}

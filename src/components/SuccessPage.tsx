@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useStore } from '../store/useStore';
 
 export default function SuccessPage() {
+  const language = useStore(state => state.language);
   const [premiumCode, setPremiumCode] = useState('');
   const setPremiumCodeGlobal = useStore(state => state.setPremiumCode);
   
@@ -27,11 +28,13 @@ export default function SuccessPage() {
   }, [setPremiumCodeGlobal]);
 
   return (
-    <div className="flex flex-col items-center justify-center p-8 h-screen">
-      <h1 className="text-2xl font-bold">Successfully Purchased!</h1>
+    <div className="flex flex-col items-center justify-center p-4 sm:p-8 h-[100dvh] text-center">
+      <h1 className="text-xl sm:text-2xl font-bold">
+        {language === 'ru' ? 'Покупка успешно завершена!' : 'Successfully Purchased!'}
+      </h1>
       {premiumCode && (
         <div className="mt-4 p-4 bg-zinc-800 rounded">
-          <p>Your one-time premium code:</p>
+          <p>{language === 'ru' ? 'Ваш одноразовый код премиума:' : 'Your one-time premium code:'}</p>
           <p className="text-xl font-bold font-mono text-emerald-500">{premiumCode}</p>
         </div>
       )}

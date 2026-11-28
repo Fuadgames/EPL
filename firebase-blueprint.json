@@ -26,6 +26,8 @@
         "isPremium": { "type": "boolean", "description": "Whether the user has an active premium tier." },
         "premiumTier": { "type": "string", "enum": ["none", "plus", "premium", "ultra"], "description": "Active premium subscription tier." },
         "premiumExpiry": { "type": "string", "format": "date-time", "description": "Premium expiration timestamp." },
+        "activeEplShopItemId": { "type": ["string", "null"], "description": "Currently applied EPL Shop build ID." },
+        "activeEplShopSpec": { "type": ["object", "null"], "description": "Currently applied EPL Shop full-site customization spec." },
         "createdAt": { "type": "string", "format": "date-time", "description": "When the user was created." }
       },
       "required": ["uid", "name", "email", "role", "eplCoins", "purchasedItems", "createdAt"]
@@ -291,6 +293,28 @@
         "updatedAt": { "type": "string", "format": "date-time", "description": "When the news post was last updated." }
       },
       "required": ["id", "title", "content", "font", "images", "authorId", "authorName", "createdAt", "updatedAt"]
+    },
+    "EplShopItem": {
+      "title": "EplShopItem",
+      "description": "A developer-built full-site theme, navigation layout, and EPL widget customization pack in EPL Shop.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Unique shop item ID." },
+        "title": { "type": "string", "description": "Display title of the site customization pack." },
+        "description": { "type": "string", "description": "Description of what this EPL Shop build changes." },
+        "coverUrl": { "type": "string", "description": "Cover image URL or compressed data URL." },
+        "screenshotUrl": { "type": "string", "description": "Preview screenshot data URL." },
+        "price": { "type": "number", "description": "Price in EPLCoins." },
+        "stock": { "type": ["number", "string"], "description": "Remaining stock count or 'infinite'." },
+        "sales": { "type": "number", "description": "Total purchase count." },
+        "authorId": { "type": "string", "description": "Developer UID." },
+        "authorName": { "type": "string", "description": "Author display name." },
+        "spec": { "type": "object", "description": "EplSiteCustomizationSpec JSON payload." },
+        "status": { "type": "string", "enum": ["active", "draft", "archived"], "description": "Listing visibility status." },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Creation timestamp." },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Last update timestamp." }
+      },
+      "required": ["id", "title", "price", "stock", "authorId", "authorName", "spec", "status", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -353,6 +377,10 @@
     "/trollInbox/{targetUid}": {
       "schema": { "$ref": "#/entities/TrollInbox" },
       "description": "Stores incoming Troll Message and prank FX payloads for users."
+    },
+    "/eplShopItems/{itemId}": {
+      "schema": { "$ref": "#/entities/EplShopItem" },
+      "description": "Stores developer-published full-site EPL Shop themes, tabs, widgets, and mods."
     }
   }
 }

@@ -405,7 +405,7 @@ function VisualLine({
   if (isEditing) {
     return (
       <div className="flex items-center gap-2 my-1 relative">
-        <span className={clsx("w-6 text-right select-none", isFrutigerAero ? "text-blue-800/60" : "text-zinc-600")}>{index + 1}</span>
+        <span className={clsx("w-6 text-right select-none", isFrutigerAero ? "text-blue-800/70" : "text-zinc-400")}>{index + 1}</span>
         <div className="flex-1 relative">
           <input
             ref={inputRef}
@@ -438,7 +438,7 @@ function VisualLine({
                     )}
                   >
                     <span className="font-mono">{s}</span>
-                    <span className={clsx("text-xs opacity-50 capitalize", isFrutigerAero ? "text-blue-800" : "")}>{def?.type || 'Entity'}</span>
+                    <span className={clsx("text-xs capitalize", isFrutigerAero ? "text-blue-800" : "text-zinc-400")}>{def?.type || 'Entity'}</span>
                   </div>
                 );
               })}
@@ -454,7 +454,7 @@ function VisualLine({
   
   return (
     <div className="flex items-start gap-2 my-1 min-h-[28px] group relative">
-      <span className={clsx("w-6 text-right select-none pt-1", isFrutigerAero ? "text-blue-800/60" : "text-zinc-600")}>{index + 1}</span>
+      <span className={clsx("w-6 text-right select-none pt-1", isFrutigerAero ? "text-blue-800/70" : "text-zinc-400")}>{index + 1}</span>
       <div 
         className={clsx(
           "flex-1 flex flex-wrap items-center gap-x-1 gap-y-2 py-1 px-2 rounded cursor-text min-h-[28px]",
@@ -466,7 +466,7 @@ function VisualLine({
         }}
       >
         {parts.length === 1 && !parts[0] ? (
-          <span className={clsx("italic opacity-50", isFrutigerAero ? "text-blue-800" : "text-zinc-600")}>Empty line... (click to edit)</span>
+          <span className={clsx("italic", isFrutigerAero ? "text-blue-800" : "text-zinc-400")}>Empty line... (click to edit)</span>
         ) : (
           parts.map((part, i) => {
             const mod = i % 4;
@@ -696,10 +696,10 @@ function Token({
           <div className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm" onClick={(e) => { e.stopPropagation(); setShowPopover(false); }} />
           <div 
             className={clsx(
-              "z-50 p-6 bg-zinc-900 border border-zinc-700 shadow-2xl rounded-xl overflow-y-auto",
+              "z-50 p-4 sm:p-6 bg-zinc-900 border border-zinc-700 shadow-2xl rounded-xl overflow-y-auto",
               editorMode 
-                ? "fixed inset-4 sm:inset-auto sm:top-8 sm:bottom-8 sm:left-1/2 sm:-translate-x-1/2 sm:w-[95vw] sm:max-w-6xl flex flex-col"
-                : "fixed inset-4 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-[90vw] sm:max-w-xl sm:max-h-[90vh]"
+                ? "fixed inset-2 sm:inset-auto sm:top-8 sm:bottom-8 sm:left-1/2 sm:-translate-x-1/2 sm:w-[95vw] sm:max-w-6xl flex flex-col"
+                : "fixed inset-3 sm:inset-auto sm:top-1/2 sm:left-1/2 sm:-translate-x-1/2 sm:-translate-y-1/2 sm:w-[90vw] sm:max-w-xl sm:max-h-[90vh]"
             )}
             onClick={(e) => e.stopPropagation()}
           >

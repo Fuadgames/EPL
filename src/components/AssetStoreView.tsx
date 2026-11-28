@@ -9,6 +9,30 @@ import { handleFirestoreError, OperationType } from '../lib/firestore-utils';
 import { db } from '../firebase';
 import { StoreAsset } from '../types';
 
+const FRUTIGER_AERO_COVER =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 360">
+      <defs>
+        <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="#38bdf8"/>
+          <stop offset="55%" stop-color="#0ea5e9"/>
+          <stop offset="100%" stop-color="#10b981"/>
+        </linearGradient>
+        <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="rgba(255,255,255,0.75)"/>
+          <stop offset="100%" stop-color="rgba(255,255,255,0.05)"/>
+        </linearGradient>
+      </defs>
+      <rect width="640" height="360" fill="url(#sky)"/>
+      <circle cx="150" cy="110" r="95" fill="rgba(255,255,255,0.22)"/>
+      <circle cx="490" cy="240" r="130" fill="rgba(255,255,255,0.16)"/>
+      <rect x="70" y="90" width="500" height="180" rx="28" fill="url(#gloss)" stroke="rgba(255,255,255,0.7)" stroke-width="2"/>
+      <text x="320" y="185" text-anchor="middle" font-family="sans-serif" font-size="38" font-weight="bold" fill="#ffffff">Frutiger Aero</text>
+      <text x="320" y="222" text-anchor="middle" font-family="sans-serif" font-size="16" fill="#e0f2fe">Glass &amp; Aqua Skin for EPL Studio</text>
+    </svg>`
+  );
+
 const FRUTIGER_AERO_ASSET: StoreAsset = {
   id: 'frutiger-aero',
   title: 'Frutiger Aero',
@@ -19,7 +43,7 @@ const FRUTIGER_AERO_ASSET: StoreAsset = {
   authorName: 'EPL Studio',
   type: 'style',
   content: '{"theme": "frutiger-aero"}',
-  coverUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=2564&auto=format&fit=crop',
+  coverUrl: FRUTIGER_AERO_COVER,
   createdAt: '2024-01-01T00:00:00.000Z',
   visits: 0,
 };

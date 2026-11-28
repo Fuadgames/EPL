@@ -1,9 +1,12 @@
+import { DRPL_EXTENDED_COMPONENTS, type DrplRuntimeMeta } from './drpl-extended-catalog.ts';
+
 export type DrplCategory = '3d' | '2d' | 'app';
 
 export interface DrplComponentDef {
   id: string;
   name: string;
   category: DrplCategory;
+  subgroup?: string;
   color: string;
   signature: string;
   descriptionRu: string;
@@ -14,6 +17,7 @@ export interface DrplComponentDef {
   incompatibleWith: string[];
   snippet: string;
   badge?: string;
+  runtimeMeta?: DrplRuntimeMeta;
 }
 
 export interface DrplTemplateDef {
@@ -218,8 +222,8 @@ const COMP_APP_INCOMPAT = ['нет прямых конфликтов (работ
 const COMP_APP_COMPAT_EN = ['useapp', 'use3d / use2d (HUD overlay)', 'sfx2d (audio)', 'all ui_* widgets'];
 const COMP_APP_INCOMPAT_EN = ['None (universal HUD layer)'];
 
-export const DRPL_COMPONENTS: DrplComponentDef[] = [
-  // ======================== 3D GAMES (18) ========================
+export const DRPL_CORE_COMPONENTS: DrplComponentDef[] = [
+  // ======================== 3D GAMES ========================
   {
     id: 'use3d',
     name: 'use3d',
@@ -1670,6 +1674,40 @@ export const DRPL_COMPONENTS: DrplComponentDef[] = [
     snippet: 'storage_save(key="highscore", value=100)'
   }
 ];
+
+export const DRPL_COMPONENTS: DrplComponentDef[] = (() => {
+  const seen = new Set<string>();
+  const merged: DrplComponentDef[] = [];
+  for (const core of DRPL_CORE_COMPONENTS) {
+    const normalized: DrplComponentDef = {
+      ...core,
+      subgroup: core.subgroup || core.badge || (core.category === '3d' ? 'Core 3D' : core.category === '2d' ? 'Core 2D' : 'Core App')
+    };
+    seen.add(normalized.name);
+    merged.push(normalized);
+  }
+  for (const ext of DRPL_EXTENDED_COMPONENTS) {
+    if (seen.has(ext.name)) continue;
+    seen.add(ext.name);
+    merged.push(ext);
+  }
+  return merged;
+})();
+
+export const DRPL_COMPONENT_BY_NAME: Map<string, DrplComponentDef> = new Map(
+  DRPL_COMPONENTS.map(c => [c.name, c])
+);
+
+export const DRPL_COMPONENT_NAME_SET: Set<string> = new Set(
+  DRPL_COMPONENTS.map(c => c.name)
+);
+
+export const DRPL_SUBGROUPS: Record<'all' | DrplCategory, string[]> = {
+  all: Array.from(new Set(DRPL_COMPONENTS.map(c => c.subgroup).filter(Boolean) as string[])),
+  '3d': Array.from(new Set(DRPL_COMPONENTS.filter(c => c.category === '3d').map(c => c.subgroup).filter(Boolean) as string[])),
+  '2d': Array.from(new Set(DRPL_COMPONENTS.filter(c => c.category === '2d').map(c => c.subgroup).filter(Boolean) as string[])),
+  app: Array.from(new Set(DRPL_COMPONENTS.filter(c => c.category === 'app').map(c => c.subgroup).filter(Boolean) as string[]))
+};
 
 export const DRPL_COMPONENT_COLOR_MAP: Record<string, string> = {
   ...Object.fromEntries(DRPL_COMPONENTS.map(c => [c.name, c.color])),

@@ -570,7 +570,7 @@ export default function BlockEditor({ code, onChange }: BlockEditorProps) {
       {/* Palette Sidebar */}
       <div
         className={clsx(
-          'w-full md:w-80 border-b md:border-b-0 md:border-r flex flex-col shrink-0 overflow-hidden',
+          'w-full md:w-80 max-h-[38dvh] md:max-h-none border-b md:border-b-0 md:border-r flex flex-col shrink-0 overflow-hidden',
           isFrutigerAero
             ? 'bg-white/40 border-white/50 backdrop-blur-md text-slate-900'
             : isLight
@@ -975,7 +975,7 @@ interface RenderBlockCardProps {
   onConfigureDifrenopt: (blockId: string) => void;
   isFrutigerAero: boolean;
   isLight: boolean;
-  language: 'en' | 'ru';
+  language: string;
 }
 
 function RenderBlockCard({

@@ -231,6 +231,7 @@ export default function ProfileView() {
   const user = useStore(state => state.user);
   const userData = useStore(state => state.userData);
   const theme = useStore(state => state.theme);
+  const language = useStore(state => state.language);
   const isFrutigerAero = useStore(state => state.isFrutigerAero);
   const setCurrentView = useStore(state => state.setCurrentView);
   const setEditingAppId = useStore(state => state.setEditingAppId);
@@ -278,10 +279,16 @@ export default function ProfileView() {
 
   if (!user) {
     return (
-      <div className="h-full flex flex-col items-center justify-center p-8 text-center">
+      <div className="h-full flex flex-col items-center justify-center p-4 sm:p-8 text-center">
         <User className="w-14 h-14 text-[#6B7280] mb-4 opacity-60" />
-        <h2 className="text-xl font-bold mb-2">Not Signed In</h2>
-        <p className="text-sm text-[#9CA3AF] max-w-md">Sign in from the sidebar to view your profile and manage your account.</p>
+        <h2 className="text-xl font-bold mb-2">
+          {language === 'ru' ? 'Вы не вошли в аккаунт' : 'Not Signed In'}
+        </h2>
+        <p className="text-sm text-[#9CA3AF] max-w-md">
+          {language === 'ru'
+            ? 'Войдите через боковую панель, чтобы просматривать профиль и управлять аккаунтом.'
+            : 'Sign in from the sidebar to view your profile and manage your account.'}
+        </p>
       </div>
     );
   }
@@ -290,15 +297,15 @@ export default function ProfileView() {
   const unlockedIds = userData?.unlockedAchievements || [];
 
   return (
-    <div className="h-full flex flex-col p-4 sm:p-8 overflow-y-auto">
+    <div className="h-full flex flex-col p-3.5 sm:p-8 overflow-y-auto">
       <div className="max-w-5xl mx-auto w-full">
-        <div className="flex items-center justify-between mb-6 pb-4 border-b border-[#262B33]/60">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6 pb-4 border-b border-[#262B33]/60">
           <div>
-            <h1 className={clsx("text-2xl font-bold tracking-tight", isFrutigerAero ? "text-blue-900" : theme !== 'light' ? "text-[#F3F4F6]" : "text-[#111315]")}>
-              Profile
+            <h1 className={clsx("text-xl sm:text-2xl font-bold tracking-tight", isFrutigerAero ? "text-blue-900" : theme !== 'light' ? "text-[#F3F4F6]" : "text-[#111315]")}>
+              {language === 'ru' ? 'Профиль' : 'Profile'}
             </h1>
             <p className={clsx("text-xs mt-0.5", isFrutigerAero ? "text-blue-800/70" : theme !== 'light' ? "text-[#9CA3AF]" : "text-[#525866]")}>
-              Account metrics, credentials, and published builds
+              {language === 'ru' ? 'Метрики аккаунта, профиль и ваши проекты' : 'Account metrics, credentials, and published builds'}
             </p>
           </div>
           <button
@@ -309,23 +316,23 @@ export default function ProfileView() {
               theme !== 'light' ? 'bg-[#181B20] border-[#262B33] text-[#F3F4F6] hover:bg-[#22262E]' : 'bg-white border-[#E2E5EA] text-[#111315] hover:bg-[#F5F6F8]'
             )}
           >
-            <SettingsIcon className="w-4 h-4" /> Settings
+            <SettingsIcon className="w-4 h-4" /> {language === 'ru' ? 'Настройки' : 'Settings'}
           </button>
         </div>
 
         {/* Achievements Section */}
         <div className={clsx(
-          "mb-6 p-5 rounded-xl border",
+          "mb-6 p-4 sm:p-5 rounded-xl border",
           isFrutigerAero ? "bg-white/40 border-white/50 backdrop-blur-md shadow-sm" :
           theme !== 'light' ? 'bg-[#181B20] border-[#262B33]' : 'bg-white border-[#E2E5EA]'
         )}>
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between gap-2 mb-4">
             <h3 className={clsx("text-sm font-bold uppercase tracking-wider flex items-center gap-2", isFrutigerAero ? "text-blue-900" : theme !== 'light' ? "text-[#F3F4F6]" : "text-[#111315]")}>
               <Trophy className={clsx("w-4 h-4", isFrutigerAero ? "text-blue-600" : "text-[#10B981]")} />
-              Achievements
+              {language === 'ru' ? 'Достижения' : 'Achievements'}
             </h3>
-            <span className={clsx("text-xs font-mono-num font-semibold px-2 py-0.5 rounded border", isFrutigerAero ? "bg-white/50 border-white/40 text-blue-900" : theme !== 'light' ? 'bg-[#111315] border-[#262B33] text-[#9CA3AF]' : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#525866]')}>
-              {unlockedIds.length} / {ACHIEVEMENTS_LIST.length} Unlocked
+            <span className={clsx("text-xs font-mono-num font-semibold px-2 py-0.5 rounded border shrink-0", isFrutigerAero ? "bg-white/50 border-white/40 text-blue-900" : theme !== 'light' ? 'bg-[#111315] border-[#262B33] text-[#9CA3AF]' : 'bg-[#F5F6F8] border-[#E2E5EA] text-[#525866]')}>
+              {unlockedIds.length} / {ACHIEVEMENTS_LIST.length} {language === 'ru' ? 'открыто' : 'Unlocked'}
             </span>
           </div>
 

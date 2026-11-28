@@ -4,10 +4,96 @@ import { persist } from 'zustand/middleware';
 import { User } from 'firebase/auth';
 import { ACHIEVEMENTS_DB, AchievementData } from '../lib/achievements';
 import { updateDoc, doc, setDoc, deleteDoc } from 'firebase/firestore';
-import { db } from '../firebase';
-import { PremiumTier } from '../types';
+import { auth, db } from '../firebase';
+import { sanitizeFirestoreData } from '../lib/firestore-utils';
+import { PremiumTier, EplSiteCustomizationSpec, EplShopItem } from '../types';
+import { STARTER_EDITOR_CODE } from '../lib/demoProjects';
 
-export type View = 'store' | 'installed-apps' | 'editor' | 'my-apps' | 'profile' | 'public-profile' | 'settings' | 'player' | 'premium' | 'extra-premium' | 'rate' | 'control' | 'asset-store' | 'leaderboards' | 'donate' | 'news';
+export type View =
+  | 'store'
+  | 'installed-apps'
+  | 'editor'
+  | 'my-apps'
+  | 'profile'
+  | 'public-profile'
+  | 'settings'
+  | 'player'
+  | 'premium'
+  | 'extra-premium'
+  | 'rate'
+  | 'control'
+  | 'asset-store'
+  | 'epl-shop'
+  | 'leaderboards'
+  | 'donate'
+  | 'news'
+  | `custom_${string}`;
+
+export const DEFAULT_NAV_CATEGORY_ORDER = [
+  'store',
+  'tools',
+  'my-stuff',
+  'global',
+  'paid',
+  'developer-tools',
+];
+
+export const DEFAULT_NAV_TAB_ORDERS: Record<string, string[]> = {
+  store: ['store', 'asset-store', 'epl-shop', 'donate'],
+  tools: ['editor', 'settings'],
+  'my-stuff': ['installed-apps', 'profile', 'my-apps'],
+  global: ['leaderboards', 'news', 'rate'],
+  paid: ['premium', 'extra-premium', 'donate'],
+  'developer-tools': ['control'],
+};
+
+export function createEmptyEplSiteSpec(): EplSiteCustomizationSpec {
+  return {
+    brandTitle: '',
+    brandSubtitle: '',
+    brandBadge: '',
+    brandIcon: 'terminal',
+    theme: {
+      canvasBg: '',
+      canvasGradient: '',
+      sidebarBg: '',
+      cardBg: '',
+      textColor: '',
+      mutedColor: '',
+      accentColor: '',
+      secondaryColor: '',
+      borderColor: '',
+      borderRadius: 12,
+      fontFamily: 'default',
+      fontScale: 1,
+      sidebarWidth: 256,
+      sidebarSide: 'left',
+      glassBlur: 0,
+      glowIntensity: 0,
+      bgEffect: 'none',
+    },
+    labelOverrides: {},
+    domTextOverrides: {},
+    domStyleOverrides: {},
+    categoryOrder: [...DEFAULT_NAV_CATEGORY_ORDER],
+    categoryNames: {},
+    categoryColors: {},
+    tabOrders: {
+      store: [...DEFAULT_NAV_TAB_ORDERS.store],
+      tools: [...DEFAULT_NAV_TAB_ORDERS.tools],
+      'my-stuff': [...DEFAULT_NAV_TAB_ORDERS['my-stuff']],
+      global: [...DEFAULT_NAV_TAB_ORDERS.global],
+      paid: [...DEFAULT_NAV_TAB_ORDERS.paid],
+      'developer-tools': [...DEFAULT_NAV_TAB_ORDERS['developer-tools']],
+    },
+    hiddenTabIds: [],
+    customCategories: [],
+    customTabs: [],
+    widgets: [],
+    tabEplOverlays: {},
+    globalEplCode: '',
+  };
+}
 
 export interface ProjectFileItem {
   name: string;
@@ -57,6 +143,7 @@ export interface UserData {
   isVerifiedAuthor?: boolean;
   eplCoins: number;
   purchasedItems: string[];
+  eplShopPurchases?: Record<string, number>;
   uploadedFiles?: { name: string; url: string }[];
   permissions?: UserPermissions;
   installedApps?: { [appId: string]: string }; // appId -> version
@@ -158,8 +245,10 @@ interface AppState {
   setAiAnswerMode: (mode: 'text' | 'console') => void;
   aiChangesEnabled: boolean;
   setAiChangesEnabled: (enabled: boolean) => void;
-  language: 'en' | 'ru';
-  setLanguage: (lang: 'en' | 'ru') => void;
+  language: string;
+  setLanguage: (lang: string) => void;
+  autoTranslateEnabled: boolean;
+  setAutoTranslateEnabled: (enabled: boolean) => void;
   tutorialMinimized: boolean;
   setTutorialMinimized: (minimized: boolean) => void;
   tutorialLevel: number;
@@ -236,6 +325,40 @@ interface AppState {
   toggleMobileNavHidden: () => void;
   isDesktopDownloadOpen: boolean;
   setIsDesktopDownloadOpen: (open: boolean) => void;
+  legacyNavigation: boolean;
+  setLegacyNavigation: (enabled: boolean) => void;
+  collapsedNavCategories: string[];
+  toggleNavCategoryCollapsed: (catId: string) => void;
+  navCategoryOrder: string[];
+  setNavCategoryOrder: (order: string[]) => void;
+  moveNavCategory: (catId: string, dir: 'up' | 'down') => void;
+  reorderNavCategories: (fromId: string, toId: string) => void;
+  navTabOrders: Record<string, string[]>;
+  setNavTabOrder: (catId: string, tabIds: string[]) => void;
+  reorderNavTab: (catId: string, fromTabId: string, toTabId: string) => void;
+  moveNavTab: (catId: string, tabId: string, dir: 'up' | 'down') => void;
+  resetNavOrder: () => void;
+  isEplShopBuilderOpen: boolean;
+  eplShopPreviewMode: boolean;
+  eplShopBuilderTool: 'select' | 'add' | 'tap';
+  editingShopItemId: string | null;
+  editingShopItem: EplShopItem | null;
+  selectedBuilderWidgetId: string | null;
+  setSelectedBuilderWidgetId: (id: string | null) => void;
+  draftEplShopSpec: EplSiteCustomizationSpec;
+  appliedEplShopItemId: string | null;
+  appliedEplShopSpec: EplSiteCustomizationSpec | null;
+  previewEplShopSpec: EplSiteCustomizationSpec | null;
+  purchasedEplShopIds: string[];
+  openEplShopBuilder: (item?: EplShopItem | null) => void;
+  closeEplShopBuilder: () => void;
+  setEplShopPreviewMode: (preview: boolean) => void;
+  setEplShopBuilderTool: (tool: 'select' | 'add' | 'tap') => void;
+  updateDraftEplShopSpec: (updater: (prev: EplSiteCustomizationSpec) => EplSiteCustomizationSpec) => void;
+  applyEplShopItem: (item: EplShopItem | null) => Promise<void>;
+  setPreviewEplShopSpec: (spec: EplSiteCustomizationSpec | null) => void;
+  markPurchasedEplShopId: (id: string) => void;
+  unmarkPurchasedEplShopId: (id: string) => void;
 }
 
 export const useStore = create<AppState>()(persist((set, get) => ({
@@ -289,7 +412,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   setTheme: (theme) => startTransition(() => { set({ theme }); }),
   editingAppId: null,
   setEditingAppId: (id) => startTransition(() => { set({ editingAppId: id }); }),
-  code: '',
+  code: STARTER_EDITOR_CODE,
   setCode: (code) => set({ code }),
   playingAppId: null,
   setPlayingAppId: (id) => startTransition(() => { set({ playingAppId: id }); }),
@@ -303,6 +426,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   setAiChangesEnabled: (enabled) => set({ aiChangesEnabled: enabled }),
   language: 'en',
   setLanguage: (lang) => set({ language: lang }),
+  autoTranslateEnabled: true,
+  setAutoTranslateEnabled: (enabled) => set({ autoTranslateEnabled: enabled }),
   tutorialMinimized: false,
   setTutorialMinimized: (minimized) => set({ tutorialMinimized: minimized }),
   tutorialLevel: 0,
@@ -330,7 +455,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   setLastResetTime: (time) => set({ lastResetTime: time }),
   computerStyle: false,
   setComputerStyle: (enabled) => set({ computerStyle: enabled }),
-  selectedExtraCategory: null,
+  selectedExtraCategory: 'Normal',
   setSelectedExtraCategory: (category) => set({ selectedExtraCategory: category }),
   previewType: null,
   setPreviewType: (type) => set({ previewType: type }),
@@ -367,11 +492,12 @@ export const useStore = create<AppState>()(persist((set, get) => ({
       const newUnlocked = [...unlocked, id];
       const achievement = ACHIEVEMENTS_DB[id];
       
-      // Async save
-      console.log("Updating achievements for:", userData.uid, newUnlocked);
-      updateDoc(doc(db, 'users', userData.uid), { unlockedAchievements: newUnlocked }).catch(err => {
-        console.error("Failed to check app achievements", err);
-      });
+      // Async save when Firebase Auth session is active
+      if (auth.currentUser && auth.currentUser.uid === userData.uid) {
+        updateDoc(doc(db, 'users', userData.uid), { unlockedAchievements: newUnlocked }).catch(err => {
+          console.error("Failed to check app achievements", err);
+        });
+      }
 
       return {
         userData: { ...userData, unlockedAchievements: newUnlocked },
@@ -443,8 +569,8 @@ export const useStore = create<AppState>()(persist((set, get) => ({
       } : null
     });
 
-    // Sync with Firestore if user is authenticated
-    if (state.user?.uid) {
+    // Sync with Firestore if Firebase user is authenticated
+    if (state.user?.uid && auth.currentUser?.uid === state.user.uid) {
       try {
         const userRef = doc(db, 'users', state.user.uid);
         await updateDoc(userRef, {
@@ -485,7 +611,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
       } : null
     });
 
-    if (state.user?.uid) {
+    if (state.user?.uid && auth.currentUser?.uid === state.user.uid) {
       try {
         const userRef = doc(db, 'users', state.user.uid);
         await updateDoc(userRef, {
@@ -541,6 +667,166 @@ export const useStore = create<AppState>()(persist((set, get) => ({
   toggleMobileNavHidden: () => set((state) => ({ isMobileNavHidden: !state.isMobileNavHidden })),
   isDesktopDownloadOpen: false,
   setIsDesktopDownloadOpen: (open) => set({ isDesktopDownloadOpen: open }),
+  legacyNavigation: false,
+  setLegacyNavigation: (enabled) => set({ legacyNavigation: enabled }),
+  collapsedNavCategories: [],
+  toggleNavCategoryCollapsed: (catId) => set((state) => {
+    const current = state.collapsedNavCategories || [];
+    const exists = current.includes(catId);
+    return {
+      collapsedNavCategories: exists ? current.filter((id) => id !== catId) : [...current, catId],
+    };
+  }),
+  navCategoryOrder: [...DEFAULT_NAV_CATEGORY_ORDER],
+  setNavCategoryOrder: (order) => set({ navCategoryOrder: order }),
+  moveNavCategory: (catId, dir) => set((state) => {
+    const order = [...(state.navCategoryOrder?.length ? state.navCategoryOrder : DEFAULT_NAV_CATEGORY_ORDER)];
+    const idx = order.indexOf(catId);
+    if (idx === -1) return state;
+    const targetIdx = dir === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= order.length) return state;
+    const [moved] = order.splice(idx, 1);
+    order.splice(targetIdx, 0, moved);
+    return { navCategoryOrder: order };
+  }),
+  reorderNavCategories: (fromId, toId) => set((state) => {
+    if (!fromId || !toId || fromId === toId) return state;
+    const order = [...(state.navCategoryOrder?.length ? state.navCategoryOrder : DEFAULT_NAV_CATEGORY_ORDER)];
+    if (!order.includes(fromId)) order.push(fromId);
+    if (!order.includes(toId)) order.push(toId);
+    const fromIdx = order.indexOf(fromId);
+    const toIdx = order.indexOf(toId);
+    if (fromIdx === -1 || toIdx === -1) return state;
+    const [moved] = order.splice(fromIdx, 1);
+    order.splice(toIdx, 0, moved);
+    return { navCategoryOrder: order };
+  }),
+  navTabOrders: { ...DEFAULT_NAV_TAB_ORDERS },
+  setNavTabOrder: (catId, tabIds) => set((state) => ({
+    navTabOrders: { ...(state.navTabOrders || DEFAULT_NAV_TAB_ORDERS), [catId]: tabIds },
+  })),
+  reorderNavTab: (catId, fromTabId, toTabId) => set((state) => {
+    if (!fromTabId || !toTabId || fromTabId === toTabId) return state;
+    const base = [...(state.navTabOrders?.[catId] || DEFAULT_NAV_TAB_ORDERS[catId] || [])];
+    if (!base.includes(fromTabId)) base.push(fromTabId);
+    if (!base.includes(toTabId)) base.push(toTabId);
+    const fromIdx = base.indexOf(fromTabId);
+    const toIdx = base.indexOf(toTabId);
+    if (fromIdx === -1 || toIdx === -1) return state;
+    const [moved] = base.splice(fromIdx, 1);
+    base.splice(toIdx, 0, moved);
+    return { navTabOrders: { ...(state.navTabOrders || DEFAULT_NAV_TAB_ORDERS), [catId]: base } };
+  }),
+  moveNavTab: (catId, tabId, dir) => set((state) => {
+    const base = [...(state.navTabOrders?.[catId] || DEFAULT_NAV_TAB_ORDERS[catId] || [])];
+    const idx = base.indexOf(tabId);
+    if (idx === -1) return state;
+    const targetIdx = dir === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= base.length) return state;
+    const [moved] = base.splice(idx, 1);
+    base.splice(targetIdx, 0, moved);
+    return { navTabOrders: { ...(state.navTabOrders || DEFAULT_NAV_TAB_ORDERS), [catId]: base } };
+  }),
+  resetNavOrder: () => set({
+    collapsedNavCategories: [],
+    navCategoryOrder: [...DEFAULT_NAV_CATEGORY_ORDER],
+    navTabOrders: {
+      store: [...DEFAULT_NAV_TAB_ORDERS.store],
+      tools: [...DEFAULT_NAV_TAB_ORDERS.tools],
+      'my-stuff': [...DEFAULT_NAV_TAB_ORDERS['my-stuff']],
+      global: [...DEFAULT_NAV_TAB_ORDERS.global],
+      paid: [...DEFAULT_NAV_TAB_ORDERS.paid],
+      'developer-tools': [...DEFAULT_NAV_TAB_ORDERS['developer-tools']],
+    },
+  }),
+  isEplShopBuilderOpen: false,
+  eplShopPreviewMode: false,
+  eplShopBuilderTool: 'select',
+  editingShopItemId: null,
+  editingShopItem: null,
+  selectedBuilderWidgetId: null,
+  setSelectedBuilderWidgetId: (id) => set({ selectedBuilderWidgetId: id }),
+  draftEplShopSpec: createEmptyEplSiteSpec(),
+  appliedEplShopItemId: null,
+  appliedEplShopSpec: null,
+  previewEplShopSpec: null,
+  purchasedEplShopIds: [],
+  openEplShopBuilder: (item) => {
+    const base = item?.spec
+      ? JSON.parse(JSON.stringify(item.spec))
+      : createEmptyEplSiteSpec();
+    set({
+      isEplShopBuilderOpen: true,
+      eplShopPreviewMode: false,
+      eplShopBuilderTool: 'select',
+      editingShopItemId: item?.id || null,
+      editingShopItem: item ? JSON.parse(JSON.stringify(item)) : null,
+      selectedBuilderWidgetId: null,
+      draftEplShopSpec: {
+        ...createEmptyEplSiteSpec(),
+        ...base,
+        theme: { ...createEmptyEplSiteSpec().theme, ...(base.theme || {}) },
+        labelOverrides: base.labelOverrides || {},
+        domTextOverrides: base.domTextOverrides || {},
+        domStyleOverrides: base.domStyleOverrides || {},
+        customCategories: base.customCategories || [],
+        customTabs: base.customTabs || [],
+        widgets: base.widgets || [],
+        tabEplOverlays: base.tabEplOverlays || {},
+      },
+    });
+  },
+  closeEplShopBuilder: () =>
+    set({
+      isEplShopBuilderOpen: false,
+      eplShopPreviewMode: false,
+      eplShopBuilderTool: 'select',
+      editingShopItemId: null,
+      editingShopItem: null,
+      selectedBuilderWidgetId: null,
+    }),
+  setEplShopPreviewMode: (preview) => set({ eplShopPreviewMode: preview }),
+  setEplShopBuilderTool: (tool) => set({ eplShopBuilderTool: tool }),
+  updateDraftEplShopSpec: (updater) => set((state) => ({
+    draftEplShopSpec: updater(state.draftEplShopSpec),
+  })),
+  applyEplShopItem: async (item) => {
+    const state = get();
+    if (!item) {
+      set({ appliedEplShopItemId: null, appliedEplShopSpec: null, previewEplShopSpec: null });
+      if (state.user?.uid && auth.currentUser?.uid === state.user.uid) {
+        updateDoc(doc(db, 'users', state.user.uid), {
+          activeEplShopItemId: null,
+          activeEplShopSpec: null,
+        }).catch(() => {});
+      }
+      return;
+    }
+    set({
+      appliedEplShopItemId: item.id,
+      appliedEplShopSpec: item.spec,
+      previewEplShopSpec: null,
+    });
+    if (state.user?.uid && auth.currentUser?.uid === state.user.uid) {
+      setDoc(
+        doc(db, 'users', state.user.uid),
+        {
+          activeEplShopItemId: item.id,
+          activeEplShopSpec: sanitizeFirestoreData(item.spec),
+        },
+        { merge: true }
+      ).catch(() => {});
+    }
+  },
+  setPreviewEplShopSpec: (spec) => set({ previewEplShopSpec: spec }),
+  markPurchasedEplShopId: (id) => set((state) => ({
+    purchasedEplShopIds: state.purchasedEplShopIds.includes(id)
+      ? state.purchasedEplShopIds
+      : [...state.purchasedEplShopIds, id],
+  })),
+  unmarkPurchasedEplShopId: (id) => set((state) => ({
+    purchasedEplShopIds: state.purchasedEplShopIds.filter((x) => x !== id),
+  })),
 }), {
   name: 'app-storage',
   partialize: (state) => ({ 
@@ -548,6 +834,7 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     tutorialStep: state.tutorialStep, 
     tutorialStepCompleted: state.tutorialStepCompleted,
     language: state.language,
+    autoTranslateEnabled: state.autoTranslateEnabled,
     theme: state.theme,
     isPremium: state.isPremium,
     premiumTier: state.premiumTier,
@@ -568,6 +855,13 @@ export const useStore = create<AppState>()(persist((set, get) => ({
     projectFiles: state.projectFiles,
     hiddenTabs: state.hiddenTabs,
     isSidebarHidden: state.isSidebarHidden,
-    isMobileNavHidden: state.isMobileNavHidden
+    isMobileNavHidden: state.isMobileNavHidden,
+    legacyNavigation: state.legacyNavigation,
+    collapsedNavCategories: state.collapsedNavCategories,
+    navCategoryOrder: state.navCategoryOrder,
+    navTabOrders: state.navTabOrders,
+    appliedEplShopItemId: state.appliedEplShopItemId,
+    appliedEplShopSpec: state.appliedEplShopSpec,
+    purchasedEplShopIds: state.purchasedEplShopIds
   }),
 }));

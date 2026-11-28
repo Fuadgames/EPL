@@ -260,9 +260,13 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
         unlockAchievement('vibe_coding');
         setPrompt('');
       } catch (error: any) {
-        const isQuotaError = error?.message?.includes('429') || error?.message?.includes('RESOURCE_EXHAUSTED');
-        if (isQuotaError && retryCount < 3) {
-          const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 1000;
+        const isQuotaError =
+          error?.status === 429 ||
+          error?.code === 'RESOURCE_EXHAUSTED' ||
+          error?.message?.includes('429') ||
+          error?.message?.includes('RESOURCE_EXHAUSTED');
+        if (!isQuotaError && retryCount < 2) {
+          const delay = Math.pow(2, retryCount) * 1000 + Math.random() * 500;
           await new Promise(resolve => setTimeout(resolve, delay));
           return callAI(retryCount + 1);
         }
@@ -276,15 +280,19 @@ export default function AIAgent({ onCodeGenerated, currentCode, onSave }: AIAgen
     } catch (error: any) {
       if (statusInterval) clearInterval(statusInterval);
       setLoadingStatus('');
-      console.error('AI Generation Error:', error);
-      const isQuotaError = error?.message?.includes('429') || error?.message?.includes('RESOURCE_EXHAUSTED');
+      const isQuotaError =
+        error?.status === 429 ||
+        error?.code === 'RESOURCE_EXHAUSTED' ||
+        error?.message?.includes('429') ||
+        error?.message?.includes('RESOURCE_EXHAUSTED');
       if (isQuotaError) {
         notify.error(
           language === 'ru'
-            ? 'Лимит запросов ИИ исчерпан. Пожалуйста, подождите немного или попробуйте позже.'
-            : 'AI quota exhausted. Please wait a moment or try again later.'
+            ? 'Дневной лимит бесплатных запросов ИИ исчерпан. Выберите ключ с оплатой в Settings > Secrets или попробуйте позже.'
+            : 'Daily free-tier AI quota exhausted. Select a billing-enabled API key in Settings > Secrets or try again later.'
         );
       } else {
+        console.error('AI Generation Error:', error);
         notify.error(
           language === 'ru'
             ? 'Не удалось сгенерировать код. Пожалуйста, попробуйте еще раз.'

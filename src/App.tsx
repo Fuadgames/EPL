@@ -11,6 +11,9 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import SuccessPage from './components/SuccessPage';
 import { ShieldAlert, LogOut } from 'lucide-react';
 import { resolveEffectiveTier } from './lib/premiumTiers';
+import { getActiveSiteSpec } from './lib/siteSpecRenderer';
+import EplEmbeddedRunner from './components/EplEmbeddedRunner';
+import SiteTranslator from './components/SiteTranslator';
 
 // Safe lazy load with automatic retry for deployment updates or network hiccups
 function safeLazy<T extends React.ComponentType<any>>(factory: () => Promise<{ default: T }>) {
@@ -46,6 +49,7 @@ const ExtraPremiumView = safeLazy(() => import('./components/ExtraPremiumView'))
 const RateView = safeLazy(() => import('./components/RateView'));
 const ControlView = safeLazy(() => import('./components/ControlView'));
 const AssetStoreView = safeLazy(() => import('./components/AssetStoreView'));
+const EplShopView = safeLazy(() => import('./components/EplShopView'));
 const DonatePage = safeLazy(() => import('./components/DonatePage'));
 const LeaderboardsView = safeLazy(() => import('./components/LeaderboardsView'));
 const InstalledAppsView = safeLazy(() => import('./components/InstalledAppsView'));
@@ -55,33 +59,113 @@ function ViewRenderer() {
   const currentView = useStore(state => state.currentView);
   const userData = useStore(state => state.userData);
   const simulatedRole = useStore(state => state.simulatedRole);
+  const isEplShopBuilderOpen = useStore(state => state.isEplShopBuilderOpen);
+  const draftEplShopSpec = useStore(state => state.draftEplShopSpec);
+  const previewEplShopSpec = useStore(state => state.previewEplShopSpec);
+  const appliedEplShopSpec = useStore(state => state.appliedEplShopSpec);
+
+  const activeSiteSpec = getActiveSiteSpec({
+    isEplShopBuilderOpen,
+    draftEplShopSpec,
+    previewEplShopSpec,
+    appliedEplShopSpec,
+  });
 
   const actualRole = userData?.role || 'user';
   const effectiveRole = (actualRole === 'developer' && simulatedRole) ? simulatedRole : actualRole;
 
-  switch (currentView) {
-    case 'store': return <StoreView />;
-    case 'installed-apps': return <InstalledAppsView />;
-    case 'editor': return <EditorView />;
-    case 'my-apps': return <MyAppsView />;
-    case 'profile': return <ProfileView />;
-    case 'public-profile': return <PublicProfileView />;
-    case 'player': return <PlayerView />;
-    case 'settings': return <SettingsView />;
-    case 'premium': return <PremiumView />;
-    case 'extra-premium': return <ExtraPremiumView />;
-    case 'rate': return <RateView />;
-    case 'donate': return <DonatePage />;
-    case 'asset-store': return <AssetStoreView />;
-    case 'control':
-      if (effectiveRole === 'developer' || effectiveRole === 'admin' || effectiveRole === 'moderator') {
-        return <ControlView />;
-      }
-      return <StoreView />;
-    case 'leaderboards': return <LeaderboardsView />;
-    case 'news': return <NewsView />;
-    default: return <StoreView />;
+  const customTab = activeSiteSpec?.customTabs?.find(t => t.id === currentView);
+  const tabOverlay = activeSiteSpec?.tabEplOverlays?.[currentView];
+  const globalEpl = activeSiteSpec?.globalEplCode?.trim() || '';
+
+  const renderBaseView = () => {
+    if (customTab) {
+      return (
+        <div className="h-full flex flex-col p-3.5 sm:p-6 overflow-y-auto gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-current/10 pb-3">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight" style={{ color: customTab.color || undefined }}>
+                {customTab.label}
+              </h1>
+              {customTab.subtitle && (
+                <p className="text-xs opacity-75 mt-0.5">{customTab.subtitle}</p>
+              )}
+            </div>
+            {customTab.badge && (
+              <span className="px-2.5 py-1 rounded-lg bg-[#10B981]/15 text-[#10B981] text-xs font-mono font-bold">
+                {customTab.badge}
+              </span>
+            )}
+          </div>
+          <div className="flex-1 min-h-[380px]">
+            <EplEmbeddedRunner code={customTab.eplCode || ''} height={460} title={customTab.label} />
+          </div>
+        </div>
+      );
+    }
+
+    switch (currentView) {
+      case 'store': return <StoreView />;
+      case 'installed-apps': return <InstalledAppsView />;
+      case 'editor': return <EditorView />;
+      case 'my-apps': return <MyAppsView />;
+      case 'profile': return <ProfileView />;
+      case 'public-profile': return <PublicProfileView />;
+      case 'player': return <PlayerView />;
+      case 'settings': return <SettingsView />;
+      case 'premium': return <PremiumView />;
+      case 'extra-premium': return <ExtraPremiumView />;
+      case 'rate': return <RateView />;
+      case 'donate': return <DonatePage />;
+      case 'asset-store': return <AssetStoreView />;
+      case 'epl-shop': return <EplShopView />;
+      case 'control':
+        if (effectiveRole === 'developer' || effectiveRole === 'admin' || effectiveRole === 'moderator') {
+          return <ControlView />;
+        }
+        return <StoreView />;
+      case 'leaderboards': return <LeaderboardsView />;
+      case 'news': return <NewsView />;
+      default: return <StoreView />;
+    }
+  };
+
+  if (tabOverlay?.code?.trim() && tabOverlay.position === 'replace') {
+    return (
+      <div className="h-full flex flex-col p-5 gap-4 overflow-y-auto">
+        {globalEpl && <EplEmbeddedRunner code={globalEpl} height={180} title="Global EPL Header" />}
+        <EplEmbeddedRunner code={tabOverlay.code} height={520} title={`EPL Module (${currentView})`} />
+      </div>
+    );
   }
+
+  const hasTop = !!globalEpl || (!!tabOverlay?.code?.trim() && tabOverlay.position === 'top');
+  const hasBottom = !!tabOverlay?.code?.trim() && tabOverlay.position === 'bottom';
+
+  if (!hasTop && !hasBottom) {
+    return renderBaseView();
+  }
+
+  return (
+    <div className="h-full flex flex-col min-h-0 overflow-y-auto">
+      {globalEpl && (
+        <div className="px-5 pt-4 shrink-0">
+          <EplEmbeddedRunner code={globalEpl} height={160} title="Global EPL Module" />
+        </div>
+      )}
+      {tabOverlay?.code?.trim() && tabOverlay.position === 'top' && (
+        <div className="px-5 pt-4 shrink-0">
+          <EplEmbeddedRunner code={tabOverlay.code} height={220} title={`EPL Top Overlay (${currentView})`} />
+        </div>
+      )}
+      <div className="flex-1 min-h-0">{renderBaseView()}</div>
+      {tabOverlay?.code?.trim() && tabOverlay.position === 'bottom' && (
+        <div className="px-5 pb-4 shrink-0">
+          <EplEmbeddedRunner code={tabOverlay.code} height={220} title={`EPL Bottom Overlay (${currentView})`} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function App() {
@@ -206,6 +290,25 @@ export default function App() {
               setIsPremium(resolvedTier !== 'none');
               setPremiumTier(resolvedTier);
             }
+            const cloudPurchasedShopIds = Array.isArray(data.purchasedItems)
+              ? data.purchasedItems
+                  .filter((p: any): p is string => typeof p === 'string' && p.startsWith('eplshop:'))
+                  .map((p: string) => p.slice('eplshop:'.length))
+              : [];
+            useStore.setState({
+              purchasedEplShopIds: Array.from(new Set(cloudPurchasedShopIds)),
+            });
+            if (data.activeEplShopSpec && data.activeEplShopItemId) {
+              useStore.setState({
+                appliedEplShopItemId: data.activeEplShopItemId,
+                appliedEplShopSpec: data.activeEplShopSpec,
+              });
+            } else if (data.activeEplShopItemId === null) {
+              useStore.setState({
+                appliedEplShopItemId: null,
+                appliedEplShopSpec: null,
+              });
+            }
             if (data.premiumExpiry) {
               const expiryDate = new Date(data.premiumExpiry);
               if (expiryDate < new Date()) {
@@ -225,6 +328,12 @@ export default function App() {
         setIsPremium(false);
         setPremiumTier('none');
         setPremiumExpiry(null);
+        useStore.setState({
+          purchasedEplShopIds: [],
+          appliedEplShopItemId: null,
+          appliedEplShopSpec: null,
+          previewEplShopSpec: null,
+        });
       }
     });
 
@@ -279,6 +388,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
+      <SiteTranslator />
       <Suspense
         fallback={
           <div className="fixed inset-0 flex items-center justify-center bg-[var(--bg-canvas)] text-[var(--accent-emerald)]">

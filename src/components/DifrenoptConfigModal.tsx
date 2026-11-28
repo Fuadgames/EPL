@@ -3,7 +3,7 @@ import {
   X, Cpu, Play, Plus, Search, Sparkles, CheckCircle2,
   AlertTriangle, Box, Gamepad2, LayoutDashboard, Code2, Eye, Layers,
   BookOpen, Check, Ban, Move, Trash2, ChevronDown, Puzzle, ArrowUp,
-  ArrowDown, Copy, CornerDownLeft, Wand2, ChevronRight
+  ArrowDown, Copy, CornerDownLeft, Wand2, ChevronRight, SlidersHorizontal, Wrench
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useStore } from '../store/useStore';
@@ -11,7 +11,9 @@ import CustomSelect from './CustomSelect';
 import DifrenoptViewport, { type VisualPatchEvent } from './DifrenoptViewport';
 import {
   DRPL_COMPONENTS,
+  DRPL_COMPONENT_BY_NAME,
   DRPL_COMPONENT_COLOR_MAP,
+  DRPL_SUBGROUPS,
   DRPL_TEMPLATES,
   type DrplCategory,
   type DrplComponentDef,
@@ -125,16 +127,28 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function normalizeColorInput(val: string, fallback = '#10b981'): string {
+  const s = val.trim().replace(/^["']|["']$/g, '');
+  if (/^#[0-9a-fA-F]{6}$/.test(s)) return s;
+  if (/^#[0-9a-fA-F]{3}$/.test(s)) {
+    return `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`;
+  }
+  return fallback;
+}
+
 function patchDrplSource(source: string, patch: VisualPatchEvent): string {
+  if (!patch || !patch.name) return source;
   const escapedName = escapeRegExp(patch.name);
-  const nameAttrRe = new RegExp(`\\bname\\s*=\\s*["']${escapedName}["']`);
+  const nameAttrRe = new RegExp(`\\b(?:name|id)\\s*=\\s*["']${escapedName}["']`);
 
   if (patch.type === 'add') {
     const trimmed = source.trimEnd();
     const needsUse3d = patch.mode === '3d' && !/\buse3d\s*\(/.test(trimmed);
     const needsUse2d = patch.mode === '2d' && !/\buse2d\s*\(/.test(trimmed);
+    const needsUseApp = patch.mode === 'app' && !/\b(?:useapp|use3d|use2d)\s*\(/.test(trimmed);
+    const idKey = patch.mode === 'app' && !('name' in patch.props) ? 'id' : 'name';
     const propsList = [
-      `name=${serializeDrplVal(patch.name)}`,
+      ...('id' in patch.props || 'name' in patch.props ? [] : [`${idKey}=${serializeDrplVal(patch.name)}`]),
       ...Object.entries(patch.props).map(([k, v]) => `${k}=${serializeDrplVal(v)}`)
     ];
     const newCall = `${patch.kind}(${propsList.join(', ')})`;
@@ -142,7 +156,9 @@ function patchDrplSource(source: string, patch: VisualPatchEvent): string {
       ? 'use3d(lighting="studio", bloom=1.0, shadows=true)\n'
       : needsUse2d
         ? 'use2d(bg="#060913", gravity=960, lighting=true)\n'
-        : '';
+        : needsUseApp
+          ? 'useapp(title="DRPL App", bg="#0a0c0e", accent="#10b981")\n'
+          : '';
     if (!trimmed) return `${prefix}${newCall}`;
     return `${trimmed}\n${prefix}${newCall}`;
   }
@@ -325,7 +341,11 @@ function parseDrplToBlocks(source: string): DrplBlockItem[] {
     const trimmed = raw.trim();
     if (!trimmed) continue;
 
-    if (!activeHook && /^(started\?|frame\?|update\?|render\?|clicked\?|key_pressed\?|timer_tick\?|collided\?)\b/.test(trimmed) && !trimmed.includes('{')) {
+    if (
+      !activeHook &&
+      /^(started\?|frame\?|update\?|render\?|clicked\?|key_pressed\?|timer_tick\?|collided\?)\b/i.test(trimmed) &&
+      (!trimmed.includes('{') || /\{\s*[a-zA-Z0-9_]+\s*=/.test(trimmed))
+    ) {
       activeHook = {
         id: makeBlockId(),
         kind: 'hook',
@@ -478,13 +498,29 @@ export default function DifrenoptConfigModal({
     initialDrplCode?.trim() ? initialDrplCode : ''
   );
   const [categoryFilter, setCategoryFilter] = useState<'all' | DrplCategory>('all');
+  const [subgroupFilter, setSubgroupFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [studioVisibleLimit, setStudioVisibleLimit] = useState(60);
+  const [guideVisibleLimit, setGuideVisibleLimit] = useState(60);
+  const [blockVisibleLimit, setBlockVisibleLimit] = useState(60);
   const [showLivePreview, setShowLivePreview] = useState(true);
   const [previewRevision, setPreviewRevision] = useState(0);
-  const [activeView, setActiveView] = useState<'studio' | 'blocks' | 'guide'>('studio');
+  const [activeView, setActiveView] = useState<'studio' | 'blocks' | 'customize' | 'guide'>('studio');
   const [isVisualEdit, setIsVisualEdit] = useState(false);
   const [showExamplePicker, setShowExamplePicker] = useState(false);
   const [exampleCategory, setExampleCategory] = useState<'all' | '3d' | '2d' | 'app'>('all');
+
+  // Component Customizer Modal State (configure ANY component before inserting)
+  const [customizingComp, setCustomizingComp] = useState<DrplComponentDef | null>(null);
+  const [customizerArgs, setCustomizerArgs] = useState<DrplArgPair[]>([]);
+  const [newParamKey, setNewParamKey] = useState('');
+  const [newParamVal, setNewParamVal] = useState('');
+
+  // Customize Tab Scene Inspector State
+  const [selectedSceneLineIdx, setSelectedSceneLineIdx] = useState<number | null>(null);
+  const [sceneNewAttrKey, setSceneNewAttrKey] = useState('');
+  const [sceneNewAttrVal, setSceneNewAttrVal] = useState('');
+  const [sceneAddSearch, setSceneAddSearch] = useState('');
 
   // Autocomplete State
   const [autocompleteOpen, setAutocompleteOpen] = useState(false);
@@ -504,9 +540,10 @@ export default function DifrenoptConfigModal({
   const highlightRef = useRef<HTMLPreElement>(null);
   const gutterInnerRef = useRef<HTMLDivElement>(null);
   const examplePickerRef = useRef<HTMLDivElement>(null);
+  const wasOpenRef = useRef(false);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !wasOpenRef.current) {
       const codeInit = initialDrplCode?.trim() ? initialDrplCode : '';
       setParams({ ...DEFAULT_PARAMS, ...(initialParams || {}) });
       setDrplCode(codeInit);
@@ -514,8 +551,11 @@ export default function DifrenoptConfigModal({
       setIsVisualEdit(false);
       setShowExamplePicker(false);
       setAutocompleteOpen(false);
+      setCustomizingComp(null);
+      setSelectedSceneLineIdx(null);
       setPreviewRevision(r => r + 1);
     }
+    wasOpenRef.current = isOpen;
   }, [isOpen, initialParams, initialDrplCode]);
 
   useEffect(() => {
@@ -640,7 +680,7 @@ export default function DifrenoptConfigModal({
       const rawTop = 12 + (lineIdx + 1) * 24 - el.scrollTop;
       const clampedTop = Math.max(8, Math.min(rawTop, Math.max(8, wrapH - 236)));
       const rawLeft = 12 + colIdx * 7.22 - el.scrollLeft;
-      const clampedLeft = Math.max(8, Math.min(rawLeft, Math.max(8, wrapW - 330)));
+      const clampedLeft = Math.max(8, Math.min(rawLeft, Math.max(8, wrapW - 260)));
 
       setAutocompletePos({ top: clampedTop, left: clampedLeft });
       setAutocompleteRange({ start: wordStart, end: caret });
@@ -685,21 +725,98 @@ export default function DifrenoptConfigModal({
     [autocompleteRange, drplCode]
   );
 
+  const availableSubgroups = useMemo(() => {
+    return DRPL_SUBGROUPS[categoryFilter] || [];
+  }, [categoryFilter]);
+
   const filteredComponents = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
     return DRPL_COMPONENTS.filter(c => {
       if (categoryFilter !== 'all' && c.category !== categoryFilter) return false;
+      if (subgroupFilter !== 'all' && (c.subgroup || 'Core') !== subgroupFilter) return false;
       if (!q) return true;
       return (
         c.name.toLowerCase().includes(q) ||
         c.signature.toLowerCase().includes(q) ||
+        (c.subgroup || '').toLowerCase().includes(q) ||
         c.roleRu.toLowerCase().includes(q) ||
         c.roleEn.toLowerCase().includes(q) ||
         c.descriptionRu.toLowerCase().includes(q) ||
         c.descriptionEn.toLowerCase().includes(q)
       );
     });
-  }, [categoryFilter, searchQuery]);
+  }, [categoryFilter, subgroupFilter, searchQuery]);
+
+  useEffect(() => {
+    setStudioVisibleLimit(60);
+    setGuideVisibleLimit(60);
+  }, [categoryFilter, subgroupFilter, searchQuery]);
+
+  useEffect(() => {
+    setBlockVisibleLimit(60);
+  }, [blockPaletteTab, blockSearch]);
+
+  const openComponentCustomizer = useCallback((comp: DrplComponentDef) => {
+    const parsed = parseSingleBlockLine(comp.snippet);
+    const args: DrplArgPair[] = parsed.args && parsed.args.length > 0
+      ? parsed.args
+      : [{ key: comp.category === 'app' ? 'id' : 'name', value: `"${comp.name}_1"` }];
+    setCustomizingComp(comp);
+    setCustomizerArgs(args);
+    setNewParamKey('');
+    setNewParamVal('');
+  }, []);
+
+  const buildCustomizedCallLine = useCallback((compName: string, args: DrplArgPair[]): string => {
+    const str = args
+      .filter(a => a.key.trim() !== '' && a.value.trim() !== '')
+      .map(a => (/^arg\d+$/.test(a.key) ? a.value : `${a.key.trim()}=${a.value.trim()}`))
+      .join(', ');
+    return `${compName}(${str})`;
+  }, []);
+
+  // Parsed Scene Component Nodes across drplCode for Customize Tab
+  const sceneNodes = useMemo(() => {
+    const lines = drplCode.split('\n');
+    const nodes: Array<{
+      lineIdx: number;
+      indent: string;
+      compName: string;
+      def?: DrplComponentDef;
+      args: DrplArgPair[];
+      rawLine: string;
+    }> = [];
+    lines.forEach((rawLine, lineIdx) => {
+      const m = rawLine.match(/^(\s*)([a-zA-Z_][a-zA-Z0-9_]*)\(([\s\S]*)\)\s*;?\s*$/);
+      if (!m) return;
+      const compName = m[2];
+      const def = DRPL_COMPONENT_BY_NAME.get(compName);
+      if (!def && !DRPL_COMPONENT_COLOR_MAP[compName]) return;
+      const parts = splitTopLevelArgs(m[3]);
+      const args: DrplArgPair[] = parts.map((p, idx) => {
+        const eqIdx = p.indexOf('=');
+        if (eqIdx > 0 && /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(p.slice(0, eqIdx).trim())) {
+          return { key: p.slice(0, eqIdx).trim(), value: p.slice(eqIdx + 1).trim() };
+        }
+        return { key: `arg${idx + 1}`, value: p };
+      });
+      nodes.push({ lineIdx, indent: m[1], compName, def, args, rawLine });
+    });
+    return nodes;
+  }, [drplCode]);
+
+  const updateSceneNodeArgs = useCallback((lineIdx: number, compName: string, indent: string, nextArgs: DrplArgPair[]) => {
+    const str = nextArgs
+      .filter(a => a.key.trim() !== '' && a.value.trim() !== '')
+      .map(a => (/^arg\d+$/.test(a.key) ? a.value.trim() : `${a.key.trim()}=${a.value.trim()}`))
+      .join(', ');
+    setDrplCode(prev => {
+      const lines = prev.split('\n');
+      if (lineIdx < 0 || lineIdx >= lines.length) return prev;
+      lines[lineIdx] = `${indent}${compName}(${str})`;
+      return lines.join('\n');
+    });
+  }, []);
 
   const syncBlocksToCode = useCallback((nextTree: DrplBlockItem[]) => {
     setBlocksTree(nextTree);
@@ -707,7 +824,7 @@ export default function DifrenoptConfigModal({
     setDrplCode(nextCode);
   }, []);
 
-  const switchView = (next: 'studio' | 'blocks' | 'guide') => {
+  const switchView = (next: 'studio' | 'blocks' | 'customize' | 'guide') => {
     if (next === 'blocks') {
       setBlocksTree(parseDrplToBlocks(drplCode));
     }
@@ -758,12 +875,10 @@ export default function DifrenoptConfigModal({
   };
 
   const handleVisualPatch = (patch: VisualPatchEvent) => {
-    setDrplCode(prev => {
-      if (patch.type === 'add' && !prev.trim()) {
-        setParams(p => ({ ...p, mode: patch.mode }));
-      }
-      return patchDrplSource(prev, patch);
-    });
+    if (patch.type === 'add' && !drplCode.trim()) {
+      setParams(p => ({ ...p, mode: patch.mode }));
+    }
+    setDrplCode(prev => patchDrplSource(prev, patch));
   };
 
   const handleEditorScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
@@ -939,11 +1054,11 @@ export default function DifrenoptConfigModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/75 p-2 sm:p-4">
+    <div className="fixed inset-0 z-[220] flex items-center justify-center bg-black/75 p-1.5 sm:p-4">
       <div
         onClick={e => e.stopPropagation()}
         className={clsx(
-          'w-full max-w-[1440px] h-[94vh] rounded-2xl border flex flex-col overflow-hidden shadow-2xl',
+          'w-full max-w-[1440px] h-[96dvh] rounded-xl sm:rounded-2xl border flex flex-col overflow-hidden shadow-2xl',
           isLight
             ? 'bg-white border-[#E2E5EA] text-[#111315]'
             : 'bg-[#111315] border-[#262B33] text-[#F3F4F6]'
@@ -968,17 +1083,17 @@ export default function DifrenoptConfigModal({
               </div>
               <p className={clsx('text-xs', isLight ? 'text-slate-500' : 'text-[#9CA3AF]')}>
                 {language === 'ru'
-                  ? `DRPL (${DRPL_COMPONENTS.length} компонентов • Tab-подсказки • Блочный режим)`
-                  : `DRPL (${DRPL_COMPONENTS.length} Components • Tab Autocomplete • Block Coding)`}
+                  ? `DRPL (${DRPL_COMPONENTS.length} компонентов • Конструктор • Tab-подсказки • Блоки)`
+                  : `DRPL (${DRPL_COMPONENTS.length} Components • Customizer • Tab Autocomplete • Blocks)`}
               </p>
             </div>
           </div>
 
           {/* Primary Action & Mode Switch Bar */}
           <div className="flex flex-wrap items-center gap-2">
-            {/* Mode Switcher: Code Studio | Block Coding | DRPL Guide */}
+            {/* Mode Switcher: Code Studio | Block Coding | Customize | DRPL Guide */}
             <div className={clsx(
-              'flex items-center rounded-lg border p-0.5',
+              'flex flex-wrap items-center rounded-lg border p-0.5',
               isLight ? 'bg-slate-100 border-[#E2E5EA]' : 'bg-[#0D1014] border-[#262B33]'
             )}>
               <button
@@ -1006,6 +1121,19 @@ export default function DifrenoptConfigModal({
               >
                 <Puzzle className="w-3.5 h-3.5" />
                 <span>{language === 'ru' ? 'Блоки' : 'Block Coding'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => switchView('customize')}
+                className={clsx(
+                  'px-2.5 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-colors',
+                  activeView === 'customize'
+                    ? 'bg-amber-500 text-[#0A0C0E]'
+                    : isLight ? 'text-slate-600 hover:text-slate-900' : 'text-[#9CA3AF] hover:text-white'
+                )}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+                <span>{language === 'ru' ? 'Конструктор' : 'Customize'}</span>
               </button>
               <button
                 type="button"
@@ -1044,7 +1172,7 @@ export default function DifrenoptConfigModal({
               {showExamplePicker && (
                 <div
                   className={clsx(
-                    'absolute right-0 mt-2 w-80 sm:w-96 rounded-xl border shadow-2xl z-50 p-3 space-y-2.5',
+                    'fixed sm:absolute left-2 right-2 sm:left-auto sm:right-0 mt-2 sm:w-96 rounded-xl border shadow-2xl z-50 p-3 space-y-2.5',
                     isLight ? 'bg-white border-[#E2E5EA]' : 'bg-[#16191E] border-[#262B33]'
                   )}
                 >
@@ -1540,7 +1668,10 @@ export default function DifrenoptConfigModal({
                   <button
                     key={cat}
                     type="button"
-                    onClick={() => setCategoryFilter(cat)}
+                    onClick={() => {
+                      setCategoryFilter(cat);
+                      setSubgroupFilter('all');
+                    }}
                     className={clsx(
                       'px-3 py-1.5 rounded-lg text-xs font-semibold uppercase cursor-pointer transition-colors',
                       categoryFilter === cat
@@ -1556,9 +1687,41 @@ export default function DifrenoptConfigModal({
               </div>
             </div>
 
-            {/* Full Color-Coded Component Directory Grid */}
+            {availableSubgroups.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setSubgroupFilter('all')}
+                  className={clsx(
+                    'px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer transition-colors',
+                    subgroupFilter === 'all'
+                      ? 'bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/45'
+                      : isLight ? 'bg-white border border-[#E2E5EA] text-slate-600' : 'bg-[#14171C] border border-[#262B33] text-[#9CA3AF]'
+                  )}
+                >
+                  {language === 'ru' ? 'Все разделы' : 'All Groups'}
+                </button>
+                {availableSubgroups.map(sg => (
+                  <button
+                    key={sg}
+                    type="button"
+                    onClick={() => setSubgroupFilter(sg)}
+                    className={clsx(
+                      'px-2.5 py-1 rounded-md text-[11px] font-semibold cursor-pointer transition-colors',
+                      subgroupFilter === sg
+                        ? 'bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/45'
+                        : isLight ? 'bg-white border border-[#E2E5EA] text-slate-600' : 'bg-[#14171C] border border-[#262B33] text-[#9CA3AF]'
+                    )}
+                  >
+                    {sg}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Full Color-Coded Component Directory Grid (Paginated) */}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-              {filteredComponents.map((comp: DrplComponentDef) => (
+              {filteredComponents.slice(0, guideVisibleLimit).map((comp: DrplComponentDef) => (
                 <div
                   key={comp.id}
                   style={{ borderColor: `${comp.color}55` }}
@@ -1578,7 +1741,7 @@ export default function DifrenoptConfigModal({
                           {comp.name}
                         </span>
                         <span
-                          className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded border"
+                          className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded border shrink-0"
                           style={{
                             color: comp.color,
                             borderColor: `${comp.color}40`,
@@ -1588,22 +1751,35 @@ export default function DifrenoptConfigModal({
                           {comp.category}
                         </span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          insertSnippet(comp.snippet);
-                          setActiveView('studio');
-                        }}
-                        style={{
-                          color: comp.color,
-                          borderColor: `${comp.color}50`,
-                          backgroundColor: `${comp.color}1A`
-                        }}
-                        className="px-2 py-1 rounded-md border text-[11px] font-bold flex items-center gap-1 cursor-pointer shrink-0 hover:brightness-110"
-                      >
-                        <Plus className="w-3 h-3" />
-                        <span>{language === 'ru' ? 'В код' : 'Insert'}</span>
-                      </button>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => openComponentCustomizer(comp)}
+                          className={clsx(
+                            'p-1 rounded-md border text-[11px] cursor-pointer',
+                            isLight ? 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100' : 'bg-[#0A0C0E] border-[#262B33] text-[#9CA3AF] hover:text-white'
+                          )}
+                          title={language === 'ru' ? 'Настроить параметры' : 'Customize parameters'}
+                        >
+                          <SlidersHorizontal className="w-3 h-3" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            insertSnippet(comp.snippet);
+                            setActiveView('studio');
+                          }}
+                          style={{
+                            color: comp.color,
+                            borderColor: `${comp.color}50`,
+                            backgroundColor: `${comp.color}1A`
+                          }}
+                          className="px-2 py-1 rounded-md border text-[11px] font-bold flex items-center gap-1 cursor-pointer hover:brightness-110"
+                        >
+                          <Plus className="w-3 h-3" />
+                          <span>{language === 'ru' ? 'В код' : 'Insert'}</span>
+                        </button>
+                      </div>
                     </div>
 
                     <div className={clsx('text-xs leading-snug', isLight ? 'text-slate-700' : 'text-[#E5E7EB]')}>
@@ -1644,6 +1820,20 @@ export default function DifrenoptConfigModal({
                 </div>
               ))}
             </div>
+
+            {filteredComponents.length > guideVisibleLimit && (
+              <div className="flex items-center justify-center pt-2">
+                <button
+                  type="button"
+                  onClick={() => setGuideVisibleLimit(l => l + 60)}
+                  className="px-4 py-2 rounded-xl border border-[#10B981]/45 bg-[#10B981]/15 hover:bg-[#10B981]/25 text-[#10B981] text-xs font-bold cursor-pointer"
+                >
+                  {language === 'ru'
+                    ? `Показать ещё (+60) • Показано ${guideVisibleLimit} из ${filteredComponents.length}`
+                    : `Show more (+60) • Showing ${guideVisibleLimit} of ${filteredComponents.length}`}
+                </button>
+              </div>
+            )}
           </div>
         ) : activeView === 'blocks' ? (
           /* ============================================================ */
@@ -1653,7 +1843,7 @@ export default function DifrenoptConfigModal({
             {/* LEFT PALETTE: Events, Logic, 3D, 2D, App */}
             <div
               className={clsx(
-                'w-full lg:w-80 border-b lg:border-b-0 lg:border-r flex flex-col shrink-0 h-56 lg:h-auto overflow-hidden',
+                'w-full lg:w-80 border-b lg:border-b-0 lg:border-r flex flex-col shrink-0 h-44 sm:h-52 lg:h-auto overflow-hidden',
                 isLight ? 'bg-[#F8FAFC] border-[#E2E5EA]' : 'bg-[#16191E] border-[#262B33]'
               )}
             >
@@ -1778,39 +1968,78 @@ export default function DifrenoptConfigModal({
                   </>
                 )}
 
-                {(blockPaletteTab === '3d' || blockPaletteTab === '2d' || blockPaletteTab === 'app') &&
-                  DRPL_COMPONENTS.filter(c => {
+                {(blockPaletteTab === '3d' || blockPaletteTab === '2d' || blockPaletteTab === 'app') && (() => {
+                  const blockMatches = DRPL_COMPONENTS.filter(c => {
                     if (c.category !== blockPaletteTab) return false;
                     const q = blockSearch.trim().toLowerCase();
                     if (!q) return true;
                     return (
                       c.name.toLowerCase().includes(q) ||
+                      (c.subgroup || '').toLowerCase().includes(q) ||
                       c.roleRu.toLowerCase().includes(q) ||
                       c.roleEn.toLowerCase().includes(q)
                     );
-                  }).map(comp => (
-                    <button
-                      key={comp.id}
-                      type="button"
-                      onClick={() => addBlockFromSnippet(comp.snippet)}
-                      style={{ borderColor: `${comp.color}50` }}
-                      className={clsx(
-                        'w-full text-left p-2.5 rounded-xl border transition-colors cursor-pointer space-y-1',
-                        isLight ? 'bg-white hover:bg-slate-50' : 'bg-[#111315] hover:bg-[#191E26]'
+                  });
+                  return (
+                    <>
+                      {blockMatches.slice(0, blockVisibleLimit).map(comp => (
+                        <div
+                          key={comp.id}
+                          style={{ borderColor: `${comp.color}50` }}
+                          className={clsx(
+                            'w-full p-2 rounded-xl border transition-colors space-y-1',
+                            isLight ? 'bg-white hover:bg-slate-50' : 'bg-[#111315] hover:bg-[#191E26]'
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => addBlockFromSnippet(comp.snippet)}
+                              className="flex-1 min-w-0 text-left flex items-center gap-1.5 cursor-pointer"
+                            >
+                              <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: comp.color }} />
+                              <span className="font-mono font-bold text-xs truncate" style={{ color: comp.color }}>
+                                {comp.name}
+                              </span>
+                            </button>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => openComponentCustomizer(comp)}
+                                className="p-1 rounded border border-[#262B33] text-[#9CA3AF] hover:text-white cursor-pointer"
+                                title={language === 'ru' ? 'Настроить перед добавлением' : 'Customize before adding'}
+                              >
+                                <SlidersHorizontal className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => addBlockFromSnippet(comp.snippet)}
+                                className="p-1 rounded border border-[#262B33] hover:brightness-125 cursor-pointer"
+                                style={{ color: comp.color }}
+                              >
+                                <Plus className="w-3 h-3" />
+                              </button>
+                            </div>
+                          </div>
+                          <div className="text-[11px] opacity-75 truncate">
+                            {language === 'ru' ? comp.roleRu : comp.roleEn}
+                          </div>
+                        </div>
+                      ))}
+                      {blockMatches.length > blockVisibleLimit && (
+                        <button
+                          type="button"
+                          onClick={() => setBlockVisibleLimit(l => l + 60)}
+                          className="w-full py-2 rounded-lg border border-violet-500/40 bg-violet-500/10 text-violet-300 text-xs font-bold cursor-pointer"
+                        >
+                          {language === 'ru'
+                            ? `Показать ещё (${blockVisibleLimit}/${blockMatches.length})`
+                            : `Show more (${blockVisibleLimit}/${blockMatches.length})`}
+                        </button>
                       )}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-mono font-bold text-xs flex items-center gap-1.5" style={{ color: comp.color }}>
-                          <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: comp.color }} />
-                          {comp.name}
-                        </span>
-                        <Plus className="w-3.5 h-3.5 shrink-0" style={{ color: comp.color }} />
-                      </div>
-                      <div className="text-[11px] opacity-75 truncate">
-                        {language === 'ru' ? comp.roleRu : comp.roleEn}
-                      </div>
-                    </button>
-                  ))}
+                    </>
+                  );
+                })()}
               </div>
             </div>
 
@@ -2025,7 +2254,395 @@ export default function DifrenoptConfigModal({
 
             {/* RIGHT: Live Preview Viewport */}
             {showLivePreview && (
-              <div className="w-full lg:w-[44%] xl:w-[46%] h-72 lg:h-auto border-t lg:border-t-0 lg:border-l border-[#262B33] bg-[#07090C] relative shrink-0 overflow-hidden">
+              <div className="w-full lg:w-[44%] xl:w-[46%] h-56 sm:h-72 lg:h-auto border-t lg:border-t-0 lg:border-l border-[#262B33] bg-[#07090C] relative shrink-0 overflow-hidden">
+                <DifrenoptViewport
+                  key={previewRevision}
+                  entity={previewEntity}
+                  editMode={isVisualEdit}
+                  onVisualPatch={handleVisualPatch}
+                />
+              </div>
+            )}
+          </div>
+        ) : activeView === 'customize' ? (
+          /* ============================================================ */
+          /* UNIVERSAL CUSTOMIZE & CONFIGURE ANYTHING WORKSPACE           */
+          /* ============================================================ */
+          <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
+            {/* LEFT: World Settings + Scene Object Hierarchy + Quick Add */}
+            <div
+              className={clsx(
+                'w-full lg:w-80 xl:w-96 border-b lg:border-b-0 lg:border-r flex flex-col shrink-0 h-56 sm:h-64 lg:h-auto overflow-hidden',
+                isLight ? 'bg-[#F8FAFC] border-[#E2E5EA]' : 'bg-[#16191E] border-[#262B33]'
+              )}
+            >
+              <div className="p-3 border-b border-[#262B33]/60 space-y-2.5 overflow-y-auto max-h-60 custom-scrollbar">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                    <Wrench className="w-3.5 h-3.5" />
+                    <span>{language === 'ru' ? 'Настройки мира и движка' : 'World & Engine Settings'}</span>
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[11px]">
+                  <label className="space-y-1">
+                    <span className="text-[#9CA3AF] font-mono">Mode</span>
+                    <select
+                      value={params.mode || '3d'}
+                      onChange={e => setParams(prev => ({ ...prev, mode: e.target.value }))}
+                      className={clsx('w-full px-2 py-1 rounded border text-xs', isLight ? 'bg-white border-[#E2E5EA]' : 'bg-[#0A0C0E] border-[#262B33] text-[#F3F4F6]')}
+                    >
+                      <option value="3d">3D PBR Engine</option>
+                      <option value="2d">2D HiDPI Engine</option>
+                      <option value="app">Pro App Studio</option>
+                      <option value="hybrid">Hybrid 3D + 2D</option>
+                    </select>
+                  </label>
+                  <label className="space-y-1">
+                    <span className="text-[#9CA3AF] font-mono">Quality</span>
+                    <select
+                      value={params.quality || 'ultra'}
+                      onChange={e => setParams(prev => ({ ...prev, quality: e.target.value }))}
+                      className={clsx('w-full px-2 py-1 rounded border text-xs', isLight ? 'bg-white border-[#E2E5EA]' : 'bg-[#0A0C0E] border-[#262B33] text-[#F3F4F6]')}
+                    >
+                      <option value="ultra">Ultra</option>
+                      <option value="high">High</option>
+                      <option value="balanced">Balanced</option>
+                      <option value="perf">Performance</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {!sceneNodes.some(n => ['use3d', 'use2d', 'useapp'].includes(n.compName)) && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setParams(p => ({ ...p, mode: '3d' }));
+                          setDrplCode(prev => `use3d(lighting="studio", bloom=1.1, shadows=true, fog=true)\n${prev}`.trim());
+                        }}
+                        className="px-2 py-1 rounded bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-[10px] font-bold cursor-pointer"
+                      >
+                        + use3d
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setParams(p => ({ ...p, mode: '2d' }));
+                          setDrplCode(prev => `use2d(bg="#060913", gravity=960, lighting=true)\n${prev}`.trim());
+                        }}
+                        className="px-2 py-1 rounded bg-teal-500/15 border border-teal-500/40 text-teal-400 text-[10px] font-bold cursor-pointer"
+                      >
+                        + use2d
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setParams(p => ({ ...p, mode: 'app' }));
+                          setDrplCode(prev => `useapp(title="DRPL App", bg="#0a0c0e", accent="#10b981")\n${prev}`.trim());
+                        }}
+                        className="px-2 py-1 rounded bg-indigo-500/15 border border-indigo-500/40 text-indigo-400 text-[10px] font-bold cursor-pointer"
+                      >
+                        + useapp
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* Scene Hierarchy List */}
+              <div className="px-3 py-2 border-b border-[#262B33]/60 flex items-center justify-between gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-[#10B981]">
+                  {language === 'ru' ? `Объекты сцены (${sceneNodes.length})` : `Scene Nodes (${sceneNodes.length})`}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => switchView('studio')}
+                  className="text-[11px] font-semibold text-amber-400 hover:underline cursor-pointer"
+                >
+                  {language === 'ru' ? '+ Библиотека (2000+)' : '+ Library (2000+)'}
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-2 space-y-1.5 custom-scrollbar">
+                {sceneNodes.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-[#9CA3AF] space-y-2">
+                    <p>{language === 'ru' ? 'Сцена пуста. Добавьте любой компонент ниже!' : 'Scene is empty. Add any component below!'}</p>
+                  </div>
+                ) : (
+                  sceneNodes.map(node => {
+                    const col = node.def?.color || DRPL_COMPONENT_COLOR_MAP[node.compName] || '#10b981';
+                    const idArg = node.args.find(a => a.key === 'name' || a.key === 'id');
+                    const label = idArg ? idArg.value.replace(/^["']|["']$/g, '') : node.compName;
+                    const active = selectedSceneLineIdx === node.lineIdx;
+                    return (
+                      <button
+                        key={`${node.lineIdx}_${node.compName}`}
+                        type="button"
+                        onClick={() => setSelectedSceneLineIdx(node.lineIdx)}
+                        style={{ borderColor: active ? col : `${col}40` }}
+                        className={clsx(
+                          'w-full text-left p-2 rounded-lg border flex items-center justify-between gap-2 cursor-pointer transition-colors',
+                          active
+                            ? 'bg-[#10B981]/12 ring-1 ring-[#10B981]/40'
+                            : isLight ? 'bg-white hover:bg-slate-50' : 'bg-[#111315] hover:bg-[#191E26]'
+                        )}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: col }} />
+                          <div className="min-w-0">
+                            <div className="font-mono text-xs font-bold truncate" style={{ color: col }}>{node.compName}</div>
+                            <div className="text-[10px] text-[#9CA3AF] truncate">{label} • {node.args.length} params</div>
+                          </div>
+                        </div>
+                        <span className="text-[10px] font-mono text-[#6B7280]">L{node.lineIdx + 1}</span>
+                      </button>
+                    );
+                  })
+                )}
+
+                {/* Quick Add Any of 2000+ Components Directly Inside Customize */}
+                <div className="pt-2 mt-2 border-t border-[#262B33]/60 space-y-1.5">
+                  <input
+                    type="text"
+                    value={sceneAddSearch}
+                    onChange={e => setSceneAddSearch(e.target.value)}
+                    placeholder={language === 'ru' ? 'Быстро добавить из 2000+...' : 'Quick add from 2000+...'}
+                    className={clsx(
+                      'w-full px-2.5 py-1.5 rounded-lg border text-xs focus:outline-none focus:border-amber-400',
+                      isLight ? 'bg-white border-[#E2E5EA]' : 'bg-[#0A0C0E] border-[#262B33] text-[#F3F4F6]'
+                    )}
+                  />
+                  <div className="flex flex-wrap gap-1">
+                    {DRPL_COMPONENTS.filter(c => {
+                      const q = sceneAddSearch.trim().toLowerCase();
+                      if (!q) return true;
+                      return c.name.toLowerCase().includes(q) || c.roleRu.toLowerCase().includes(q) || c.roleEn.toLowerCase().includes(q);
+                    }).slice(0, 18).map(comp => (
+                      <button
+                        key={comp.id}
+                        type="button"
+                        onClick={() => openComponentCustomizer(comp)}
+                        style={{ borderColor: `${comp.color}55`, color: comp.color, backgroundColor: `${comp.color}16` }}
+                        className="px-2 py-0.5 rounded border text-[10px] font-mono font-bold cursor-pointer hover:brightness-125"
+                      >
+                        + {comp.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* CENTER: Selected Node Full Parameter Inspector */}
+            <div className="flex-1 min-w-0 flex flex-col overflow-hidden bg-[#0C0E12]">
+              {(() => {
+                const selectedNode = sceneNodes.find(n => n.lineIdx === selectedSceneLineIdx) || sceneNodes[0] || null;
+                if (!selectedNode) {
+                  return (
+                    <div className="flex-1 flex flex-col items-center justify-center p-8 text-center text-[#9CA3AF] space-y-3">
+                      <SlidersHorizontal className="w-10 h-10 text-amber-400 opacity-75" />
+                      <div className="text-sm font-bold text-[#F3F4F6]">
+                        {language === 'ru' ? 'Конструктор DRPL готов' : 'DRPL Universal Customizer'}
+                      </div>
+                      <p className="text-xs max-w-md">
+                        {language === 'ru'
+                          ? 'Добавьте любой из 2000+ компонентов слева или выберите шаблон «Добавить пример», чтобы настраивать каждый объект, цвет, размер, физику, UI и логику.'
+                          : 'Add any of 2000+ components on the left or pick a template to customize coordinates, colors, physics, UI, and custom attributes.'}
+                      </p>
+                    </div>
+                  );
+                }
+
+                const nodeCol = selectedNode.def?.color || DRPL_COMPONENT_COLOR_MAP[selectedNode.compName] || '#10b981';
+                return (
+                  <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-[#262B33]">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="w-3.5 h-3.5 rounded shrink-0" style={{ backgroundColor: nodeCol }} />
+                        <div>
+                          <div className="font-mono font-bold text-sm" style={{ color: nodeCol }}>{selectedNode.compName}</div>
+                          <div className="text-[11px] text-[#9CA3AF]">
+                            {selectedNode.def ? (language === 'ru' ? selectedNode.def.roleRu : selectedNode.def.roleEn) : `Line ${selectedNode.lineIdx + 1}`}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDrplCode(prev => {
+                              const lines = prev.split('\n');
+                              lines.splice(selectedNode.lineIdx + 1, 0, selectedNode.rawLine);
+                              return lines.join('\n');
+                            });
+                          }}
+                          className="px-2.5 py-1 rounded-lg border border-[#262B33] bg-[#14171C] hover:border-[#10B981]/50 text-xs text-[#E5E7EB] flex items-center gap-1 cursor-pointer"
+                        >
+                          <Copy className="w-3 h-3" />
+                          <span>{language === 'ru' ? 'Дублировать' : 'Duplicate'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDrplCode(prev => {
+                              const lines = prev.split('\n');
+                              lines.splice(selectedNode.lineIdx, 1);
+                              return lines.join('\n');
+                            });
+                            setSelectedSceneLineIdx(null);
+                          }}
+                          className="px-2.5 py-1 rounded-lg border border-rose-500/40 bg-rose-500/15 hover:bg-rose-500/25 text-xs text-rose-400 flex items-center gap-1 cursor-pointer"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          <span>{language === 'ru' ? 'Удалить' : 'Delete'}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* All Editable Parameters */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {selectedNode.args.map((arg, aIdx) => {
+                        const isColorKey = /color|accent|glow|bg|border/i.test(arg.key);
+                        const isBoolVal = arg.value === 'true' || arg.value === 'false';
+                        const isNumVal = /^-?\d+(?:\.\d+)?$/.test(arg.value);
+                        return (
+                          <div key={`${arg.key}_${aIdx}`} className="p-2.5 rounded-xl border border-[#262B33] bg-[#14171C] space-y-1.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-mono text-xs font-bold text-[#93C5FD]">{arg.key}</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const nextArgs = selectedNode.args.filter((_, i) => i !== aIdx);
+                                  updateSceneNodeArgs(selectedNode.lineIdx, selectedNode.compName, selectedNode.indent, nextArgs);
+                                }}
+                                className="text-[#6B7280] hover:text-rose-400 cursor-pointer"
+                                title="Remove parameter"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </div>
+
+                            {isColorKey ? (
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="color"
+                                  value={normalizeColorInput(arg.value, '#10b981')}
+                                  onChange={e => {
+                                    const nextArgs = selectedNode.args.map((it, i) => (i === aIdx ? { ...it, value: `"${e.target.value}"` } : it));
+                                    updateSceneNodeArgs(selectedNode.lineIdx, selectedNode.compName, selectedNode.indent, nextArgs);
+                                  }}
+                                  className="w-8 h-7 rounded border border-[#262B33] bg-transparent cursor-pointer shrink-0"
+                                />
+                                <input
+                                  type="text"
+                                  value={arg.value}
+                                  onChange={e => {
+                                    const nextArgs = selectedNode.args.map((it, i) => (i === aIdx ? { ...it, value: e.target.value } : it));
+                                    updateSceneNodeArgs(selectedNode.lineIdx, selectedNode.compName, selectedNode.indent, nextArgs);
+                                  }}
+                                  className="flex-1 min-w-0 px-2 py-1 rounded bg-[#0A0C0E] border border-[#262B33] font-mono text-xs text-[#FDBA74] focus:outline-none focus:border-amber-400"
+                                />
+                              </div>
+                            ) : isBoolVal ? (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const nextVal = arg.value === 'true' ? 'false' : 'true';
+                                  const nextArgs = selectedNode.args.map((it, i) => (i === aIdx ? { ...it, value: nextVal } : it));
+                                  updateSceneNodeArgs(selectedNode.lineIdx, selectedNode.compName, selectedNode.indent, nextArgs);
+                                }}
+                                className={clsx(
+                                  'w-full py-1.5 rounded-lg border font-mono text-xs font-bold cursor-pointer',
+                                  arg.value === 'true'
+                                    ? 'bg-[#10B981]/20 border-[#10B981]/50 text-[#10B981]'
+                                    : 'bg-[#0A0C0E] border-[#262B33] text-[#9CA3AF]'
+                                )}
+                              >
+                                {arg.value}
+                              </button>
+                            ) : (
+                              <input
+                                type={isNumVal ? 'number' : 'text'}
+                                step={isNumVal ? 'any' : undefined}
+                                value={arg.value}
+                                onChange={e => {
+                                  const nextArgs = selectedNode.args.map((it, i) => (i === aIdx ? { ...it, value: e.target.value } : it));
+                                  updateSceneNodeArgs(selectedNode.lineIdx, selectedNode.compName, selectedNode.indent, nextArgs);
+                                }}
+                                className="w-full px-2.5 py-1.5 rounded-lg bg-[#0A0C0E] border border-[#262B33] font-mono text-xs text-[#FDBA74] focus:outline-none focus:border-amber-400"
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Add Any Custom Parameter */}
+                    <div className="p-3 rounded-xl border border-dashed border-[#262B33] bg-[#111315] space-y-2">
+                      <div className="text-xs font-bold text-amber-400">
+                        {language === 'ru' ? '+ Добавить любой параметр (x, y, z, rx, ry, rz, scale, spin, opacity, speed...)' : '+ Add Custom Attribute (x, y, z, rx, ry, rz, scale, spin, opacity...)'}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          ['rx', '0'], ['ry', '45'], ['rz', '0'], ['scale', '1.5'],
+                          ['spin', '1.2'], ['emissive', 'true'], ['opacity', '0.85'], ['glow', '"#38bdf8"']
+                        ].map(([pk, pv]) => (
+                          <button
+                            key={pk}
+                            type="button"
+                            onClick={() => {
+                              if (selectedNode.args.some(a => a.key === pk)) return;
+                              updateSceneNodeArgs(selectedNode.lineIdx, selectedNode.compName, selectedNode.indent, [...selectedNode.args, { key: pk, value: pv }]);
+                            }}
+                            className="px-2 py-0.5 rounded bg-[#0A0C0E] border border-[#262B33] hover:border-amber-400 text-[10px] font-mono text-[#93C5FD] cursor-pointer"
+                          >
+                            + {pk}={pv}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={sceneNewAttrKey}
+                          onChange={e => setSceneNewAttrKey(e.target.value)}
+                          placeholder="key (e.g. speed)"
+                          className="w-36 px-2.5 py-1.5 rounded-lg bg-[#0A0C0E] border border-[#262B33] font-mono text-xs text-[#93C5FD] focus:outline-none focus:border-amber-400"
+                        />
+                        <input
+                          type="text"
+                          value={sceneNewAttrVal}
+                          onChange={e => setSceneNewAttrVal(e.target.value)}
+                          placeholder='value (e.g. 2.5 or "hi")'
+                          className="flex-1 min-w-0 px-2.5 py-1.5 rounded-lg bg-[#0A0C0E] border border-[#262B33] font-mono text-xs text-[#FDBA74] focus:outline-none focus:border-amber-400"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const k = sceneNewAttrKey.trim();
+                            const v = sceneNewAttrVal.trim();
+                            if (!k || !v) return;
+                            const exists = selectedNode.args.findIndex(a => a.key === k);
+                            const nextArgs = exists >= 0
+                              ? selectedNode.args.map((a, idx) => (idx === exists ? { ...a, value: v } : a))
+                              : [...selectedNode.args, { key: k, value: v }];
+                            updateSceneNodeArgs(selectedNode.lineIdx, selectedNode.compName, selectedNode.indent, nextArgs);
+                            setSceneNewAttrKey('');
+                            setSceneNewAttrVal('');
+                          }}
+                          className="px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-[#0A0C0E] text-xs font-bold cursor-pointer"
+                        >
+                          {language === 'ru' ? 'Добавить' : 'Add'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* RIGHT: Live Preview Viewport */}
+            {showLivePreview && (
+              <div className="w-full lg:w-[44%] xl:w-[46%] h-56 sm:h-72 lg:h-auto border-t lg:border-t-0 lg:border-l border-[#262B33] bg-[#07090C] relative shrink-0 overflow-hidden">
                 <DifrenoptViewport
                   key={previewRevision}
                   entity={previewEntity}
@@ -2040,10 +2657,10 @@ export default function DifrenoptConfigModal({
         /* STUDIO IDE VIEW (With Tab Autocomplete Popup)                */
         /* ============================================================ */
         <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-hidden">
-          {/* LEFT: Massive DRPL Component Library (Each Colorized) */}
+          {/* LEFT: Massive DRPL Component Library (Subgroup Filters + Paginated) */}
           <div
             className={clsx(
-              'w-full lg:w-80 xl:w-96 border-b lg:border-b-0 lg:border-r flex flex-col shrink-0 h-60 lg:h-auto overflow-hidden',
+              'w-full lg:w-80 xl:w-96 border-b lg:border-b-0 lg:border-r flex flex-col shrink-0 h-48 sm:h-60 lg:h-auto overflow-hidden',
               isLight ? 'bg-[#F8FAFC] border-[#E2E5EA]' : 'bg-[#16191E] border-[#262B33]'
             )}
           >
@@ -2057,6 +2674,9 @@ export default function DifrenoptConfigModal({
                       : `DRPL Components (${DRPL_COMPONENTS.length})`}
                   </span>
                 </span>
+                <span className="text-[10px] font-mono text-[#9CA3AF]">
+                  {Math.min(studioVisibleLimit, filteredComponents.length)}/{filteredComponents.length}
+                </span>
               </div>
 
               <div className="relative">
@@ -2065,7 +2685,7 @@ export default function DifrenoptConfigModal({
                   type="text"
                   value={searchQuery}
                   onChange={e => setSearchQuery(e.target.value)}
-                  placeholder={language === 'ru' ? 'Поиск компонента...' : 'Search components...'}
+                  placeholder={language === 'ru' ? 'Поиск из 2000+ компонентов...' : 'Search 2000+ components...'}
                   className={clsx(
                     'w-full pl-8 pr-3 py-1.5 rounded-lg border text-xs focus:outline-none focus:border-[#10B981]',
                     isLight
@@ -2088,9 +2708,12 @@ export default function DifrenoptConfigModal({
                     <button
                       key={tab.id}
                       type="button"
-                      onClick={() => setCategoryFilter(tab.id as any)}
+                      onClick={() => {
+                        setCategoryFilter(tab.id as any);
+                        setSubgroupFilter('all');
+                      }}
                       className={clsx(
-                        'px-1.5 py-1.5 rounded-md text-[11px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition-colors',
+                        'px-1 py-1.5 rounded-md text-[10px] font-semibold flex items-center justify-center gap-1 cursor-pointer transition-colors truncate',
                         active
                           ? 'bg-[#10B981] text-[#0A0C0E]'
                           : isLight
@@ -2099,15 +2722,47 @@ export default function DifrenoptConfigModal({
                       )}
                     >
                       <Icon className="w-3 h-3 shrink-0" />
-                      <span>{tab.label}</span>
+                      <span className="truncate">{tab.label}</span>
                     </button>
                   );
                 })}
               </div>
+
+              {availableSubgroups.length > 0 && (
+                <div className="flex items-center gap-1 overflow-x-auto no-scrollbar pb-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setSubgroupFilter('all')}
+                    className={clsx(
+                      'px-2 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap cursor-pointer',
+                      subgroupFilter === 'all'
+                        ? 'bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/45'
+                        : isLight ? 'bg-white border border-[#E2E5EA] text-slate-600' : 'bg-[#111315] border border-[#262B33] text-[#9CA3AF]'
+                    )}
+                  >
+                    {language === 'ru' ? 'Все' : 'All'}
+                  </button>
+                  {availableSubgroups.map(sg => (
+                    <button
+                      key={sg}
+                      type="button"
+                      onClick={() => setSubgroupFilter(sg)}
+                      className={clsx(
+                        'px-2 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap cursor-pointer',
+                        subgroupFilter === sg
+                          ? 'bg-[#10B981]/20 text-[#10B981] border border-[#10B981]/45'
+                          : isLight ? 'bg-white border border-[#E2E5EA] text-slate-600' : 'bg-[#111315] border border-[#262B33] text-[#9CA3AF]'
+                      )}
+                    >
+                      {sg}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto p-2.5 space-y-2 custom-scrollbar">
-              {filteredComponents.map((comp: DrplComponentDef) => (
+              {filteredComponents.slice(0, studioVisibleLimit).map((comp: DrplComponentDef) => (
                 <div
                   key={comp.id}
                   style={{ borderColor: `${comp.color}48` }}
@@ -2118,7 +2773,7 @@ export default function DifrenoptConfigModal({
                       : 'bg-[#111315] hover:bg-[#161B22]'
                   )}
                 >
-                  <div className="flex items-center justify-between gap-2 mb-1">
+                  <div className="flex items-center justify-between gap-1.5 mb-1">
                     <div className="flex items-center gap-1.5 min-w-0">
                       <span
                         className="w-2.5 h-2.5 rounded-sm shrink-0"
@@ -2130,32 +2785,33 @@ export default function DifrenoptConfigModal({
                       >
                         {comp.name}
                       </span>
-                      {comp.badge && (
-                        <span
-                          className="text-[10px] font-mono px-1.5 py-0.5 rounded border"
-                          style={{
-                            color: comp.color,
-                            borderColor: `${comp.color}38`,
-                            backgroundColor: `${comp.color}16`
-                          }}
-                        >
-                          {comp.badge}
-                        </span>
-                      )}
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => insertSnippet(comp.snippet)}
-                      style={{
-                        color: comp.color,
-                        backgroundColor: `${comp.color}1A`,
-                        borderColor: `${comp.color}40`
-                      }}
-                      className="px-2 py-1 rounded-md border text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 hover:brightness-125"
-                    >
-                      <Plus className="w-3 h-3" />
-                      <span>{language === 'ru' ? 'Вставить' : 'Insert'}</span>
-                    </button>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => openComponentCustomizer(comp)}
+                        className={clsx(
+                          'p-1 rounded-md border text-[11px] cursor-pointer',
+                          isLight ? 'bg-slate-50 border-slate-200 text-slate-600 hover:text-slate-900' : 'bg-[#0A0C0E] border-[#262B33] text-[#9CA3AF] hover:text-white'
+                        )}
+                        title={language === 'ru' ? 'Настроить перед вставкой' : 'Customize before inserting'}
+                      >
+                        <SlidersHorizontal className="w-3 h-3" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => insertSnippet(comp.snippet)}
+                        style={{
+                          color: comp.color,
+                          backgroundColor: `${comp.color}1A`,
+                          borderColor: `${comp.color}40`
+                        }}
+                        className="px-2 py-1 rounded-md border text-[11px] font-bold flex items-center gap-1 transition-all cursor-pointer shrink-0 hover:brightness-125"
+                      >
+                        <Plus className="w-3 h-3" />
+                        <span>{language === 'ru' ? 'Вставить' : 'Insert'}</span>
+                      </button>
+                    </div>
                   </div>
                   <div
                     className={clsx(
@@ -2178,6 +2834,17 @@ export default function DifrenoptConfigModal({
                   </div>
                 </div>
               ))}
+              {filteredComponents.length > studioVisibleLimit && (
+                <button
+                  type="button"
+                  onClick={() => setStudioVisibleLimit(l => l + 60)}
+                  className="w-full py-2 rounded-xl border border-[#10B981]/45 bg-[#10B981]/15 hover:bg-[#10B981]/25 text-[#10B981] text-xs font-bold cursor-pointer"
+                >
+                  {language === 'ru'
+                    ? `Показать ещё (+60) • ${studioVisibleLimit} / ${filteredComponents.length}`
+                    : `Show more (+60) • ${studioVisibleLimit} / ${filteredComponents.length}`}
+                </button>
+              )}
             </div>
           </div>
 
@@ -2271,7 +2938,7 @@ export default function DifrenoptConfigModal({
                 {autocompleteOpen && autocompleteMatches.length > 0 && (
                   <div
                     style={{ top: `${autocompletePos.top}px`, left: `${autocompletePos.left}px` }}
-                    className="absolute z-40 w-72 sm:w-80 max-h-56 overflow-y-auto rounded-xl border border-[#2A313D] bg-[#141820] shadow-2xl p-1.5 space-y-0.5 custom-scrollbar"
+                    className="absolute z-40 w-[min(20rem,calc(100%-1rem))] max-h-56 overflow-y-auto rounded-xl border border-[#2A313D] bg-[#141820] shadow-2xl p-1.5 space-y-0.5 custom-scrollbar"
                   >
                     <div className="px-2 py-1 text-[10px] font-mono text-[#6B7280] flex items-center justify-between border-b border-[#222731] mb-1">
                       <span>
@@ -2352,7 +3019,7 @@ export default function DifrenoptConfigModal({
 
           {/* RIGHT: Live Preview & Visual Editor Viewport */}
           {showLivePreview && (
-            <div className="w-full lg:w-[44%] xl:w-[46%] h-72 lg:h-auto border-t lg:border-t-0 lg:border-l border-[#262B33] bg-[#07090C] relative shrink-0 overflow-hidden">
+            <div className="w-full lg:w-[44%] xl:w-[46%] h-56 sm:h-72 lg:h-auto border-t lg:border-t-0 lg:border-l border-[#262B33] bg-[#07090C] relative shrink-0 overflow-hidden">
               <DifrenoptViewport
                 key={previewRevision}
                 entity={previewEntity}
@@ -2362,6 +3029,163 @@ export default function DifrenoptConfigModal({
             </div>
           )}
         </div>
+        )}
+
+        {/* Component Customizer Drawer / Modal (Configure ANY component before inserting) */}
+        {customizingComp && (
+          <div
+            onClick={() => setCustomizingComp(null)}
+            className="fixed inset-0 z-[240] flex items-center justify-center bg-black/75 p-3"
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              className={clsx(
+                'w-full max-w-lg max-h-[85dvh] rounded-2xl border flex flex-col overflow-hidden shadow-2xl',
+                isLight ? 'bg-white border-[#E2E5EA] text-slate-900' : 'bg-[#14171C] border-[#262B33] text-[#F3F4F6]'
+              )}
+            >
+              <div className="px-4 py-3 border-b border-[#262B33] flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-3 h-3 rounded-sm shrink-0" style={{ backgroundColor: customizingComp.color }} />
+                  <span className="font-mono font-bold text-sm truncate" style={{ color: customizingComp.color }}>
+                    {customizingComp.name}
+                  </span>
+                  <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-[#10B981]/15 text-[#10B981]">
+                    {customizingComp.subgroup || customizingComp.category}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCustomizingComp(null)}
+                  className="p-1 rounded hover:bg-[#262B33] text-[#9CA3AF] cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                <p className="text-xs text-[#9CA3AF]">
+                  {language === 'ru' ? customizingComp.descriptionRu : customizingComp.descriptionEn}
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {customizerArgs.map((arg, idx) => {
+                    const isCol = /color|accent|glow|bg|border/i.test(arg.key);
+                    const isBool = arg.value === 'true' || arg.value === 'false';
+                    return (
+                      <div key={`${arg.key}_${idx}`} className="p-2 rounded-xl border border-[#262B33] bg-[#0D1014] space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-mono text-[11px] font-bold text-[#93C5FD]">{arg.key}</span>
+                          <button
+                            type="button"
+                            onClick={() => setCustomizerArgs(prev => prev.filter((_, i) => i !== idx))}
+                            className="text-[#6B7280] hover:text-rose-400 cursor-pointer"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                        {isCol ? (
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="color"
+                              value={normalizeColorInput(arg.value, customizingComp.color)}
+                              onChange={e => setCustomizerArgs(prev => prev.map((it, i) => (i === idx ? { ...it, value: `"${e.target.value}"` } : it)))}
+                              className="w-7 h-6 rounded border border-[#262B33] bg-transparent cursor-pointer"
+                            />
+                            <input
+                              type="text"
+                              value={arg.value}
+                              onChange={e => setCustomizerArgs(prev => prev.map((it, i) => (i === idx ? { ...it, value: e.target.value } : it)))}
+                              className="flex-1 min-w-0 px-2 py-1 rounded bg-[#07090C] border border-[#262B33] font-mono text-xs text-[#FDBA74] focus:outline-none"
+                            />
+                          </div>
+                        ) : isBool ? (
+                          <button
+                            type="button"
+                            onClick={() => setCustomizerArgs(prev => prev.map((it, i) => (i === idx ? { ...it, value: it.value === 'true' ? 'false' : 'true' } : it)))}
+                            className={clsx(
+                              'w-full py-1 rounded border font-mono text-xs font-bold cursor-pointer',
+                              arg.value === 'true' ? 'bg-[#10B981]/20 border-[#10B981]/50 text-[#10B981]' : 'bg-[#07090C] border-[#262B33] text-[#9CA3AF]'
+                            )}
+                          >
+                            {arg.value}
+                          </button>
+                        ) : (
+                          <input
+                            type="text"
+                            value={arg.value}
+                            onChange={e => setCustomizerArgs(prev => prev.map((it, i) => (i === idx ? { ...it, value: e.target.value } : it)))}
+                            className="w-full px-2 py-1 rounded bg-[#07090C] border border-[#262B33] font-mono text-xs text-[#FDBA74] focus:outline-none"
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Add custom key=value */}
+                <div className="flex items-center gap-2 pt-1">
+                  <input
+                    type="text"
+                    value={newParamKey}
+                    onChange={e => setNewParamKey(e.target.value)}
+                    placeholder="key (e.g. spin)"
+                    className="w-32 px-2 py-1.5 rounded-lg bg-[#0A0C0E] border border-[#262B33] font-mono text-xs text-[#93C5FD]"
+                  />
+                  <input
+                    type="text"
+                    value={newParamVal}
+                    onChange={e => setNewParamVal(e.target.value)}
+                    placeholder="value (e.g. 1.5)"
+                    className="flex-1 min-w-0 px-2 py-1.5 rounded-lg bg-[#0A0C0E] border border-[#262B33] font-mono text-xs text-[#FDBA74]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const k = newParamKey.trim();
+                      const v = newParamVal.trim();
+                      if (!k || !v) return;
+                      setCustomizerArgs(prev => [...prev, { key: k, value: v }]);
+                      setNewParamKey('');
+                      setNewParamVal('');
+                    }}
+                    className="px-3 py-1.5 rounded-lg border border-[#262B33] bg-[#1D222B] hover:border-[#10B981] text-xs font-bold cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
+
+                <pre className="p-2.5 rounded-xl bg-[#07090C] border border-[#262B33] font-mono text-[11px] text-emerald-300 overflow-x-auto">
+                  {buildCustomizedCallLine(customizingComp.name, customizerArgs)}
+                </pre>
+              </div>
+
+              <div className="px-4 py-3 border-t border-[#262B33] flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCustomizingComp(null)}
+                  className="px-3 py-1.5 rounded-lg border border-[#262B33] text-xs font-semibold cursor-pointer"
+                >
+                  {language === 'ru' ? 'Отмена' : 'Cancel'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const line = buildCustomizedCallLine(customizingComp.name, customizerArgs);
+                    if (activeView === 'blocks') {
+                      addBlockFromSnippet(line);
+                    } else {
+                      insertSnippet(line);
+                    }
+                    setCustomizingComp(null);
+                  }}
+                  className="px-4 py-1.5 rounded-lg bg-[#10B981] hover:bg-[#059669] text-[#0A0C0E] text-xs font-bold cursor-pointer"
+                >
+                  {language === 'ru' ? 'Добавить в сцену' : 'Insert Configured'}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

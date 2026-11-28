@@ -97,7 +97,7 @@ export default function MyAppsView() {
   }
 
   return (
-    <div className="h-full flex flex-col p-6 overflow-y-auto">
+    <div className="h-full flex flex-col p-3.5 sm:p-6 overflow-y-auto">
       <div className="max-w-7xl mx-auto w-full space-y-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
@@ -222,7 +222,7 @@ export default function MyAppsView() {
                       )}
                       {app.moderationStatus === 'rejected' && (
                         <div className="p-2.5 rounded-lg bg-[#DC2626]/10 border border-[#DC2626]/30 text-[#DC2626] text-xs">
-                          <div className="font-semibold">Отклонено ИИ</div>
+                          <div className="font-semibold">{language === 'ru' ? 'Отклонено ИИ' : 'Rejected by AI'}</div>
                           {app.moderationReason && (
                             <div className="text-[11px] opacity-85 line-clamp-2 mt-0.5">
                               {app.moderationReason}
@@ -232,7 +232,7 @@ export default function MyAppsView() {
                       )}
                       {app.moderationStatus === 'pending' && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-mono font-medium bg-[#D97706]/10 text-[#D97706] border border-[#D97706]/30">
-                          На проверке
+                          {language === 'ru' ? 'На проверке' : 'Pending Review'}
                         </span>
                       )}
                     </div>

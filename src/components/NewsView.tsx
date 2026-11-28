@@ -11,9 +11,11 @@ import {
 import { getDownloadURL, ref, uploadBytes } from 'firebase/storage';
 import {
   Bold,
+  Clock,
   Code,
   Edit3,
   Eye,
+  FileText,
   Highlighter,
   ImagePlus,
   Italic,
@@ -21,6 +23,8 @@ import {
   Loader2,
   Newspaper,
   Plus,
+  RotateCcw,
+  Save,
   Sparkles,
   Strikethrough,
   Trash2,
@@ -49,6 +53,120 @@ export interface NewsPost {
   authorAvatar?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type DraftSaveReason = 'tab_switch' | 'close' | 'manual' | 'auto';
+
+export interface NewsDraft {
+  id: string;
+  editingPostId: string | null;
+  title: string;
+  content: string;
+  font: NewsFont;
+  images: string[];
+  updatedAt: string;
+  autoSavedReason?: DraftSaveReason;
+}
+
+interface ComposerDraftSnapshot {
+  isComposerOpen: boolean;
+  isDeveloper: boolean;
+  isPublishing: boolean;
+  activeDraftId: string | null;
+  editingPostId: string | null;
+  initialEditSignature: string | null;
+  title: string;
+  content: string;
+  font: NewsFont;
+  images: string[];
+}
+
+function buildContentSignature(
+  title: string,
+  content: string,
+  font: NewsFont,
+  images: string[]
+): string {
+  return JSON.stringify({
+    t: title.trim(),
+    c: content.trim(),
+    f: font,
+    i: images,
+  });
+}
+
+function hasComposerContent(snap: {
+  title: string;
+  content: string;
+  images: string[];
+  initialEditSignature?: string | null;
+  font: NewsFont;
+}): boolean {
+  const hasAny =
+    snap.title.trim().length > 0 ||
+    snap.content.trim().length > 0 ||
+    snap.images.length > 0;
+  if (!hasAny) return false;
+  if (snap.initialEditSignature) {
+    return (
+      buildContentSignature(snap.title, snap.content, snap.font, snap.images) !==
+      snap.initialEditSignature
+    );
+  }
+  return true;
+}
+
+function readNewsDrafts(storageKey: string): NewsDraft[] {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((d) => d && typeof d.id === 'string')
+      .sort((a, b) => String(b.updatedAt || '').localeCompare(String(a.updatedAt || '')))
+      .slice(0, 20);
+  } catch {
+    return [];
+  }
+}
+
+function writeNewsDrafts(storageKey: string, drafts: NewsDraft[]): void {
+  const trimmed = drafts.slice(0, 20);
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(trimmed));
+  } catch {
+    // Fallback if large base64 images exceed localStorage quota: preserve text + http URLs
+    try {
+      const compact = trimmed.map((d) => ({
+        ...d,
+        images: (d.images || []).filter((img) => img.startsWith('http://') || img.startsWith('https://')),
+      }));
+      localStorage.setItem(storageKey, JSON.stringify(compact));
+    } catch {
+      // Ignore storage errors in restricted contexts
+    }
+  }
+}
+
+function readInterruptedDraftId(interruptedKey: string): string | null {
+  try {
+    return localStorage.getItem(interruptedKey);
+  } catch {
+    return null;
+  }
+}
+
+function writeInterruptedDraftId(interruptedKey: string, draftId: string | null): void {
+  try {
+    if (draftId) {
+      localStorage.setItem(interruptedKey, draftId);
+    } else {
+      localStorage.removeItem(interruptedKey);
+    }
+  } catch {
+    // Ignore storage errors
+  }
 }
 
 const FONT_OPTIONS: {
@@ -274,7 +392,9 @@ export default function NewsView() {
 
   // Composer Modal state (Developer only)
   const [isComposerOpen, setIsComposerOpen] = useState(false);
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
+  const [initialEditSignature, setInitialEditSignature] = useState<string | null>(null);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [font, setFont] = useState<NewsFont>('sans');
@@ -284,11 +404,132 @@ export default function NewsView() {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
 
+  // News Drafts state (persisted across abrupt tab switches, modal closes & reloads)
+  const draftsStorageKey = `epl_news_drafts_${user?.uid || 'guest'}`;
+  const interruptedStorageKey = `epl_news_interrupted_draft_${user?.uid || 'guest'}`;
+  const [newsSection, setNewsSection] = useState<'feed' | 'drafts'>('feed');
+  const [drafts, setDrafts] = useState<NewsDraft[]>(() => readNewsDrafts(draftsStorageKey));
+  const [interruptedDraftId, setInterruptedDraftId] = useState<string | null>(() =>
+    readInterruptedDraftId(interruptedStorageKey)
+  );
+  const [lastDraftSavedAt, setLastDraftSavedAt] = useState<string | null>(null);
+
   // Lightbox
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerSnapshotRef = useRef<ComposerDraftSnapshot>({
+    isComposerOpen: false,
+    isDeveloper: false,
+    isPublishing: false,
+    activeDraftId: null,
+    editingPostId: null,
+    initialEditSignature: null,
+    title: '',
+    content: '',
+    font: 'sans',
+    images: [],
+  });
+
+  composerSnapshotRef.current = {
+    isComposerOpen,
+    isDeveloper,
+    isPublishing,
+    activeDraftId,
+    editingPostId,
+    initialEditSignature,
+    title,
+    content,
+    font,
+    images,
+  };
+
+  // Sync drafts when user changes
+  useEffect(() => {
+    setDrafts(readNewsDrafts(draftsStorageKey));
+    setInterruptedDraftId(readInterruptedDraftId(interruptedStorageKey));
+  }, [draftsStorageKey, interruptedStorageKey]);
+
+  const persistSnapshotToDrafts = (
+    snap: ComposerDraftSnapshot,
+    reason: DraftSaveReason,
+    syncState: boolean
+  ): NewsDraft | null => {
+    if (!snap.isDeveloper || !hasComposerContent(snap)) return null;
+    const draftId =
+      snap.activeDraftId ||
+      `draft_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const nowIso = new Date().toISOString();
+    const nextDraft: NewsDraft = {
+      id: draftId,
+      editingPostId: snap.editingPostId,
+      title: snap.title,
+      content: snap.content,
+      font: snap.font,
+      images: snap.images,
+      updatedAt: nowIso,
+      autoSavedReason: reason,
+    };
+
+    const existing = readNewsDrafts(draftsStorageKey);
+    const updated = [nextDraft, ...existing.filter((d) => d.id !== draftId)].slice(0, 20);
+    writeNewsDrafts(draftsStorageKey, updated);
+
+    if (reason === 'tab_switch' || reason === 'close') {
+      writeInterruptedDraftId(interruptedStorageKey, draftId);
+      if (syncState) setInterruptedDraftId(draftId);
+    }
+
+    if (syncState) {
+      setDrafts(updated);
+      setActiveDraftId(draftId);
+      setLastDraftSavedAt(nowIso);
+    }
+    return nextDraft;
+  };
+
+  const removeDraftById = (draftId: string) => {
+    const updated = readNewsDrafts(draftsStorageKey).filter((d) => d.id !== draftId);
+    writeNewsDrafts(draftsStorageKey, updated);
+    setDrafts(updated);
+    if (interruptedDraftId === draftId) {
+      writeInterruptedDraftId(interruptedStorageKey, null);
+      setInterruptedDraftId(null);
+    }
+  };
+
+  // Debounced live auto-save while Composer is open
+  useEffect(() => {
+    if (!isComposerOpen || !isDeveloper || isPublishing) return;
+    if (!hasComposerContent({ title, content, font, images, initialEditSignature })) return;
+
+    const timer = window.setTimeout(() => {
+      persistSnapshotToDrafts(composerSnapshotRef.current, 'auto', true);
+    }, 650);
+
+    return () => window.clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isComposerOpen, isDeveloper, isPublishing, title, content, font, images, initialEditSignature]);
+
+  // Save draft on abrupt tab switch (component unmount) or browser close/refresh
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const snap = composerSnapshotRef.current;
+      if (snap.isComposerOpen && snap.isDeveloper && !snap.isPublishing && hasComposerContent(snap)) {
+        persistSnapshotToDrafts(snap, 'tab_switch', false);
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      const snap = composerSnapshotRef.current;
+      if (snap.isComposerOpen && snap.isDeveloper && !snap.isPublishing && hasComposerContent(snap)) {
+        persistSnapshotToDrafts(snap, 'tab_switch', false);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftsStorageKey, interruptedStorageKey]);
 
   useEffect(() => {
     setLoadWarning(null);
@@ -326,32 +567,114 @@ export default function NewsView() {
   }
 
   const resetComposer = () => {
+    setActiveDraftId(null);
     setEditingPostId(null);
+    setInitialEditSignature(null);
     setTitle('');
     setContent('');
     setFont('sans');
     setImages([]);
     setImageUrlInput('');
     setComposerTab('write');
+    setLastDraftSavedAt(null);
   };
 
   const openCreateModal = () => {
     if (!isDeveloper) return;
     resetComposer();
+    setActiveDraftId(`draft_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
     setIsComposerOpen(true);
   };
 
   const openEditModal = (post: NewsPost) => {
     if (!isDeveloper) return;
+    const postImages = Array.isArray(post.images) ? post.images : [];
+    const postFont = post.font || 'sans';
+    setActiveDraftId(`draft_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`);
     setEditingPostId(post.id);
+    setInitialEditSignature(buildContentSignature(post.title, post.content, postFont, postImages));
     setTitle(post.title);
     setContent(post.content);
-    setFont(post.font || 'sans');
-    setImages(Array.isArray(post.images) ? post.images : []);
+    setFont(postFont);
+    setImages(postImages);
     setImageUrlInput('');
     setComposerTab('write');
+    setLastDraftSavedAt(null);
     setIsComposerOpen(true);
   };
+
+  const openDraftModal = (draft: NewsDraft) => {
+    if (!isDeveloper) return;
+    setActiveDraftId(draft.id);
+    setEditingPostId(draft.editingPostId || null);
+    setInitialEditSignature(null);
+    setTitle(draft.title || '');
+    setContent(draft.content || '');
+    setFont(draft.font || 'sans');
+    setImages(Array.isArray(draft.images) ? draft.images : []);
+    setImageUrlInput('');
+    setComposerTab('write');
+    setLastDraftSavedAt(draft.updatedAt);
+    if (interruptedDraftId === draft.id) {
+      writeInterruptedDraftId(interruptedStorageKey, null);
+      setInterruptedDraftId(null);
+    }
+    setIsComposerOpen(true);
+  };
+
+  const handleCloseComposer = (discardCurrent = false) => {
+    if (discardCurrent) {
+      if (activeDraftId) removeDraftById(activeDraftId);
+      setIsComposerOpen(false);
+      resetComposer();
+      return;
+    }
+
+    const snap = composerSnapshotRef.current;
+    if (hasComposerContent(snap)) {
+      const saved = persistSnapshotToDrafts(snap, 'close', true);
+      if (saved) {
+        notify.info(
+          language === 'ru'
+            ? 'Сохранено в черновики новостей'
+            : 'Saved to News Drafts'
+        );
+      }
+    }
+    setIsComposerOpen(false);
+    resetComposer();
+  };
+
+  const handleSaveDraftExplicit = () => {
+    const snap = composerSnapshotRef.current;
+    if (!hasComposerContent(snap)) {
+      notify.info(
+        language === 'ru'
+          ? 'Добавьте заголовок, текст или картинку для черновика'
+          : 'Add a headline, text, or image to save a draft'
+      );
+      return;
+    }
+    const saved = persistSnapshotToDrafts(snap, 'manual', true);
+    if (saved) {
+      notify.success(language === 'ru' ? 'Черновик сохранён' : 'Draft saved');
+      setIsComposerOpen(false);
+      resetComposer();
+      setNewsSection('drafts');
+    }
+  };
+
+  useEffect(() => {
+    if (!isComposerOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleCloseComposer(false);
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isComposerOpen, activeDraftId]);
 
   const applyFormatToSelection = (prefix: string, suffix: string, fallbackWord: string) => {
     const el = textareaRef.current;
@@ -507,6 +830,9 @@ export default function NewsView() {
 
     try {
       await setDoc(doc(db, 'news', postId), payload);
+      if (activeDraftId) {
+        removeDraftById(activeDraftId);
+      }
       notify.success(
         editingPostId
           ? language === 'ru'
@@ -518,6 +844,7 @@ export default function NewsView() {
       );
       setIsComposerOpen(false);
       resetComposer();
+      setNewsSection('feed');
     } catch (err: any) {
       try {
         handleFirestoreError(err, editingPostId ? OperationType.UPDATE : OperationType.CREATE, `news/${postId}`);
@@ -603,24 +930,148 @@ export default function NewsView() {
             </div>
           </div>
 
-          {/* ONLY Developer sees the + button */}
+          {/* ONLY Developer sees Drafts toggle & + Create News button */}
           {isDeveloper && (
-            <button
-              onClick={openCreateModal}
-              className={clsx(
-                'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer shrink-0 shadow-sm',
-                isFrutigerAero
-                  ? 'frutiger-aero-button'
-                  : isLight
-                    ? 'bg-[#059669] hover:bg-[#047857] text-white'
-                    : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
-              )}
-            >
-              <Plus className="w-4 h-4 stroke-[2.5]" />
-              <span>{language === 'ru' ? 'Создать новость' : 'Publish News'}</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2 shrink-0">
+              <div
+                className={clsx(
+                  'inline-flex items-center p-1 rounded-xl border',
+                  isFrutigerAero
+                    ? 'bg-white/55 border-white/70'
+                    : isLight
+                      ? 'bg-[#F5F6F8] border-[#E2E5EA]'
+                      : 'bg-[#111315] border-[#262B33]'
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => setNewsSection('feed')}
+                  className={clsx(
+                    'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer inline-flex items-center gap-1.5',
+                    newsSection === 'feed'
+                      ? isLight
+                        ? 'bg-white text-[#111315] shadow-sm'
+                        : 'bg-[#1F242C] text-white shadow-sm'
+                      : 'opacity-70 hover:opacity-100'
+                  )}
+                >
+                  <Newspaper className="w-3.5 h-3.5" />
+                  <span>{language === 'ru' ? 'Лента' : 'Feed'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewsSection('drafts')}
+                  className={clsx(
+                    'px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer inline-flex items-center gap-1.5',
+                    newsSection === 'drafts'
+                      ? 'bg-amber-500/20 text-amber-400 border border-amber-500/35'
+                      : 'opacity-75 hover:opacity-100'
+                  )}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>{language === 'ru' ? 'Черновики' : 'Drafts'}</span>
+                  {drafts.length > 0 && (
+                    <span className="px-1.5 py-0.2 rounded-md text-[10px] font-bold bg-amber-500 text-black">
+                      {drafts.length}
+                    </span>
+                  )}
+                </button>
+              </div>
+
+              <button
+                onClick={openCreateModal}
+                className={clsx(
+                  'inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all cursor-pointer shrink-0 shadow-sm',
+                  isFrutigerAero
+                    ? 'frutiger-aero-button'
+                    : isLight
+                      ? 'bg-[#059669] hover:bg-[#047857] text-white'
+                      : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
+                )}
+              >
+                <Plus className="w-4 h-4 stroke-[2.5]" />
+                <span>{language === 'ru' ? 'Создать новость' : 'Publish News'}</span>
+              </button>
+            </div>
           )}
         </div>
+
+        {/* Interrupted / Auto-saved Draft Resume Banner */}
+        {isDeveloper &&
+          !isComposerOpen &&
+          interruptedDraftId &&
+          (() => {
+            const interruptedDraft = drafts.find((d) => d.id === interruptedDraftId);
+            if (!interruptedDraft) return null;
+            return (
+              <div
+                className={clsx(
+                  'rounded-2xl border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3',
+                  isLight
+                    ? 'bg-amber-50 border-amber-300/70 text-amber-950'
+                    : 'bg-amber-500/10 border-amber-500/30 text-amber-100'
+                )}
+              >
+                <div className="flex items-start sm:items-center gap-3 min-w-0">
+                  <div className="p-2 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
+                    <RotateCcw className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold uppercase tracking-wider text-amber-400">
+                      {interruptedDraft.autoSavedReason === 'tab_switch'
+                        ? language === 'ru'
+                          ? 'Автосохранено при переключении вкладки'
+                          : 'Auto-saved when leaving tab'
+                        : language === 'ru'
+                          ? 'Незавершённый черновик'
+                          : 'Unfinished draft saved'}
+                    </div>
+                    <div className="text-sm font-semibold truncate mt-0.5">
+                      {interruptedDraft.title.trim() ||
+                        interruptedDraft.content.trim().slice(0, 70) ||
+                        (language === 'ru' ? 'Без названия' : 'Untitled draft')}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => openDraftModal(interruptedDraft)}
+                    className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold transition-colors cursor-pointer"
+                  >
+                    {language === 'ru' ? 'Продолжить' : 'Resume'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      writeInterruptedDraftId(interruptedStorageKey, null);
+                      setInterruptedDraftId(null);
+                      setNewsSection('drafts');
+                    }}
+                    className={clsx(
+                      'px-3 py-1.5 rounded-xl border text-xs font-semibold transition-colors cursor-pointer',
+                      isLight
+                        ? 'border-amber-400/50 hover:bg-amber-100'
+                        : 'border-amber-500/30 hover:bg-amber-500/15'
+                    )}
+                  >
+                    {language === 'ru' ? 'Все черновики' : 'All Drafts'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      writeInterruptedDraftId(interruptedStorageKey, null);
+                      setInterruptedDraftId(null);
+                    }}
+                    title={language === 'ru' ? 'Скрыть уведомление' : 'Dismiss'}
+                    className="p-1.5 rounded-lg opacity-70 hover:opacity-100 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            );
+          })()}
 
         {/* Non-fatal transient load banner */}
         {loadWarning && (
@@ -636,8 +1087,219 @@ export default function NewsView() {
           </div>
         )}
 
-        {/* Feed */}
-        {loading ? (
+        {/* Drafts Workspace (Developer) OR Published News Feed */}
+        {isDeveloper && newsSection === 'drafts' ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold flex items-center gap-2">
+                  <FileText className="w-4 h-4 text-amber-400" />
+                  <span>
+                    {language === 'ru'
+                      ? `Черновики новостей (${drafts.length})`
+                      : `News Drafts (${drafts.length})`}
+                  </span>
+                </h2>
+                <p className="text-xs opacity-70 mt-0.5">
+                  {language === 'ru'
+                    ? 'Автоматически сохраняются при переключении вкладок, закрытии окна или редактировании.'
+                    : 'Automatically saved when you switch tabs, close the editor, or pause typing.'}
+                </p>
+              </div>
+              {drafts.length > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ok = await confirmAction({
+                      title: language === 'ru' ? 'Очистить все черновики?' : 'Clear all drafts?',
+                      message:
+                        language === 'ru'
+                          ? `Будет удалено черновиков: ${drafts.length}. Это действие нельзя отменить.`
+                          : `Delete all ${drafts.length} saved drafts? This cannot be undone.`,
+                      confirmText: language === 'ru' ? 'Удалить все' : 'Clear all',
+                      cancelText: language === 'ru' ? 'Отмена' : 'Cancel',
+                      tone: 'danger',
+                    });
+                    if (!ok) return;
+                    writeNewsDrafts(draftsStorageKey, []);
+                    writeInterruptedDraftId(interruptedStorageKey, null);
+                    setDrafts([]);
+                    setInterruptedDraftId(null);
+                    notify.info(language === 'ru' ? 'Все черновики удалены' : 'All drafts cleared');
+                  }}
+                  className={clsx(
+                    'px-3 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer',
+                    isLight
+                      ? 'border-red-200 text-red-600 hover:bg-red-50'
+                      : 'border-red-500/30 text-red-400 hover:bg-red-500/10'
+                  )}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>{language === 'ru' ? 'Очистить все' : 'Clear all'}</span>
+                </button>
+              )}
+            </div>
+
+            {drafts.length === 0 ? (
+              <div className={clsx('rounded-2xl border p-12 text-center', cardSurface)}>
+                <div className="w-12 h-12 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-400 flex items-center justify-center mx-auto mb-4">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <h3 className="text-lg font-bold mb-1">
+                  {language === 'ru' ? 'Черновиков пока нет' : 'No saved drafts yet'}
+                </h3>
+                <p className={clsx('text-sm max-w-md mx-auto mb-5', isFrutigerAero ? 'text-[#1e4b73]' : isLight ? 'text-[#6B7280]' : 'text-[#9CA3AF]')}>
+                  {language === 'ru'
+                    ? 'Когда вы начнёте писать новость и переключитесь на другую вкладку или закроете редактор, черновик автоматически появится здесь.'
+                    : 'Whenever you start writing a post and switch tabs or close the composer, your draft will appear here automatically.'}
+                </p>
+                <button
+                  type="button"
+                  onClick={openCreateModal}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#10B981] hover:bg-[#059669] text-[#09120E] text-sm font-semibold cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>{language === 'ru' ? 'Написать новость' : 'Write News'}</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3.5">
+                {drafts.map((draft) => {
+                  const reasonLabel =
+                    draft.autoSavedReason === 'tab_switch'
+                      ? language === 'ru'
+                        ? 'Переключение вкладки'
+                        : 'Tab switch'
+                      : draft.autoSavedReason === 'close'
+                        ? language === 'ru'
+                          ? 'Закрытие окна'
+                          : 'Closed editor'
+                        : draft.autoSavedReason === 'manual'
+                          ? language === 'ru'
+                            ? 'Сохранён вручную'
+                            : 'Saved manually'
+                          : language === 'ru'
+                            ? 'Автосохранение'
+                            : 'Auto-saved';
+
+                  const draftDate = (() => {
+                    try {
+                      return new Date(draft.updatedAt).toLocaleString(language === 'ru' ? 'ru-RU' : 'en-US', {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      });
+                    } catch {
+                      return draft.updatedAt;
+                    }
+                  })();
+
+                  return (
+                    <div
+                      key={draft.id}
+                      className={clsx(
+                        'rounded-2xl border p-5 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-4',
+                        cardSurface
+                      )}
+                    >
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                            {language === 'ru' ? 'Черновик' : 'Draft'}
+                          </span>
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-current/5 border border-current/10 opacity-80">
+                            {reasonLabel}
+                          </span>
+                          {draft.editingPostId && (
+                            <span className="px-2 py-0.5 rounded-md text-[11px] font-semibold bg-sky-500/15 text-sky-400 border border-sky-500/30">
+                              {language === 'ru' ? 'Редактирование поста' : 'Editing post'}
+                            </span>
+                          )}
+                          <span className="inline-flex items-center gap-1 text-xs opacity-65 font-mono-num">
+                            <Clock className="w-3 h-3" />
+                            {draftDate}
+                          </span>
+                        </div>
+
+                        <h3
+                          style={getFontStyle(draft.font || 'sans')}
+                          className="text-lg font-bold truncate"
+                        >
+                          {draft.title.trim() || (
+                            <span className="italic opacity-60">
+                              {language === 'ru' ? 'Без названия' : 'Untitled draft'}
+                            </span>
+                          )}
+                        </h3>
+
+                        {draft.content.trim() && (
+                          <p
+                            style={getFontStyle(draft.font || 'sans')}
+                            className="text-sm opacity-80 line-clamp-2 whitespace-pre-wrap break-words"
+                          >
+                            {draft.content.trim()}
+                          </p>
+                        )}
+
+                        {draft.images?.length > 0 && (
+                          <div className="flex items-center gap-2 pt-1">
+                            {draft.images.slice(0, 4).map((src, i) => (
+                              <img
+                                key={i}
+                                src={src}
+                                alt=""
+                                className="w-10 h-10 rounded-lg object-cover border border-current/15"
+                                referrerPolicy="no-referrer"
+                              />
+                            ))}
+                            {draft.images.length > 4 && (
+                              <span className="text-xs opacity-70 font-semibold">
+                                +{draft.images.length - 4}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => openDraftModal(draft)}
+                          className={clsx(
+                            'px-4 py-2 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer',
+                            isFrutigerAero
+                              ? 'frutiger-aero-button'
+                              : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
+                          )}
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                          <span>{language === 'ru' ? 'Продолжить' : 'Continue'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            removeDraftById(draft.id);
+                            notify.info(language === 'ru' ? 'Черновик удалён' : 'Draft deleted');
+                          }}
+                          title={language === 'ru' ? 'Удалить черновик' : 'Delete draft'}
+                          className={clsx(
+                            'p-2 rounded-xl border transition-colors cursor-pointer',
+                            isLight
+                              ? 'border-[#E2E5EA] text-red-600 hover:bg-red-50'
+                              : 'border-[#262B33] text-red-400 hover:bg-red-500/10'
+                          )}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        ) : loading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 opacity-70">
             <Loader2 className="w-7 h-7 animate-spin text-[#10B981]" />
             <span className="text-sm">{language === 'ru' ? 'Загрузка новостей...' : 'Loading news...'}</span>
@@ -796,8 +1458,12 @@ export default function NewsView() {
 
       {/* Developer News Composer Modal */}
       {isComposerOpen && isDeveloper && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/70 backdrop-blur-sm">
+        <div
+          onClick={() => handleCloseComposer(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/70 backdrop-blur-sm"
+        >
           <div
+            onClick={(e) => e.stopPropagation()}
             className={clsx(
               'w-full max-w-3xl max-h-[92vh] rounded-2xl border flex flex-col overflow-hidden shadow-2xl',
               isFrutigerAero
@@ -814,25 +1480,33 @@ export default function NewsView() {
                   <Newspaper className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold">
-                    {editingPostId
-                      ? language === 'ru'
-                        ? 'Редактировать новость'
-                        : 'Edit News Post'
-                      : language === 'ru'
-                        ? 'Новая публикация'
-                        : 'New News Post'}
+                  <h3 className="text-base font-bold flex items-center gap-2">
+                    <span>
+                      {editingPostId
+                        ? language === 'ru'
+                          ? 'Редактировать новость'
+                          : 'Edit News Post'
+                        : language === 'ru'
+                          ? 'Новая публикация'
+                          : 'New News Post'}
+                    </span>
+                    {lastDraftSavedAt && (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/25">
+                        {language === 'ru' ? 'Черновик сохранён' : 'Draft saved'}
+                      </span>
+                    )}
                   </h3>
                   <p className="text-[11px] opacity-70">
                     {language === 'ru'
-                      ? 'Видно всем пользователям • Публикация только для Developer'
-                      : 'Visible to everyone • Developer exclusive publishing'}
+                      ? 'Видно всем пользователям • Автосохранение в черновики активно'
+                      : 'Visible to everyone • Auto-saves to drafts automatically'}
                   </p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setIsComposerOpen(false)}
+                onClick={() => handleCloseComposer(false)}
+                title={language === 'ru' ? 'Закрыть (сохранит черновик)' : 'Close (saves draft)'}
                 className="p-1.5 rounded-lg hover:bg-current/10 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
@@ -1141,38 +1815,72 @@ export default function NewsView() {
               </div>
 
               {/* Footer Actions */}
-              <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-current/10">
-                <button
-                  type="button"
-                  onClick={() => setIsComposerOpen(false)}
-                  className={clsx(
-                    'px-4 py-2 rounded-xl border text-sm font-medium transition-colors cursor-pointer',
-                    isLight ? 'border-[#E2E5EA] hover:bg-[#F5F6F8]' : 'border-[#262B33] hover:bg-[#20242B]'
+              <div className="flex flex-wrap items-center justify-between gap-2.5 pt-3 border-t border-current/10">
+                <div className="flex items-center gap-2">
+                  {(title.trim() || content.trim() || images.length > 0) && (
+                    <button
+                      type="button"
+                      onClick={() => handleCloseComposer(true)}
+                      className={clsx(
+                        'px-3 py-2 rounded-xl border text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer',
+                        isLight
+                          ? 'border-red-200 text-red-600 hover:bg-red-50'
+                          : 'border-red-500/30 text-red-400 hover:bg-red-500/10'
+                      )}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>{language === 'ru' ? 'Не сохранять' : 'Discard'}</span>
+                    </button>
                   )}
-                >
-                  {language === 'ru' ? 'Отмена' : 'Cancel'}
-                </button>
-                <button
-                  type="submit"
-                  disabled={isPublishing || isUploadingImage}
-                  className={clsx(
-                    'px-5 py-2 rounded-xl text-sm font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50',
-                    isFrutigerAero
-                      ? 'frutiger-aero-button'
-                      : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
-                  )}
-                >
-                  {isPublishing && <Loader2 className="w-4 h-4 animate-spin" />}
-                  <span>
-                    {editingPostId
-                      ? language === 'ru'
-                        ? 'Сохранить изменения'
-                        : 'Save Changes'
-                      : language === 'ru'
-                        ? 'Опубликовать для всех'
-                        : 'Publish for Everyone'}
-                  </span>
-                </button>
+                </div>
+
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleCloseComposer(false)}
+                    className={clsx(
+                      'px-4 py-2 rounded-xl border text-sm font-medium transition-colors cursor-pointer',
+                      isLight ? 'border-[#E2E5EA] hover:bg-[#F5F6F8]' : 'border-[#262B33] hover:bg-[#20242B]'
+                    )}
+                  >
+                    {language === 'ru' ? 'Закрыть' : 'Close'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveDraftExplicit}
+                    disabled={isPublishing || isUploadingImage}
+                    className={clsx(
+                      'px-4 py-2 rounded-xl border text-sm font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50',
+                      isLight
+                        ? 'border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                        : 'border-amber-500/35 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25'
+                    )}
+                  >
+                    <Save className="w-4 h-4" />
+                    <span>{language === 'ru' ? 'В черновики' : 'Save Draft'}</span>
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isPublishing || isUploadingImage}
+                    className={clsx(
+                      'px-5 py-2 rounded-xl text-sm font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer disabled:opacity-50',
+                      isFrutigerAero
+                        ? 'frutiger-aero-button'
+                        : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
+                    )}
+                  >
+                    {isPublishing && <Loader2 className="w-4 h-4 animate-spin" />}
+                    <span>
+                      {editingPostId
+                        ? language === 'ru'
+                          ? 'Сохранить изменения'
+                          : 'Save Changes'
+                        : language === 'ru'
+                          ? 'Опубликовать для всех'
+                          : 'Publish for Everyone'}
+                    </span>
+                  </button>
+                </div>
               </div>
             </form>
           </div>

@@ -35,6 +35,11 @@ import {
   Play,
   Package,
   Globe,
+  Code2,
+  Plus,
+  Terminal as TerminalIcon,
+  Gamepad2,
+  Sparkles,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { AppData, AppCategory, UserVote } from '../types';
@@ -43,6 +48,12 @@ import BuildDownloadModal from './BuildDownloadModal';
 import WebsiteViewerModal from './WebsiteViewerModal';
 import UserRoleBadge from './UserRoleBadge';
 import VerifiedBadge from './VerifiedBadge';
+import {
+  DEMO_PROJECT_ID,
+  FEATURED_DEMO_APP,
+  STARTER_EDITOR_CODE,
+  getAppCardDescription,
+} from '../lib/demoProjects';
 
 const CATEGORIES: AppCategory[] = [
   'games',
@@ -67,6 +78,11 @@ export default function StoreView() {
   const setCurrentView = useStore((state) => state.setCurrentView);
   const setPlayingAppId = useStore((state) => state.setPlayingAppId);
   const setSelectedAppId = useStore((state) => state.setSelectedAppId);
+  const setCode = useStore((state) => state.setCode);
+  const setEditingAppId = useStore((state) => state.setEditingAppId);
+  const setCopiedAppData = useStore((state) => state.setCopiedAppData);
+  const setSelectedExtraCategory = useStore((state) => state.setSelectedExtraCategory);
+  const setLivePreviewEnabled = useStore((state) => state.setLivePreviewEnabled);
   const user = useStore((state) => state.user);
   const userData = useStore((state) => state.userData);
   const isFrutigerAero = useStore((state) => state.isFrutigerAero);
@@ -92,6 +108,38 @@ export default function StoreView() {
     } catch (err) {
       console.error('Error incrementing website visits:', err);
     }
+  };
+
+  const handleCreateFirstProject = () => {
+    setEditingAppId(null);
+    setCopiedAppData(null);
+    setSelectedExtraCategory('Normal');
+    setLivePreviewEnabled(true);
+    const currentCode = useStore.getState().code || '';
+    if (!currentCode.trim()) {
+      setCode(STARTER_EDITOR_CODE);
+    }
+    startTransition(() => {
+      setCurrentView('editor');
+    });
+  };
+
+  const handleOpenCodeInEditor = (sourceCode: string) => {
+    setEditingAppId(null);
+    setCopiedAppData(null);
+    setSelectedExtraCategory('Normal');
+    setLivePreviewEnabled(true);
+    setCode(sourceCode);
+    startTransition(() => {
+      setCurrentView('editor');
+    });
+  };
+
+  const handlePlayDemo = () => {
+    startTransition(() => {
+      setPlayingAppId(DEMO_PROJECT_ID);
+      setCurrentView('player');
+    });
   };
 
   const isLight = theme === 'light' && !isFrutigerAero;
@@ -235,8 +283,12 @@ export default function StoreView() {
   };
 
   const handlePlay = async (app: AppData) => {
+    if (app.id === DEMO_PROJECT_ID) {
+      handlePlayDemo();
+      return;
+    }
     if (!user) {
-      notify.info(language === 'ru' ? 'Войдите, чтобы запускать приложения.' : 'Please sign in to play apps.');
+      notify.info(language === 'ru' ? 'Войдите, чтобы запускать пользовательские приложения.' : 'Please sign in to play user apps.');
       return;
     }
 
@@ -329,7 +381,7 @@ export default function StoreView() {
       {/* Header & Controls */}
       <div
         className={clsx(
-          'px-6 py-5 border-b shrink-0',
+          'px-5 sm:px-6 py-4 border-b shrink-0',
           isFrutigerAero
             ? 'frutiger-aero-glass border-white/50'
             : isLight
@@ -337,27 +389,42 @@ export default function StoreView() {
             : 'bg-[#181B20] border-[#262B33]'
         )}
       >
-        <div className="max-w-7xl mx-auto space-y-4">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
+        <div className="max-w-7xl mx-auto space-y-3.5">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+            <div className="min-w-0 max-w-2xl">
               <h1 className="text-2xl font-bold tracking-tight">App Store</h1>
               <p
                 className={clsx(
-                  'text-sm mt-0.5',
+                  'text-sm mt-1 leading-snug',
                   isFrutigerAero
                     ? 'text-[#1e4b73]'
                     : isLight
                     ? 'text-[#4B5563]'
-                    : 'text-[#9CA3AF]'
+                    : 'text-[#C4CAD3]'
                 )}
               >
                 {language === 'ru'
-                  ? 'Каталог приложений и игр на языке EPL'
-                  : 'Discover applications and games built with EPL'}
+                  ? 'Создавайте 2D/3D-игры, приложения и .epl-сайты в браузере на простом языке EPL — или запустите готовый проект.'
+                  : 'Build 2D/3D games, apps, and .epl websites right in your browser with EPL — or launch community projects.'}
               </p>
             </div>
 
-            <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="flex flex-wrap items-center gap-2.5 w-full lg:w-auto">
+              <button
+                onClick={handleCreateFirstProject}
+                className={clsx(
+                  'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer',
+                  isFrutigerAero
+                    ? 'frutiger-aero-button'
+                    : isLight
+                    ? 'bg-[#059669] hover:bg-[#047857] text-white'
+                    : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
+                )}
+              >
+                <Plus className="w-4 h-4" />
+                <span>{language === 'ru' ? 'Создать первый проект' : 'Create First Project'}</span>
+              </button>
+
               {user && (
                 <div
                   className={clsx(
@@ -374,8 +441,8 @@ export default function StoreView() {
                 </div>
               )}
 
-              <div className="relative flex-1 sm:w-72">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#6B7280]" />
+              <div className="relative flex-1 sm:w-64 min-w-0 sm:min-w-[200px]">
+                <Search className={clsx('absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4', isLight ? 'text-[#6B7280]' : 'text-[#A3AAB5]')} />
                 <input
                   type="text"
                   placeholder={language === 'ru' ? 'Поиск приложений...' : 'Search apps...'}
@@ -386,17 +453,17 @@ export default function StoreView() {
                     isFrutigerAero
                       ? 'bg-white/65 border-white text-[#062038] placeholder-[#3b6f9c] focus:ring-blue-400'
                       : isLight
-                      ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#111315] focus:ring-[#059669]/40'
-                      : 'bg-[#111315] border-[#262B33] text-[#F3F4F6] placeholder-[#6B7280] focus:ring-[#10B981]/40'
+                      ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#111315] placeholder-[#6B7280] focus:ring-[#059669]/40'
+                      : 'bg-[#111315] border-[#262B33] text-[#F3F4F6] placeholder-[#9CA3AF] focus:ring-[#10B981]/40'
                   )}
                 />
               </div>
             </div>
           </div>
 
-          {/* Section Tabs & Category Filter Row */}
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          {/* Section Tabs & Wrapping Category Filter Row (fits cleanly inside 1280px) */}
+          <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-2.5">
+            <div className="flex flex-wrap items-center gap-1.5">
               {[
                 { id: 'featured', label: language === 'ru' ? 'Популярное' : 'Featured', icon: Flame },
                 { id: 'recent', label: language === 'ru' ? 'Новые' : 'Recent', icon: Clock },
@@ -409,7 +476,7 @@ export default function StoreView() {
                     key={tab.id}
                     onClick={() => setActiveTab(tab.id as any)}
                     className={clsx(
-                      'flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium border transition-colors whitespace-nowrap shrink-0',
+                      'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium border transition-colors whitespace-nowrap shrink-0 cursor-pointer',
                       active
                         ? isFrutigerAero
                           ? 'frutiger-aero-button'
@@ -420,10 +487,10 @@ export default function StoreView() {
                         ? 'bg-white/40 border-white/50 text-[#062038] hover:bg-white/60'
                         : isLight
                         ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#4B5563] hover:text-[#111315]'
-                        : 'bg-[#111315] border-[#262B33] text-[#9CA3AF] hover:text-[#F3F4F6]'
+                        : 'bg-[#111315] border-[#262B33] text-[#C4CAD3] hover:text-[#F3F4F6]'
                     )}
                   >
-                    <Icon className="w-4 h-4" />
+                    <Icon className="w-3.5 h-3.5" />
                     <span>{tab.label}</span>
                   </button>
                 );
@@ -431,22 +498,22 @@ export default function StoreView() {
             </div>
 
             {activeTab !== 'friends' && (
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   onClick={() => setSelectedCategory('all')}
                   className={clsx(
-                    'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0',
+                    'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 cursor-pointer',
                     selectedCategory === 'all'
                       ? isFrutigerAero
                         ? 'bg-sky-600 text-white border-sky-600'
                         : isLight
                         ? 'bg-[#111315] text-white border-[#111315]'
-                        : 'bg-[#262B33] text-[#F3F4F6] border-[#374151]'
+                        : 'bg-[#2A303B] text-[#F3F4F6] border-[#4B5563]'
                       : isFrutigerAero
                       ? 'bg-white/40 border-white/50 text-[#062038]'
                       : isLight
                       ? 'bg-transparent border-[#E2E5EA] text-[#4B5563] hover:bg-[#F5F6F8]'
-                      : 'bg-transparent border-[#262B33] text-[#9CA3AF] hover:bg-[#20242B]'
+                      : 'bg-transparent border-[#262B33] text-[#B4BCC8] hover:bg-[#20242B] hover:text-[#F3F4F6]'
                   )}
                 >
                   {language === 'ru' ? 'Все' : 'All'}
@@ -456,18 +523,18 @@ export default function StoreView() {
                     key={cat}
                     onClick={() => setSelectedCategory(cat)}
                     className={clsx(
-                      'px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 capitalize',
+                      'px-2.5 py-1.5 rounded-lg text-xs font-medium border transition-colors whitespace-nowrap shrink-0 capitalize cursor-pointer',
                       selectedCategory === cat
                         ? isFrutigerAero
                           ? 'bg-sky-600 text-white border-sky-600'
                           : isLight
                           ? 'bg-[#111315] text-white border-[#111315]'
-                          : 'bg-[#262B33] text-[#F3F4F6] border-[#374151]'
+                          : 'bg-[#2A303B] text-[#F3F4F6] border-[#4B5563]'
                         : isFrutigerAero
                         ? 'bg-white/40 border-white/50 text-[#062038]'
                         : isLight
                         ? 'bg-transparent border-[#E2E5EA] text-[#4B5563] hover:bg-[#F5F6F8]'
-                        : 'bg-transparent border-[#262B33] text-[#9CA3AF] hover:bg-[#20242B]'
+                        : 'bg-transparent border-[#262B33] text-[#B4BCC8] hover:bg-[#20242B] hover:text-[#F3F4F6]'
                     )}
                   >
                     {cat}
@@ -485,15 +552,91 @@ export default function StoreView() {
           <FriendsView />
         </div>
       ) : (
-        <div className="flex-1 overflow-y-auto p-6">
-          <div className="max-w-7xl mx-auto">
+        <div className="flex-1 overflow-y-auto p-5 sm:p-6">
+          <div className="max-w-7xl mx-auto space-y-6">
+            {/* Standout Featured Demo Project */}
+            {!search.trim() && (selectedCategory === 'all' || selectedCategory === 'games') && (
+              <section
+                className={clsx(
+                  'rounded-xl border p-5 sm:p-6 flex flex-col lg:flex-row lg:items-center justify-between gap-5',
+                  isFrutigerAero
+                    ? 'frutiger-aero-glass border-white/60'
+                    : isLight
+                    ? 'bg-[#FFFFFF] border-[#E2E5EA]'
+                    : 'bg-[#181B20] border-[#262B33]'
+                )}
+              >
+                <div className="space-y-2 max-w-3xl">
+                  <div className="flex flex-wrap items-center gap-2 text-xs font-medium">
+                    <span className={isLight ? 'text-[#059669]' : 'text-[#10B981]'}>
+                      {language === 'ru'
+                        ? 'Готовый пример возможностей · EPL Studio'
+                        : 'Featured Showcase · EPL Studio'}
+                    </span>
+                    <span className="opacity-40">·</span>
+                    <span className="font-mono-num text-[#10B981]">WASD + HUD</span>
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-bold tracking-tight">
+                    {FEATURED_DEMO_APP.title}
+                  </h2>
+                  <p
+                    className={clsx(
+                      'text-sm leading-relaxed',
+                      isFrutigerAero ? 'text-[#1e4b73]' : isLight ? 'text-[#4B5563]' : 'text-[#C4CAD3]'
+                    )}
+                  >
+                    {language === 'ru'
+                      ? 'Управляйте неоновым героем на WASD, собирайте сферы, уклоняйтесь от патрульного дрона и меняйте любые правила прямо в коде.'
+                      : 'Control a neon hero with WASD, collect gold orbs, dodge a patrolling drone, and edit any mechanic live in the EPL Editor.'}
+                  </p>
+                  <p className={clsx('text-xs', isLight ? 'text-[#4B5563]' : 'text-[#B4BCC8]')}>
+                    {language === 'ru'
+                      ? 'Физика столкновений · Синтезатор звука · Живой счёт без регистрации'
+                      : 'Collision events · Synth audio · Live HUD without sign-in'}
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+                  <button
+                    onClick={() => handleOpenCodeInEditor(FEATURED_DEMO_APP.code)}
+                    className={clsx(
+                      'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap shrink-0 cursor-pointer',
+                      isFrutigerAero
+                        ? 'frutiger-aero-button'
+                        : isLight
+                        ? 'bg-[#111315] hover:bg-[#1F242A] text-white'
+                        : 'bg-[#F3F4F6] hover:bg-white text-[#111315]'
+                    )}
+                  >
+                    <Code2 className="w-4 h-4" />
+                    <span>{language === 'ru' ? 'Открыть в редакторе' : 'Open in Editor'}</span>
+                  </button>
+
+                  <button
+                    onClick={handlePlayDemo}
+                    className={clsx(
+                      'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold border transition-colors whitespace-nowrap shrink-0 cursor-pointer',
+                      isFrutigerAero
+                        ? 'bg-white/60 border-white text-[#062038] hover:bg-white/80'
+                        : isLight
+                        ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#111315] hover:border-[#059669]'
+                        : 'bg-[#111315] border-[#262B33] text-[#F3F4F6] hover:border-[#10B981] hover:text-[#10B981]'
+                    )}
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>{language === 'ru' ? 'Запустить демо' : 'Play Demo'}</span>
+                  </button>
+                </div>
+              </section>
+            )}
+
             {loading ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                 {Array.from({ length: 6 }).map((_, idx) => (
                   <div
                     key={idx}
                     className={clsx(
-                      'h-60 rounded-xl border p-5 flex flex-col justify-between',
+                      'rounded-xl border overflow-hidden flex flex-col justify-between',
                       isFrutigerAero
                         ? 'frutiger-aero-glass opacity-60'
                         : isLight
@@ -501,18 +644,11 @@ export default function StoreView() {
                         : 'bg-[#181B20] border-[#262B33]'
                     )}
                   >
-                    <div className="flex items-start gap-4">
-                      <div className="w-14 h-14 rounded-xl bg-current/10 shrink-0" />
-                      <div className="flex-1 space-y-2">
-                        <div className="h-4 w-2/3 rounded bg-current/10" />
-                        <div className="h-3 w-1/2 rounded bg-current/10" />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
+                    <div className="p-5 space-y-3">
+                      <div className="h-4 w-2/3 rounded bg-current/10" />
                       <div className="h-3 w-full rounded bg-current/10" />
-                      <div className="h-3 w-4/5 rounded bg-current/10" />
+                      <div className="h-9 w-full rounded-lg bg-current/10" />
                     </div>
-                    <div className="h-9 w-full rounded-lg bg-current/10" />
                   </div>
                 ))}
               </div>
@@ -527,14 +663,14 @@ export default function StoreView() {
                     : 'bg-[#181B20] border-[#262B33]'
                 )}
               >
-                <Package className="w-10 h-10 mx-auto mb-3 opacity-40" />
+                <Package className="w-10 h-10 mx-auto mb-3 text-[#B4BCC8]" />
                 <h3 className="text-base font-semibold mb-1">
                   {language === 'ru' ? 'Приложения не найдены' : 'No applications found'}
                 </h3>
-                <p className="text-sm opacity-70">
+                <p className={clsx('text-sm', isLight ? 'text-[#4B5563]' : 'text-[#B4BCC8]')}>
                   {language === 'ru'
-                    ? 'Попробуйте изменить поисковый запрос или выбрать другую категорию.'
-                    : 'Try adjusting your search query or selecting a different category.'}
+                    ? 'Попробуйте изменить поисковый запрос, запустить демо выше или создать собственный проект.'
+                    : 'Try adjusting your search query, running the featured demo above, or creating your own project.'}
                 </p>
               </div>
             ) : (
@@ -542,12 +678,18 @@ export default function StoreView() {
                 {filteredApps.map((app) => {
                   const installed = isAppInstalled(app.id);
                   const ratingText = (typeof app.rating === 'number' ? app.rating : 5.0).toFixed(1);
+                  const descriptionText = getAppCardDescription(app, language);
+                  const isWebsite = Boolean(app.isWebsite || app.websiteDomain);
+                  const isGame = String(app.category || '').toLowerCase() === 'games';
+                  const isAiOrCode = ['ai', 'programming language', 'custom editor'].includes(
+                    String(app.category || '').toLowerCase()
+                  );
 
                   return (
                     <article
                       key={app.id}
                       className={clsx(
-                        'rounded-xl border p-5 flex flex-col transition-colors',
+                        'rounded-xl border overflow-hidden flex flex-col transition-colors',
                         isFrutigerAero
                           ? 'frutiger-aero-glass hover:border-white'
                           : isLight
@@ -555,205 +697,226 @@ export default function StoreView() {
                           : 'bg-[#181B20] border-[#262B33] hover:border-[#374151]'
                       )}
                     >
-                      {/* Top Header */}
-                      <div className="flex items-start gap-3.5 mb-3.5">
-                        <button
-                          onClick={() => setSelectedAppId(app.id)}
-                          className={clsx(
-                            'w-14 h-14 rounded-xl border flex items-center justify-center font-bold text-xl shrink-0 overflow-hidden cursor-pointer',
-                            isFrutigerAero
-                              ? 'bg-white/70 border-white text-[#0284c7]'
-                              : isLight
-                              ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#059669]'
-                              : 'bg-[#111315] border-[#262B33] text-[#10B981]'
-                          )}
-                        >
-                          {app.iconUrl ? (
-                            <img
-                              src={app.iconUrl}
-                              alt={app.title}
-                              className="w-full h-full object-cover"
-                              referrerPolicy="no-referrer"
-                            />
-                          ) : (
-                            (app.title || 'A').charAt(0).toUpperCase()
-                          )}
-                        </button>
+                      <div className="p-5 flex-1 flex flex-col">
+                        {/* Compact Category / Domain + Rating bar */}
+                        <div className="flex items-center justify-between gap-2 text-[11px] mb-3">
+                          <span className={clsx('truncate font-medium capitalize', isLight ? 'text-[#4B5563]' : 'text-[#9CA3AF]')}>
+                            {isWebsite
+                              ? app.websiteDomain || `${(app.title || 'site').toLowerCase().replace(/[^a-z0-9-]+/g, '-')}.epl`
+                              : `${app.category || 'App'} · ${app.visits || 0} ${language === 'ru' ? 'зап.' : 'runs'}`}
+                          </span>
+                          <span className="inline-flex items-center gap-1 font-mono-num font-semibold shrink-0 text-[#FBBF24]">
+                            <Star className="w-3.5 h-3.5 fill-current" />
+                            {ratingText}
+                          </span>
+                        </div>
+                        {/* Title + App Icon Row */}
+                        <div className="flex items-start gap-3 mb-2.5">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedAppId(app.id)}
+                            className={clsx(
+                              'w-10 h-10 rounded-lg border flex items-center justify-center shrink-0 overflow-hidden cursor-pointer',
+                              isFrutigerAero
+                                ? 'bg-white/70 border-white text-[#0284c7]'
+                                : isLight
+                                ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#059669]'
+                                : 'bg-[#111315] border-[#262B33] text-[#10B981]'
+                            )}
+                          >
+                            {app.iconUrl ? (
+                              <img
+                                src={app.iconUrl}
+                                alt={app.title}
+                                className="w-full h-full object-cover"
+                                referrerPolicy="no-referrer"
+                              />
+                            ) : isWebsite ? (
+                              <Globe className="w-5 h-5 text-sky-400" />
+                            ) : isGame ? (
+                              <Gamepad2 className="w-5 h-5" />
+                            ) : isAiOrCode ? (
+                              <Sparkles className="w-5 h-5" />
+                            ) : (
+                              <TerminalIcon className="w-5 h-5" />
+                            )}
+                          </button>
 
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center justify-between gap-2">
+                          <div className="flex-1 min-w-0">
                             <h3
                               onClick={() => setSelectedAppId(app.id)}
                               className="text-base font-semibold truncate cursor-pointer hover:text-[#10B981] transition-colors"
                             >
                               {app.title}
                             </h3>
-                            <span className="inline-flex items-center gap-1 text-xs font-mono-num font-medium shrink-0 text-[#D97706]">
-                              <Star className="w-3.5 h-3.5 fill-current" />
-                              {ratingText}
-                            </span>
-                          </div>
 
-                          <div
-                            className={clsx(
-                              'text-xs mt-1 truncate',
-                              isFrutigerAero
-                                ? 'text-[#1e4b73]'
-                                : isLight
-                                ? 'text-[#6B7280]'
-                                : 'text-[#9CA3AF]'
-                            )}
-                          >
-                            {app.isWebsite || app.websiteDomain ? (
-                              <>
-                                <span className="font-mono text-[#10B981] font-semibold">
-                                  {app.websiteDomain || `${(app.title || 'site').toLowerCase().replace(/[^a-z0-9-]+/g, '-')}.epl`}
-                                </span>
-                                <span className="mx-1.5">·</span>
-                              </>
-                            ) : (
-                              <>
-                                <span className="capitalize">{app.category || 'App'}</span>
-                                <span className="mx-1.5">·</span>
-                              </>
-                            )}
-                            <span className="font-mono-num">{app.visits || 0} {app.isWebsite || app.websiteDomain ? 'visits' : 'runs'}</span>
-                            {app.price && app.price > 0 ? (
-                              <>
-                                <span className="mx-1.5">·</span>
-                                <span className="font-mono-num font-semibold text-[#D97706]">
+                            <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  useStore.getState().setViewingProfileId(app.authorId);
+                                  useStore.getState().setCurrentView('public-profile');
+                                }}
+                                className="text-xs font-medium hover:underline flex items-center gap-1 truncate text-[#10B981]"
+                              >
+                                {(app.isVerified || (app as any).isVerifiedAuthor) && (
+                                  <VerifiedBadge size="xs" />
+                                )}
+                                <span className="truncate">{app.authorName || 'Author'}</span>
+                              </button>
+                              <UserRoleBadge
+                                role={(app as any).authorRole}
+                                isVerifiedAuthor={app.isVerified}
+                                size="xs"
+                              />
+                              {app.price && app.price > 0 ? (
+                                <span className="text-xs font-mono-num font-semibold text-[#FBBF24] ml-auto shrink-0">
                                   {app.price} Coins
                                 </span>
-                              </>
-                            ) : null}
-                          </div>
-
-                          <div className="flex items-center gap-1.5 mt-1.5 min-w-0">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                useStore.getState().setViewingProfileId(app.authorId);
-                                useStore.getState().setCurrentView('public-profile');
-                              }}
-                              className="text-xs font-medium hover:underline flex items-center gap-1 truncate text-[#10B981]"
-                            >
-                              {(app.isVerified || (app as any).isVerifiedAuthor) && (
-                                <VerifiedBadge size="xs" />
-                              )}
-                              <span className="truncate">{app.authorName || 'Author'}</span>
-                            </button>
-                            <UserRoleBadge
-                              role={(app as any).authorRole}
-                              isVerifiedAuthor={app.isVerified}
-                              size="xs"
-                            />
+                              ) : null}
+                            </div>
                           </div>
                         </div>
-                      </div>
 
-                      {/* Description */}
-                      <p
-                        className={clsx(
-                          'text-sm line-clamp-2 leading-relaxed mb-4 flex-1',
-                          isFrutigerAero
-                            ? 'text-[#1e4b73]'
-                            : isLight
-                            ? 'text-[#4B5563]'
-                            : 'text-[#9CA3AF]'
-                        )}
-                      >
-                        {app.description || (language === 'ru' ? 'Описание отсутствует' : 'No description provided.')}
-                      </p>
-
-                      {/* Votes + Platform Actions */}
-                      <div
-                        className={clsx(
-                          'flex items-center justify-between pt-3 mb-3 border-t text-xs',
-                          isFrutigerAero
-                            ? 'border-white/40'
-                            : isLight
-                            ? 'border-[#E2E5EA]'
-                            : 'border-[#262B33]'
-                        )}
-                      >
-                        <div className="flex items-center gap-3 font-mono-num">
-                          <button
-                            onClick={() => handleVote(app.id, 'like')}
-                            className={clsx(
-                              'inline-flex items-center gap-1 transition-colors',
-                              userVotes[app.id] === 'like'
-                                ? 'text-[#10B981] font-semibold'
-                                : 'text-[#6B7280] hover:text-[#10B981]'
-                            )}
-                          >
-                            <ThumbsUp className={clsx('w-3.5 h-3.5', userVotes[app.id] === 'like' && 'fill-current')} />
-                            <span>{app.likes || 0}</span>
-                          </button>
-                          <button
-                            onClick={() => handleVote(app.id, 'dislike')}
-                            className={clsx(
-                              'inline-flex items-center gap-1 transition-colors',
-                              userVotes[app.id] === 'dislike'
-                                ? 'text-[#DC2626] font-semibold'
-                                : 'text-[#6B7280] hover:text-[#DC2626]'
-                            )}
-                          >
-                            <ThumbsDown
-                              className={clsx('w-3.5 h-3.5', userVotes[app.id] === 'dislike' && 'fill-current')}
-                            />
-                            <span>{app.dislikes || 0}</span>
-                          </button>
-                        </div>
-
-                        <div className="flex items-center gap-1">
-                          {['windows', 'macos', 'linux', 'android', 'ios'].map((platform) => (
-                            <button
-                              key={platform}
-                              onClick={() => {
-                                setBuildTargetApp(app);
-                                setBuildTargetPlatform(platform);
-                              }}
-                              className={clsx(
-                                'p-1.5 rounded border transition-colors',
-                                isFrutigerAero
-                                  ? 'border-white/60 text-[#062038] hover:bg-white/60'
-                                  : isLight
-                                  ? 'border-[#E2E5EA] text-[#4B5563] hover:bg-[#F5F6F8]'
-                                  : 'border-[#262B33] text-[#9CA3AF] hover:bg-[#20242B] hover:text-[#F3F4F6]'
-                              )}
-                              title={`Build & Download for ${platform.toUpperCase()}`}
-                            >
-                              {getPlatformIcon(platform)}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Primary Action */}
-                      {app.isWebsite || app.websiteDomain ? (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleVisitWebsite(app);
-                          }}
+                        {/* Description */}
+                        <p
                           className={clsx(
-                            'w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer',
+                            'text-sm line-clamp-2 leading-relaxed mb-4 flex-1',
                             isFrutigerAero
-                              ? 'frutiger-aero-button'
+                              ? 'text-[#1e4b73]'
                               : isLight
-                              ? 'bg-[#0284C7] hover:bg-[#0369A1] text-white'
-                              : 'bg-sky-500 hover:bg-sky-400 text-[#07111A]'
+                              ? 'text-[#4B5563]'
+                              : 'text-[#C4CAD3]'
                           )}
                         >
-                          <Globe className="w-4 h-4" />
-                          <span>Visit</span>
-                        </button>
-                      ) : installed ? (
-                        <div className="flex items-center gap-2">
+                          {descriptionText}
+                        </p>
+
+                        {/* Votes + Platform Actions */}
+                        <div
+                          className={clsx(
+                            'flex items-center justify-between pt-3 mb-3 border-t text-xs',
+                            isFrutigerAero
+                              ? 'border-white/40'
+                              : isLight
+                              ? 'border-[#E2E5EA]'
+                              : 'border-[#262B33]'
+                          )}
+                        >
+                          <div className="flex items-center gap-3 font-mono-num">
+                            <button
+                              onClick={() => handleVote(app.id, 'like')}
+                              className={clsx(
+                                'inline-flex items-center gap-1 transition-colors cursor-pointer',
+                                userVotes[app.id] === 'like'
+                                  ? 'text-[#10B981] font-semibold'
+                                  : isLight
+                                  ? 'text-[#4B5563] hover:text-[#059669]'
+                                  : 'text-[#B4BCC8] hover:text-[#10B981]'
+                              )}
+                            >
+                              <ThumbsUp className={clsx('w-3.5 h-3.5', userVotes[app.id] === 'like' && 'fill-current')} />
+                              <span>{app.likes || 0}</span>
+                            </button>
+                            <button
+                              onClick={() => handleVote(app.id, 'dislike')}
+                              className={clsx(
+                                'inline-flex items-center gap-1 transition-colors cursor-pointer',
+                                userVotes[app.id] === 'dislike'
+                                  ? 'text-[#EF4444] font-semibold'
+                                  : isLight
+                                  ? 'text-[#4B5563] hover:text-[#DC2626]'
+                                  : 'text-[#B4BCC8] hover:text-[#EF4444]'
+                              )}
+                            >
+                              <ThumbsDown
+                                className={clsx('w-3.5 h-3.5', userVotes[app.id] === 'dislike' && 'fill-current')}
+                              />
+                              <span>{app.dislikes || 0}</span>
+                            </button>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            {['windows', 'macos', 'linux', 'android', 'ios'].map((platform) => (
+                              <button
+                                key={platform}
+                                onClick={() => {
+                                  setBuildTargetApp(app);
+                                  setBuildTargetPlatform(platform);
+                                }}
+                                className={clsx(
+                                  'p-1.5 rounded border transition-colors cursor-pointer',
+                                  isFrutigerAero
+                                    ? 'border-white/60 text-[#062038] hover:bg-white/60'
+                                    : isLight
+                                    ? 'border-[#E2E5EA] text-[#4B5563] hover:bg-[#F5F6F8]'
+                                    : 'border-[#262B33] text-[#B4BCC8] hover:bg-[#20242B] hover:text-[#F3F4F6]'
+                                )}
+                                title={`Build & Download for ${platform.toUpperCase()}`}
+                              >
+                                {getPlatformIcon(platform)}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Primary Action */}
+                        {isWebsite ? (
                           <button
-                            onClick={() => handlePlay(app)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleVisitWebsite(app);
+                            }}
                             className={clsx(
-                              'flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap',
+                              'w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer',
+                              isFrutigerAero
+                                ? 'frutiger-aero-button'
+                                : isLight
+                                ? 'bg-[#0284C7] hover:bg-[#0369A1] text-white'
+                                : 'bg-sky-500 hover:bg-sky-400 text-[#07111A]'
+                            )}
+                          >
+                            <Globe className="w-4 h-4" />
+                            <span>Visit</span>
+                          </button>
+                        ) : installed ? (
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handlePlay(app)}
+                              className={clsx(
+                                'flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer',
+                                isFrutigerAero
+                                  ? 'frutiger-aero-button'
+                                  : isLight
+                                  ? 'bg-[#059669] hover:bg-[#047857] text-white'
+                                  : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
+                              )}
+                            >
+                              <Play className="w-4 h-4 fill-current" />
+                              <span>{language === 'ru' ? 'Запустить' : 'Launch'}</span>
+                            </button>
+                            <span
+                              className={clsx(
+                                'px-2.5 py-2 rounded-lg border text-xs font-medium inline-flex items-center gap-1 shrink-0',
+                                isFrutigerAero
+                                  ? 'bg-white/50 border-white text-[#0284c7]'
+                                  : isLight
+                                  ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#059669]'
+                                  : 'bg-[#111315] border-[#262B33] text-[#10B981]'
+                              )}
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              <span>{language === 'ru' ? 'Установлено' : 'Installed'}</span>
+                            </span>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedAppId(app.id);
+                            }}
+                            className={clsx(
+                              'w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer',
                               isFrutigerAero
                                 ? 'frutiger-aero-button'
                                 : isLight
@@ -761,42 +924,11 @@ export default function StoreView() {
                                 : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
                             )}
                           >
-                            <Play className="w-4 h-4 fill-current" />
-                            <span>{language === 'ru' ? 'Запустить' : 'Launch'}</span>
+                            <Download className="w-4 h-4" />
+                            <span>Get</span>
                           </button>
-                          <span
-                            className={clsx(
-                              'px-2.5 py-2 rounded-lg border text-xs font-medium inline-flex items-center gap-1 shrink-0',
-                              isFrutigerAero
-                                ? 'bg-white/50 border-white text-[#0284c7]'
-                                : isLight
-                                ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#059669]'
-                                : 'bg-[#111315] border-[#262B33] text-[#10B981]'
-                            )}
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            <span>{language === 'ru' ? 'Установлено' : 'Installed'}</span>
-                          </span>
-                        </div>
-                      ) : (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setSelectedAppId(app.id);
-                          }}
-                          className={clsx(
-                            'w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-colors whitespace-nowrap cursor-pointer',
-                            isFrutigerAero
-                              ? 'frutiger-aero-button'
-                              : isLight
-                              ? 'bg-[#059669] hover:bg-[#047857] text-white'
-                              : 'bg-[#10B981] hover:bg-[#059669] text-[#09120E]'
-                          )}
-                        >
-                          <Download className="w-4 h-4" />
-                          <span>Get</span>
-                        </button>
-                      )}
+                        )}
+                      </div>
                     </article>
                   );
                 })}

@@ -1,3 +1,5 @@
+import { DRPL_COMPONENT_BY_NAME, DRPL_COMPONENT_NAME_SET } from './drpl-catalog.ts';
+
 export type DrplSeverity = 'error' | 'warning';
 
 export interface DrplDiagnostic {
@@ -122,24 +124,9 @@ function unmaskStrings(code: string, strings: string[]): string {
  *   rt.call("car3d", { name: "racer", x: 0, y: 0.6, neon: true })
  */
 const DRPL_COMPONENT_FN_NAMES = new Set([
-  // 3D
-  'use3d', 'sky3d', 'light3d', 'terrain3d', 'water3d', 'car3d', 'mecha3d', 'boss3d',
-  'trees3d', 'city3d', 'asteroids3d', 'portal3d', 'box3d', 'sphere3d', 'cylinder3d',
-  'torus3d', 'pyramid3d', 'cone3d', 'capsule3d', 'plane3d', 'icosahedron3d', 'ring3d',
-  'text3d', 'grid3d', 'spin3d', 'rigidbody3d', 'fog3d',
-  'pickup3d', 'turret3d', 'particles3d', 'camera3d', 'move3d', 'rotate3d',
-  'scale3d', 'projectile3d', 'dragon3d', 'forest3d', 'character3d',
-  'raycast3d', 'hologram3d', 'checkpoint3d', 'platform3d', 'bouncepad3d', 'trail3d', 'shake3d',
-  // 2D
-  'use2d', 'parallax2d', 'tilemap2d', 'player2d', 'enemy2d', 'platform2d', 'bullet2d',
-  'coin2d', 'laser2d', 'particles2d', 'light2d', 'floater2d', 'camera2d', 'minimap2d', 'sfx2d',
-  'move2d', 'rect2d', 'triangle2d', 'circle2d', 'polygon2d', 'line2d', 'capsule2d', 'sprite2d', 'weather2d',
-  'spawner2d', 'checkpoint2d', 'spring2d', 'hazard2d', 'shield2d', 'dialog2d', 'tween2d',
-  // App / UI / Polyglot OOP Data
-  'useapp', 'ui_card', 'ui_chart', 'ui_gauge', 'ui_button', 'ui_slider', 'ui_toggle',
-  'ui_progress', 'ui_tabs', 'ui_table', 'ui_terminal', 'ui_spectrum', 'ui_toast', 'ui_input',
-  'ui_text', 'ui_badge', 'ui_avatar', 'ui_code', 'ui_modal', 'ui_inventory', 'ui_statbar',
-  'ui_timer', 'ui_chat', 'ui_grid', 'synth_music', 'storage_save', 'state_store', 'event_bus'
+  ...DRPL_COMPONENT_NAME_SET,
+  'move3d', 'rotate3d', 'scale3d', 'move2d',
+  'dragon3d', 'forest3d', 'character3d', 'projectile3d'
 ]);
 
 const DRPL_HELPER_FN_NAMES = new Set([
@@ -306,21 +293,6 @@ export function transpileDRPL(source: string): DrplTranspileResult {
   }
 
   // Compatibility analysis across DRPL components (non-blocking warnings)
-  const threeDWorldNames = new Set([
-    'sky3d', 'light3d', 'terrain3d', 'water3d', 'car3d', 'mecha3d', 'boss3d',
-    'trees3d', 'city3d', 'asteroids3d', 'portal3d', 'box3d', 'sphere3d', 'cylinder3d',
-    'torus3d', 'pyramid3d', 'cone3d', 'capsule3d', 'plane3d', 'icosahedron3d', 'ring3d',
-    'text3d', 'grid3d', 'spin3d', 'rigidbody3d', 'fog3d',
-    'pickup3d', 'turret3d', 'particles3d', 'camera3d', 'move3d', 'rotate3d',
-    'scale3d', 'projectile3d', 'dragon3d', 'forest3d', 'character3d',
-    'raycast3d', 'hologram3d', 'checkpoint3d', 'platform3d', 'bouncepad3d', 'trail3d', 'shake3d'
-  ]);
-  const twoDWorldNames = new Set([
-    'parallax2d', 'tilemap2d', 'player2d', 'enemy2d', 'platform2d', 'bullet2d',
-    'coin2d', 'laser2d', 'particles2d', 'light2d', 'floater2d', 'camera2d', 'minimap2d', 'move2d',
-    'rect2d', 'triangle2d', 'circle2d', 'polygon2d', 'line2d', 'capsule2d', 'sprite2d', 'weather2d',
-    'spawner2d', 'checkpoint2d', 'spring2d', 'hazard2d', 'shield2d', 'dialog2d', 'tween2d'
-  ]);
   let hasUse3d = false;
   let hasUse2d = false;
   let first3dLine = -1;
@@ -347,12 +319,17 @@ export function transpileDRPL(source: string): DrplTranspileResult {
           first2dLine = lineIdx + 1;
           first2dName = fn;
         }
-      } else if (threeDWorldNames.has(fn) && first3dLine === -1) {
-        first3dLine = lineIdx + 1;
-        first3dName = fn;
-      } else if (twoDWorldNames.has(fn) && first2dLine === -1) {
-        first2dLine = lineIdx + 1;
-        first2dName = fn;
+      } else {
+        const comp = DRPL_COMPONENT_BY_NAME.get(fn);
+        const is3dNode = (comp?.category === '3d') || (fn.endsWith('3d') && fn !== 'distance3d' && fn !== 'move3d' && fn !== 'rotate3d' && fn !== 'scale3d');
+        const is2dNode = (comp?.category === '2d') || (fn.endsWith('2d') && fn !== 'sfx2d' && fn !== 'move2d');
+        if (is3dNode && first3dLine === -1) {
+          first3dLine = lineIdx + 1;
+          first3dName = fn;
+        } else if (is2dNode && first2dLine === -1) {
+          first2dLine = lineIdx + 1;
+          first2dName = fn;
+        }
       }
     }
   }
@@ -442,11 +419,11 @@ export function transpileDRPL(source: string): DrplTranspileResult {
       } else if (hook === 'render?') {
         outputLines.push('rt.onRender((dt, time) => {');
       } else if (hook === 'key_pressed?') {
-        const keyExpr = params.key || '__STR_0__';
-        outputLines.push(`rt.onKey(${keyExpr}, () => {`);
+        const keyExpr = params.key || '"*"';
+        outputLines.push(`rt.onKey(${keyExpr}, (key) => {`);
       } else if (hook === 'clicked?') {
-        const targetExpr = params.target || params.name || '""';
-        outputLines.push(`rt.onClick(${targetExpr}, () => {`);
+        const targetExpr = params.target || params.name || '"*"';
+        outputLines.push(`rt.onClick(${targetExpr}, (target) => {`);
       } else if (hook === 'timer_tick?') {
         const sec = params.interval || params.seconds || '1';
         outputLines.push(`rt.onTimer(${sec}, () => {`);

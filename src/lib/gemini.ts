@@ -19,7 +19,10 @@ export async function generateWithAI(
 
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error(data.error || 'AI generation request failed');
+    const err: any = new Error(data.error || 'AI generation request failed');
+    err.status = res.status;
+    err.code = data.code;
+    throw err;
   }
 
   const data = await res.json();

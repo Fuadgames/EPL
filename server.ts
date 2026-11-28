@@ -12,16 +12,9 @@ import { initializeApp as initServerApp } from "firebase/app";
 import { 
   getFirestore as getServerFirestore, 
   doc as serverDoc, 
-  deleteDoc as serverDeleteDoc, 
-  setDoc as serverSetDoc,
   getDoc as serverGetDoc,
-  updateDoc as serverUpdateDoc,
   collection as serverCollection,
-  getDocs as serverGetDocs,
-  query as serverQuery,
-  orderBy as serverOrderBy,
-  limit as serverLimit,
-  increment as serverIncrement
+  getDocs as serverGetDocs
 } from "firebase/firestore";
 import { createBuildJob, getBuildJob, type BuildPlatform } from './server/builder.ts';
 import { setupCollabWebSocketServer, createSession, getSession } from './server/collab-server.ts';
@@ -61,7 +54,7 @@ const PREMIUM_PRICE = 599; // $5.99
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   // Security Headers Middleware
   app.use((req, res, next) => {
@@ -120,6 +113,7 @@ async function startServer() {
       req.originalUrl?.startsWith('/api/ai/admin-help') ||
       req.originalUrl?.startsWith('/api/admin/') ||
       req.originalUrl?.startsWith('/api/extra/') ||
+      req.originalUrl?.startsWith('/api/translate') ||
       req.path === '/apps/publish' || 
       req.path === '/ai/moderate-app' ||
       req.path === '/ai/moderate-user' ||
@@ -127,7 +121,8 @@ async function startServer() {
       req.path === '/ai/moderate-all-reviews' ||
       req.path === '/ai/admin-help' ||
       req.path?.startsWith('/admin/') ||
-      req.path?.startsWith('/extra/')
+      req.path?.startsWith('/extra/') ||
+      req.path === '/translate'
     ) {
       return next();
     }
@@ -491,7 +486,43 @@ async function startServer() {
 
   loadPremiumCodesFromDisk();
 
-  // OpenRouter Nemotron 3.5 Content Moderation + Rate-Limit Circuit Breaker + Gemini Fallback
+  // Durable file-backed store for server-side / hourly AI moderation logs (avoids unauthenticated serverDb writes)
+  const MODERATION_LOGS_FILE = path.join(PREMIUM_CODES_DIR, 'moderation-logs.json');
+  const serverModerationLogs: any[] = [];
+
+  const loadModerationLogsFromDisk = () => {
+    try {
+      if (fs.existsSync(MODERATION_LOGS_FILE)) {
+        const raw = fs.readFileSync(MODERATION_LOGS_FILE, 'utf8');
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          serverModerationLogs.splice(0, serverModerationLogs.length, ...parsed.slice(0, 120));
+        }
+      }
+    } catch (e: any) {
+      console.warn('Could not load local moderation logs:', e?.message || e);
+    }
+  };
+
+  const recordServerModerationLog = (entry: any) => {
+    if (!entry || !entry.id) return;
+    const idx = serverModerationLogs.findIndex((l) => l.id === entry.id);
+    if (idx >= 0) serverModerationLogs.splice(idx, 1);
+    serverModerationLogs.unshift(entry);
+    if (serverModerationLogs.length > 120) serverModerationLogs.length = 120;
+    try {
+      fs.mkdirSync(PREMIUM_CODES_DIR, { recursive: true });
+      const tmpPath = `${MODERATION_LOGS_FILE}.tmp`;
+      fs.writeFileSync(tmpPath, JSON.stringify(serverModerationLogs, null, 2), 'utf8');
+      fs.renameSync(tmpPath, MODERATION_LOGS_FILE);
+    } catch (e: any) {
+      console.warn('Could not persist local moderation logs:', e?.message || e);
+    }
+  };
+
+  loadModerationLogsFromDisk();
+
+  // OpenRouter Nemotron 3.5 Content Moderation + Unified Quota Circuit Breakers + Gemini Fallback
   const OPENROUTER_API_KEY = (process.env.OPENROUTER_API_KEY || '').trim();
   const OPENROUTER_MODEL = (process.env.OPENROUTER_MODEL || 'nvidia/nemotron-3.5-super-vl:free').trim();
   const OPENROUTER_FALLBACK_MODELS = Array.from(new Set([
@@ -502,6 +533,59 @@ async function startServer() {
 
   let openRouterQuotaCooldownUntil = 0;
   let openRouterCooldownLogged = false;
+  const geminiModelCooldowns = new Map<string, number>();
+  const geminiCooldownLogged = new Set<string>();
+  const GEMINI_FALLBACK_MODELS = ['gemini-4-hydrogen', 'gemini-3.1-flash-lite'] as const;
+
+  function isQuotaOrRateLimitError(err: any): boolean {
+    const status = Number(err?.status || err?.code || 0);
+    const msg = String(err?.message || err || '');
+    return (
+      status === 429 ||
+      msg.includes('429') ||
+      msg.includes('RESOURCE_EXHAUSTED') ||
+      msg.toLowerCase().includes('quota') ||
+      msg.toLowerCase().includes('rate limit')
+    );
+  }
+
+  function markGeminiModelCooldown(modelId: string, err?: any) {
+    const msg = String(err?.message || '');
+    const delayMatch = msg.match(/retryDelay["']?\s*:\s*["']?(\d+)s/i);
+    const parsedSec = delayMatch ? Number(delayMatch[1]) : 0;
+    const cooldownMs = parsedSec > 0
+      ? Math.min(Math.max(parsedSec * 1000, 60 * 1000), 60 * 60 * 1000)
+      : 15 * 60 * 1000;
+    geminiModelCooldowns.set(modelId, Date.now() + cooldownMs);
+    if (!geminiCooldownLogged.has(modelId)) {
+      geminiCooldownLogged.add(modelId);
+      console.info(`Gemini model ${modelId} quota reached; pausing calls for ${Math.round(cooldownMs / 60000)}m.`);
+    }
+  }
+
+  function isGeminiModelAvailable(modelId: string): boolean {
+    const until = geminiModelCooldowns.get(modelId) || 0;
+    if (Date.now() >= until) {
+      if (until > 0) {
+        geminiModelCooldowns.delete(modelId);
+        geminiCooldownLogged.delete(modelId);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function markOpenRouterCooldown(reason: string, resetHeaderMs?: number) {
+    const fallbackCooldown = Date.now() + 15 * 60 * 1000;
+    openRouterQuotaCooldownUntil =
+      resetHeaderMs && resetHeaderMs > Date.now()
+        ? Math.min(resetHeaderMs, Date.now() + 60 * 60 * 1000)
+        : fallbackCooldown;
+    if (!openRouterCooldownLogged) {
+      openRouterCooldownLogged = true;
+      console.info(`OpenRouter quota limited (${reason}); pausing OpenRouter calls for 15m.`);
+    }
+  }
 
   interface ModerationResult {
     approved: boolean;
@@ -570,25 +654,34 @@ async function startServer() {
     const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
     if (!geminiKey) return null;
 
-    try {
-      const systemMsg = messages.find(m => m.role === 'system')?.content;
-      const userPrompt = messages.filter(m => m.role !== 'system').map(m => m.content).join('\n\n');
-      const ai = getAI();
-      const response = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: userPrompt,
-        config: {
-          ...(systemMsg ? { systemInstruction: systemMsg } : {}),
-          responseMimeType: 'application/json'
+    const systemMsg = messages.find(m => m.role === 'system')?.content;
+    const userPrompt = messages.filter(m => m.role !== 'system').map(m => m.content).join('\n\n');
+    const ai = getAI();
+
+    for (const modelId of GEMINI_FALLBACK_MODELS) {
+      if (!isGeminiModelAvailable(modelId)) continue;
+      try {
+        const response = await ai.models.generateContent({
+          model: modelId,
+          contents: userPrompt,
+          config: {
+            ...(systemMsg ? { systemInstruction: systemMsg } : {}),
+            responseMimeType: 'application/json'
+          }
+        });
+        const text = (response.text || '').trim();
+        const parsed = extractJsonFromModelOutput(text);
+        if (parsed) {
+          return { parsed, rawText: text, modelUsed: modelId };
         }
-      });
-      const text = (response.text || '').trim();
-      const parsed = extractJsonFromModelOutput(text);
-      if (parsed) {
-        return { parsed, rawText: text, modelUsed: 'gemini-4-hydrogen' };
+      } catch (err: any) {
+        if (isQuotaOrRateLimitError(err)) {
+          markGeminiModelCooldown(modelId, err);
+          continue;
+        }
+        console.info(`Gemini fallback (${modelId}) unavailable:`, String(err?.message || err).slice(0, 180));
+        break;
       }
-    } catch (err: any) {
-      console.info('Gemini fallback unavailable:', err?.message || err);
     }
     return null;
   }
@@ -596,7 +689,7 @@ async function startServer() {
   async function callOpenRouterNemotron(
     messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>,
     titleHeader: string,
-    options?: { temperature?: number; maxTokens?: number; timeoutMs?: number }
+    options?: { temperature?: number; maxTokens?: number; timeoutMs?: number; skipGeminiFallback?: boolean }
   ): Promise<{ parsed: any | null; rawText: string; modelUsed: string }> {
     const timeoutMs = Math.min(options?.timeoutMs ?? 6500, 7500);
     const overallDeadline = Date.now() + 8500;
@@ -632,19 +725,8 @@ async function startServer() {
           clearTimeout(timeoutId);
 
           if (response.status === 429 || response.status === 402) {
-            const errBody = await response.text().catch(() => '');
             const resetHeader = Number(response.headers.get('x-ratelimit-reset') || 0);
-            const fallbackCooldown = Date.now() + 15 * 60 * 1000;
-            openRouterQuotaCooldownUntil =
-              resetHeader > Date.now()
-                ? Math.min(resetHeader, Date.now() + 60 * 60 * 1000)
-                : fallbackCooldown;
-            if (!openRouterCooldownLogged) {
-              openRouterCooldownLogged = true;
-              console.info(
-                `OpenRouter free quota limited (${response.status} on ${modelId}); pausing OpenRouter calls for 15m and routing via fallback. Details: ${errBody.slice(0, 140)}`
-              );
-            }
+            markOpenRouterCooldown(`${response.status} on ${modelId}`, resetHeader);
             break;
           }
 
@@ -675,14 +757,16 @@ async function startServer() {
       }
     }
 
-    // Secondary AI fallback via Gemini (uses server GEMINI_API_KEY when available)
-    const geminiResult = await withTimeout(
-      callGeminiJsonFallback(messages),
-      6500,
-      'Gemini fallback timed out'
-    ).catch(() => null);
-    if (geminiResult) {
-      return geminiResult;
+    // Secondary AI fallback via Gemini (uses server GEMINI_API_KEY when available and not in cooldown)
+    if (!options?.skipGeminiFallback && GEMINI_FALLBACK_MODELS.some(isGeminiModelAvailable)) {
+      const geminiResult = await withTimeout(
+        callGeminiJsonFallback(messages),
+        6500,
+        'Gemini fallback timed out'
+      ).catch(() => null);
+      if (geminiResult) {
+        return geminiResult;
+      }
     }
 
     return { parsed: null, rawText: '', modelUsed: 'local-heuristic' };
@@ -711,7 +795,7 @@ async function startServer() {
     description: string,
     code: string,
     authorName?: string,
-    options?: { skipLLM?: boolean }
+    options?: { skipLLM?: boolean; skipGeminiFallback?: boolean }
   ): Promise<ModerationResult> {
     const normalized = normalizeForModeration(`${title} ${description} ${code}`);
     const matchedTerms = EXPLICIT_ABUSE_TERMS.filter(t => normalized.includes(t));
@@ -774,7 +858,7 @@ ${code.slice(0, 12000)}
         { role: "user", content: prompt }
       ],
       "EPL Studio Content Moderation",
-      { temperature: 0.05, maxTokens: 1000, timeoutMs: 6500 }
+      { temperature: 0.05, maxTokens: 1000, timeoutMs: 6500, skipGeminiFallback: options?.skipGeminiFallback }
     );
 
     if (aiRes.parsed && typeof aiRes.parsed.approved === 'boolean') {
@@ -807,7 +891,7 @@ ${code.slice(0, 12000)}
     roleVerification?: string,
     roleVerifiedBy?: string,
     isVerifiedAuthor?: boolean,
-    options?: { skipLLM?: boolean }
+    options?: { skipLLM?: boolean; skipGeminiFallback?: boolean }
   ): Promise<ModerationResult> {
     const normalizedRole = (role || 'user').toLowerCase().trim();
     const hasElevatedRole = normalizedRole !== '' && normalizedRole !== 'user';
@@ -901,7 +985,7 @@ ${code.slice(0, 12000)}
         { role: "user", content: prompt }
       ],
       "EPL Studio User Moderation",
-      { temperature: 0.05, maxTokens: 900, timeoutMs: 6500 }
+      { temperature: 0.05, maxTokens: 900, timeoutMs: 6500, skipGeminiFallback: options?.skipGeminiFallback }
     );
 
     if (aiRes.parsed && typeof aiRes.parsed.approved === 'boolean') {
@@ -1039,9 +1123,6 @@ ${code.slice(0, 12000)}
         if (token) {
           await firestoreRestDelete('reviews', reviewId, token).then(() => { deletedByAi = true; }).catch(() => {});
         }
-        if (!deletedByAi && serverDb) {
-          await serverDeleteDoc(serverDoc(serverDb, 'reviews', reviewId)).then(() => { deletedByAi = true; }).catch(() => {});
-        }
         const logId = `review_mod_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
         const logPayload = {
           id: logId,
@@ -1057,10 +1138,9 @@ ${code.slice(0, 12000)}
           createdAt: new Date().toISOString(),
           codeSnippet: comment.slice(0, 300)
         };
+        recordServerModerationLog(logPayload);
         if (token) {
           await firestoreRestPatch('aiModerationLogs', logId, logPayload, token).catch(() => {});
-        } else if (serverDb) {
-          await serverSetDoc(serverDoc(serverDb, 'aiModerationLogs', logId), logPayload).catch(() => {});
         }
       }
 
@@ -1095,9 +1175,6 @@ ${code.slice(0, 12000)}
           let removed = false;
           if (token) {
             await firestoreRestDelete('reviews', rev.id, token).then(() => { removed = true; }).catch(() => {});
-          }
-          if (!removed && serverDb) {
-            await serverDeleteDoc(serverDoc(serverDb, 'reviews', rev.id)).then(() => { removed = true; }).catch(() => {});
           }
           if (removed) {
             deletedIds.push(rev.id);
@@ -1187,17 +1264,14 @@ ${code.slice(0, 12000)}
           createdAt: now
         };
 
+        recordServerModerationLog(logPayload);
         try {
           if (token) {
             await Promise.all([
-              firestoreRestPatch('users', userId, patchData, token),
+              firestoreRestPatch('users', userId, patchData, token).catch(() => {}),
               firestoreRestPatch('users_public', userId, { isBanned: !isApproved, banReason: !isApproved ? modResult.reason : null }, token).catch(() => {}),
               firestoreRestPatch('aiModerationLogs', logId, logPayload, token).catch(() => {})
             ]);
-          } else if (serverDb) {
-            await serverSetDoc(serverDoc(serverDb, 'users', userId), patchData, { merge: true }).catch(() => {});
-            await serverSetDoc(serverDoc(serverDb, 'users_public', userId), { isBanned: !isApproved, banReason: !isApproved ? modResult.reason : null }, { merge: true }).catch(() => {});
-            await serverSetDoc(serverDoc(serverDb, 'aiModerationLogs', logId), logPayload).catch(() => {});
           }
         } catch (e) {
           console.warn('Server user moderation write skipped:', e);
@@ -1252,23 +1326,12 @@ ${code.slice(0, 12000)}
           if (snap.exists()) {
             const existingData = snap.data();
             if (isDevEmail && existingData.role !== 'developer') {
-              await serverUpdateDoc(userDocRef, { role: 'developer' });
               existingData.role = 'developer';
             }
             userData = { ...existingData, ...userData, eplCoins: existingData.eplCoins ?? 0, purchasedItems: existingData.purchasedItems ?? [] };
-          } else {
-            await serverSetDoc(userDocRef, userData);
-            await serverSetDoc(serverDoc(serverDb, 'users_public', uid), {
-              uid,
-              name: profile.name || 'User',
-              avatarUrl: profile.picture || '',
-              region: 'Global',
-              eplCoins: 0,
-              createdAt: new Date().toISOString()
-            });
           }
         } catch (dbErr) {
-          console.warn('Server Firestore write skipped (client manages its own document):', dbErr);
+          console.warn('Server Firestore read skipped (client manages its own document):', dbErr);
         }
       }
 
@@ -1375,16 +1438,13 @@ ${code.slice(0, 12000)}
         }
       };
 
+      recordServerModerationLog(logRecord);
       if (token) {
         await Promise.all([
           firestoreRestPatch('apps', appId, publishedAppRecord, token).catch(() => {}),
           firestoreRestPatch('aiModerationLogs', logId, logRecord, token).catch(() => {}),
           firestoreRestPatch('adminRequests', reqId, reqRecord, token).catch(() => {})
         ]);
-      } else if (serverDb) {
-        await serverSetDoc(serverDoc(serverDb, 'apps', appId), publishedAppRecord, { merge: true }).catch(() => {});
-        await serverSetDoc(serverDoc(serverDb, 'aiModerationLogs', logId), logRecord).catch(() => {});
-        await serverSetDoc(serverDoc(serverDb, 'adminRequests', reqId), reqRecord, { merge: true }).catch(() => {});
       }
 
       res.json({
@@ -1433,13 +1493,6 @@ ${code.slice(0, 12000)}
           firestoreRestPatch('apps', appId, patchData, token),
           firestoreRestPatch('adminRequests', reqId, reqPatch, token).catch(() => {})
         ]);
-      } else if (serverDb) {
-        try {
-          await serverSetDoc(serverDoc(serverDb, 'apps', appId), patchData, { merge: true });
-          await serverSetDoc(serverDoc(serverDb, 'adminRequests', reqId), reqPatch, { merge: true });
-        } catch (dbErr) {
-          console.warn('Server Firestore write skipped for manual review:', dbErr);
-        }
       }
 
       res.json({ success: true, appId, action });
@@ -1453,31 +1506,30 @@ ${code.slice(0, 12000)}
   app.get("/api/admin/moderation-logs", rateLimiter(60, 60000), async (req, res) => {
     const token = getBearerToken(req);
     try {
+      const mergedMap = new Map<string, any>();
+      for (const localLog of serverModerationLogs) {
+        if (localLog?.id) mergedMap.set(localLog.id, localLog);
+      }
+
       if (token) {
         try {
           const restLogs = await firestoreRestList('aiModerationLogs', token, 60);
-          restLogs.sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
-          return res.json({ logs: restLogs.slice(0, 60) });
+          for (const rLog of restLogs) {
+            if (rLog?.id) mergedMap.set(rLog.id, rLog);
+          }
         } catch (restErr: any) {
           console.warn('REST moderation logs fallback notice:', restErr?.message || restErr);
         }
       }
 
-      if (serverDb) {
-        try {
-          const q = serverQuery(serverCollection(serverDb, 'aiModerationLogs'), serverOrderBy('createdAt', 'desc'), serverLimit(60));
-          const snap = await serverGetDocs(q);
-          const logs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          return res.json({ logs });
-        } catch (dbErr: any) {
-          console.warn('Server DB moderation logs read notice:', dbErr?.message || dbErr);
-        }
-      }
+      const logs = Array.from(mergedMap.values())
+        .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
+        .slice(0, 60);
 
-      return res.json({ logs: [] });
+      return res.json({ logs });
     } catch (err: any) {
       console.warn('Get moderation logs notice:', err?.message || err);
-      return res.json({ logs: [] });
+      return res.json({ logs: serverModerationLogs.slice(0, 60) });
     }
   });
 
@@ -1648,8 +1700,6 @@ ${code.slice(0, 12000)}
         const patchBoth = async (col: string, docId: string, data: Record<string, any>) => {
           if (token) {
             await firestoreRestPatch(col, docId, data, token);
-          } else if (serverDb) {
-            await serverSetDoc(serverDoc(serverDb, col, docId), data, { merge: true });
           }
         };
 
@@ -1698,8 +1748,6 @@ ${code.slice(0, 12000)}
         } else if (act.type === 'delete_app' && act.targetAppId) {
           if (token) {
             await firestoreRestDelete('apps', act.targetAppId, token).catch(() => {});
-          } else if (serverDb) {
-            await serverDeleteDoc(serverDoc(serverDb, 'apps', act.targetAppId)).catch(() => {});
           }
           actionResult = { executed: true, type: 'delete_app', target: act.targetAppId };
         } else if (act.type === 'verify_role' && act.targetUserId) {
@@ -1716,7 +1764,7 @@ ${code.slice(0, 12000)}
           }).catch(() => {});
           actionResult = { executed: true, type: 'verify_role', target: act.targetUserId };
         } else if (act.type === 'run_scan') {
-          executeHourlyModeration().catch(() => {});
+          executeHourlyModeration(token).catch(() => {});
           actionResult = { executed: true, type: 'run_scan' };
         }
       }
@@ -1768,41 +1816,6 @@ ${code.slice(0, 12000)}
         return res.json({ success: true, appId, type });
       }
 
-      if (serverDb) {
-        try {
-          const voteRef = serverDoc(serverDb, 'votes', voteId);
-          const voteSnap = await serverGetDoc(voteRef);
-          const appRef = serverDoc(serverDb, 'apps', appId);
-
-          if (voteSnap.exists()) {
-            const prevType = voteSnap.data().type;
-            if (prevType === type) {
-              return res.json({ success: true, message: 'Already voted', type });
-            }
-            if (type === 'like') {
-              await serverUpdateDoc(appRef, { likes: serverIncrement(1), dislikes: serverIncrement(-1) });
-            } else {
-              await serverUpdateDoc(appRef, { likes: serverIncrement(-1), dislikes: serverIncrement(1) });
-            }
-          } else {
-            if (type === 'like') {
-              await serverUpdateDoc(appRef, { likes: serverIncrement(1) });
-            } else {
-              await serverUpdateDoc(appRef, { dislikes: serverIncrement(1) });
-            }
-          }
-
-          await serverSetDoc(voteRef, {
-            userId,
-            appId,
-            type,
-            updatedAt: new Date().toISOString()
-          });
-        } catch (dbErr: any) {
-          console.warn('Server vote write skipped:', dbErr?.message || dbErr);
-        }
-      }
-
       res.json({ success: true, appId, type });
     } catch (err: any) {
       console.error('Vote error:', err.message);
@@ -1821,8 +1834,6 @@ ${code.slice(0, 12000)}
 
       if (token) {
         await firestoreRestDelete('apps', appId, token);
-      } else if (serverDb) {
-        await serverDeleteDoc(serverDoc(serverDb, 'apps', appId));
       }
 
       res.json({ success: true, appId });
@@ -1845,11 +1856,6 @@ ${code.slice(0, 12000)}
         await Promise.all([
           firestoreRestDelete('users', userId, token),
           firestoreRestDelete('users_public', userId, token)
-        ]);
-      } else if (serverDb) {
-        await Promise.all([
-          serverDeleteDoc(serverDoc(serverDb, 'users', userId)),
-          serverDeleteDoc(serverDoc(serverDb, 'users_public', userId))
         ]);
       }
 
@@ -1878,11 +1884,6 @@ ${code.slice(0, 12000)}
         await Promise.all([
           firestoreRestPatch('users', userId, patchBody, token),
           firestoreRestPatch('users_public', userId, patchBody, token)
-        ]);
-      } else if (serverDb) {
-        await Promise.all([
-          serverSetDoc(serverDoc(serverDb, 'users', userId), patchBody, { merge: true }),
-          serverSetDoc(serverDoc(serverDb, 'users_public', userId), patchBody, { merge: true })
         ]);
       }
 
@@ -1924,32 +1925,6 @@ ${code.slice(0, 12000)}
         return res.json({ success: true, uid, eplCoins: newCoins });
       }
 
-      if (serverDb) {
-        const userRef = serverDoc(serverDb, 'users', uid);
-        const userSnap = await serverGetDoc(userRef);
-        if (!userSnap.exists()) {
-          return res.status(404).json({ error: 'User not found' });
-        }
-
-        const currentCoins = userSnap.data().eplCoins || 0;
-        const newCoins = Math.max(0, currentCoins + amount);
-
-        await serverUpdateDoc(userRef, { eplCoins: newCoins });
-        await Promise.all([
-          serverSetDoc(serverDoc(serverDb, 'users_public', uid), { eplCoins: newCoins }, { merge: true }).catch(() => {}),
-          serverSetDoc(serverDoc(serverDb, 'audit', `coins_${uid}_${Date.now()}`), {
-            type: 'coins',
-            target: uid,
-            amount,
-            newCoins,
-            by: adminUid || 'admin',
-            at: new Date().toISOString()
-          }).catch(() => {})
-        ]);
-
-        return res.json({ success: true, uid, eplCoins: newCoins });
-      }
-
       res.json({ success: true, uid });
     } catch (err: any) {
       console.error('Give coins error:', err.message);
@@ -1980,12 +1955,6 @@ ${code.slice(0, 12000)}
         await Promise.all([
           firestoreRestPatch('users_public', uid, { role }, token).catch(() => {}),
           firestoreRestPatch('audit', auditId, auditPayload, token).catch(() => {})
-        ]);
-      } else if (serverDb) {
-        await serverSetDoc(serverDoc(serverDb, 'users', uid), { role }, { merge: true });
-        await Promise.all([
-          serverSetDoc(serverDoc(serverDb, 'users_public', uid), { role }, { merge: true }).catch(() => {}),
-          serverSetDoc(serverDoc(serverDb, 'audit', auditId), auditPayload).catch(() => {})
         ]);
       }
 
@@ -2040,12 +2009,6 @@ ${code.slice(0, 12000)}
           firestoreRestPatch('users_public', uid, publicPatch, token).catch(() => {}),
           firestoreRestPatch('audit', auditId, auditPayload, token).catch(() => {})
         ]);
-      } else if (serverDb) {
-        await serverSetDoc(serverDoc(serverDb, 'users', uid), userPatch, { merge: true });
-        await Promise.all([
-          serverSetDoc(serverDoc(serverDb, 'users_public', uid), publicPatch, { merge: true }).catch(() => {}),
-          serverSetDoc(serverDoc(serverDb, 'audit', auditId), auditPayload).catch(() => {})
-        ]);
       }
 
       res.json({ 
@@ -2067,7 +2030,7 @@ ${code.slice(0, 12000)}
   let isHourlyRunning = false;
   let lastHourlyStats = { appsChecked: 0, appsBanned: 0, usersChecked: 0, usersBanned: 0 };
 
-  async function executeHourlyModeration() {
+  async function executeHourlyModeration(token?: string | null, options?: { isBackground?: boolean }) {
     if (isHourlyRunning) return;
     isHourlyRunning = true;
     lastHourlyRunTime = new Date().toISOString();
@@ -2080,135 +2043,190 @@ ${code.slice(0, 12000)}
     let usersBanned = 0;
 
     try {
-      if (serverDb) {
-        let llmCallsThisCycle = 0;
-        const MAX_BACKGROUND_LLM_CALLS = 4;
+      let appDocs: Array<{ id: string; data: any }> = [];
+      let userDocs: Array<{ id: string; data: any }> = [];
 
-        // 1. Scan and moderate Apps (skip LLM for unchanged already-moderated apps to preserve API quota)
-        const appsSnap = await serverGetDocs(serverCollection(serverDb, 'apps'));
-        for (const aDoc of appsSnap.docs) {
-          const a = aDoc.data();
-          appsChecked++;
-          const title = a.title || '';
-          const desc = a.description || '';
-          const code = a.code || '';
-          const author = a.authorName || '';
+      if (token) {
+        const [restApps, restUsers] = await Promise.all([
+          firestoreRestList('apps', token, 200).catch(() => []),
+          firestoreRestList('users', token, 200).catch(() => [])
+        ]);
+        appDocs = restApps.map((a) => ({ id: a.id, data: a }));
+        userDocs = restUsers.map((u) => ({ id: u.id, data: u }));
+      }
 
-          const alreadyModeratedUnchanged =
-            !!a.moderatedAt &&
-            a.status !== 'pending' &&
-            (!a.updatedAt || new Date(a.moderatedAt).getTime() >= new Date(a.updatedAt).getTime());
+      if (serverDb && appDocs.length === 0) {
+        const appsSnap = await serverGetDocs(serverCollection(serverDb, 'apps')).catch(() => null);
+        if (appsSnap) {
+          appDocs = appsSnap.docs.map((d) => ({ id: d.id, data: d.data() }));
+        }
+      }
+      if (serverDb && userDocs.length === 0) {
+        const usersSnap = await serverGetDocs(serverCollection(serverDb, 'users')).catch(() => null);
+        if (usersSnap) {
+          userDocs = usersSnap.docs.map((d) => ({ id: d.id, data: d.data() }));
+        }
+      }
 
-          const skipLLM = alreadyModeratedUnchanged || llmCallsThisCycle >= MAX_BACKGROUND_LLM_CALLS;
-          if (!skipLLM) llmCallsThisCycle++;
+      let llmCallsThisCycle = 0;
+      const MAX_BACKGROUND_LLM_CALLS = 4;
 
-          const result = await moderateWithNemotron(title, desc, code, author, { skipLLM });
-          if (!result.approved && a.status !== 'rejected') {
-            appsBanned++;
-            await serverSetDoc(aDoc.ref, {
+      // 1. Scan and moderate Apps (skip LLM for unchanged already-moderated apps to preserve API quota)
+      for (const aEntry of appDocs) {
+        const a = aEntry.data;
+        appsChecked++;
+        const title = a.title || '';
+        const desc = a.description || '';
+        const code = a.code || '';
+        const author = a.authorName || '';
+
+        const alreadyModeratedUnchanged =
+          !!a.moderatedAt &&
+          a.status !== 'pending' &&
+          (!a.updatedAt || new Date(a.moderatedAt).getTime() >= new Date(a.updatedAt).getTime());
+
+        const isBackgroundScan = !!options?.isBackground;
+        const skipLLM =
+          isBackgroundScan ||
+          alreadyModeratedUnchanged ||
+          llmCallsThisCycle >= MAX_BACKGROUND_LLM_CALLS;
+        if (!skipLLM) llmCallsThisCycle++;
+
+        const result = await moderateWithNemotron(title, desc, code, author, {
+          skipLLM,
+          skipGeminiFallback: isBackgroundScan,
+        });
+        if (!result.approved && a.status !== 'rejected') {
+          appsBanned++;
+          const nowIso = new Date().toISOString();
+          if (token) {
+            await firestoreRestPatch('apps', aEntry.id, {
               status: 'rejected',
               moderationStatus: 'rejected',
               moderationReason: result.reason,
               moderationFlags: result.flags,
-              moderatedAt: new Date().toISOString(),
+              moderatedAt: nowIso,
               moderatedBy: 'Hourly AI Moderator'
-            }, { merge: true });
+            }, token).catch(() => {});
+          }
 
-            const logId = `hourly_app_${aDoc.id}_${Date.now()}`;
-            await serverSetDoc(serverDoc(serverDb, 'aiModerationLogs', logId), {
-              id: logId,
-              appId: aDoc.id,
-              appTitle: title,
-              authorId: a.authorId || 'unknown',
-              authorName: author,
-              approved: false,
-              reason: `[Почасовая проверка ИИ] ${result.reason}`,
-              flags: result.flags,
-              riskScore: result.riskScore,
-              model: `Hourly AI Moderator (${result.modelUsed || 'Nemotron'})`,
-              createdAt: new Date().toISOString()
-            });
+          const logId = `hourly_app_${aEntry.id}_${Date.now()}`;
+          const logEntry = {
+            id: logId,
+            appId: aEntry.id,
+            appTitle: title,
+            authorId: a.authorId || 'unknown',
+            authorName: author,
+            approved: false,
+            reason: `[Почасовая проверка ИИ] ${result.reason}`,
+            flags: result.flags,
+            riskScore: result.riskScore,
+            model: `Hourly AI Moderator (${result.modelUsed || 'Nemotron'})`,
+            createdAt: nowIso
+          };
+          recordServerModerationLog(logEntry);
+          if (token) {
+            await firestoreRestPatch('aiModerationLogs', logId, logEntry, token).catch(() => {});
           }
         }
+      }
 
-        // 2. Scan and moderate Users (verifying VERIFIED checkmark + elevated roles)
-        const usersSnap = await serverGetDocs(serverCollection(serverDb, 'users'));
-        for (const uDoc of usersSnap.docs) {
-          const u = uDoc.data();
-          usersChecked++;
-          const name = u.name || 'User';
-          const email = u.email || '';
-          const bio = u.bio || '';
-          const role = u.role || 'user';
-          const roleVerification = u.roleVerification;
-          const roleVerifiedBy = u.roleVerifiedBy;
-          const isVerifiedAuthor = !!u.isVerifiedAuthor;
+      // 2. Scan and moderate Users (verifying VERIFIED checkmark + elevated roles)
+      for (const uEntry of userDocs) {
+        const u = uEntry.data;
+        usersChecked++;
+        const name = u.name || 'User';
+        const email = u.email || '';
+        const bio = u.bio || '';
+        const role = u.role || 'user';
+        const roleVerification = u.roleVerification;
+        const roleVerifiedBy = u.roleVerifiedBy;
+        const isVerifiedAuthor = !!u.isVerifiedAuthor;
 
-          const alreadyModeratedUser = !!u.moderatedAt && u.moderationStatus === 'approved';
-          const skipLLM = alreadyModeratedUser || llmCallsThisCycle >= MAX_BACKGROUND_LLM_CALLS;
-          if (!skipLLM && !(role !== 'user' && !isVerifiedAuthor) && !isVerifiedAuthor) {
-            llmCallsThisCycle++;
-          }
-
-          const result = await moderateUserWithNemotron(
-            name,
-            email,
-            bio,
-            u.avatarUrl,
-            role,
-            roleVerification,
-            roleVerifiedBy,
-            isVerifiedAuthor,
-            { skipLLM }
-          );
-
-          if (!result.approved && !u.isBanned) {
-            usersBanned++;
-            await serverSetDoc(uDoc.ref, {
-              isBanned: true,
-              banReason: result.reason,
-              moderationStatus: 'rejected',
-              moderationReason: result.reason,
-              moderationFlags: result.flags,
-              moderatedAt: new Date().toISOString(),
-              moderatedBy: 'Hourly AI Moderator'
-            }, { merge: true });
-
-            const logId = `hourly_user_${uDoc.id}_${Date.now()}`;
-            await serverSetDoc(serverDoc(serverDb, 'aiModerationLogs', logId), {
-              id: logId,
-              appId: uDoc.id,
-              appTitle: `[Пользователь] ${name}`,
-              authorId: uDoc.id,
-              authorName: name,
-              approved: false,
-              reason: `[Почасовая проверка ИИ] ${result.reason}`,
-              flags: result.flags,
-              riskScore: result.riskScore,
-              model: `Hourly AI Moderator (${result.modelUsed || 'Nemotron'})`,
-              createdAt: new Date().toISOString()
-            });
-          }
+        const alreadyModeratedUser = !!u.moderatedAt && u.moderationStatus === 'approved';
+        const isBackgroundScan = !!options?.isBackground;
+        const skipLLM =
+          isBackgroundScan ||
+          alreadyModeratedUser ||
+          llmCallsThisCycle >= MAX_BACKGROUND_LLM_CALLS;
+        if (!skipLLM && !(role !== 'user' && !isVerifiedAuthor) && !isVerifiedAuthor) {
+          llmCallsThisCycle++;
         }
 
-        lastHourlyStats = { appsChecked, appsBanned, usersChecked, usersBanned };
+        const result = await moderateUserWithNemotron(
+          name,
+          email,
+          bio,
+          u.avatarUrl,
+          role,
+          roleVerification,
+          roleVerifiedBy,
+          isVerifiedAuthor,
+          { skipLLM, skipGeminiFallback: isBackgroundScan }
+        );
 
-        // Save hourly audit summary
-        const summaryId = `hourly_summary_${Date.now()}`;
-        await serverSetDoc(serverDoc(serverDb, 'aiModerationLogs', summaryId), {
-          id: summaryId,
-          appId: 'system_hourly',
-          appTitle: `[Почасовая проверка ИИ] Проверено: ${appsChecked} проектов, ${usersChecked} пользователей`,
-          authorId: 'system',
-          authorName: 'AI Moderator System',
-          approved: true,
-          reason: `Почасовая проверка ИИ завершена. Выявлено нарушений: проектов ${appsBanned}, пользователей ${usersBanned}.`,
-          flags: [],
-          riskScore: 0,
-          model: 'Hourly AI Moderator',
-          createdAt: new Date().toISOString(),
-          stats: lastHourlyStats
-        });
+        if (!result.approved && !u.isBanned) {
+          usersBanned++;
+          const nowIso = new Date().toISOString();
+          if (token) {
+            await Promise.all([
+              firestoreRestPatch('users', uEntry.id, {
+                isBanned: true,
+                banReason: result.reason,
+                moderationStatus: 'rejected',
+                moderationReason: result.reason,
+                moderationFlags: result.flags,
+                moderatedAt: nowIso,
+                moderatedBy: 'Hourly AI Moderator'
+              }, token).catch(() => {}),
+              firestoreRestPatch('users_public', uEntry.id, {
+                isBanned: true,
+                banReason: result.reason
+              }, token).catch(() => {})
+            ]);
+          }
+
+          const logId = `hourly_user_${uEntry.id}_${Date.now()}`;
+          const logEntry = {
+            id: logId,
+            appId: uEntry.id,
+            appTitle: `[Пользователь] ${name}`,
+            authorId: uEntry.id,
+            authorName: name,
+            approved: false,
+            reason: `[Почасовая проверка ИИ] ${result.reason}`,
+            flags: result.flags,
+            riskScore: result.riskScore,
+            model: `Hourly AI Moderator (${result.modelUsed || 'Nemotron'})`,
+            createdAt: nowIso
+          };
+          recordServerModerationLog(logEntry);
+          if (token) {
+            await firestoreRestPatch('aiModerationLogs', logId, logEntry, token).catch(() => {});
+          }
+        }
+      }
+
+      lastHourlyStats = { appsChecked, appsBanned, usersChecked, usersBanned };
+
+      const summaryId = `hourly_summary_${Date.now()}`;
+      const summaryEntry = {
+        id: summaryId,
+        appId: 'system_hourly',
+        appTitle: `[Почасовая проверка ИИ] Проверено: ${appsChecked} проектов, ${usersChecked} пользователей`,
+        authorId: 'system',
+        authorName: 'AI Moderator System',
+        approved: true,
+        reason: `Почасовая проверка ИИ завершена. Выявлено нарушений: проектов ${appsBanned}, пользователей ${usersBanned}.`,
+        flags: [],
+        riskScore: 0,
+        model: 'Hourly AI Moderator',
+        createdAt: new Date().toISOString(),
+        stats: lastHourlyStats
+      };
+      recordServerModerationLog(summaryEntry);
+      if (token) {
+        await firestoreRestPatch('aiModerationLogs', summaryId, summaryEntry, token).catch(() => {});
       }
     } catch (err: any) {
       console.error('[AI MODERATOR] Hourly scan failed:', err.message);
@@ -2218,9 +2236,9 @@ ${code.slice(0, 12000)}
     }
   }
 
-  // Periodic hourly check: runs every 1 hour (3,600,000 ms), initial lightweight pass after 90s
-  setInterval(executeHourlyModeration, 60 * 60 * 1000);
-  setTimeout(executeHourlyModeration, 90000);
+  // Periodic hourly check: runs every 1 hour (3,600,000 ms), initial lightweight safety-filter pass after 90s
+  setInterval(() => { executeHourlyModeration(undefined, { isBackground: true }).catch(() => {}); }, 60 * 60 * 1000);
+  setTimeout(() => { executeHourlyModeration(undefined, { isBackground: true }).catch(() => {}); }, 90000);
 
   // Status and on-demand trigger endpoints
   app.get("/api/ai/hourly-moderation-status", (req, res) => {
@@ -2236,7 +2254,8 @@ ${code.slice(0, 12000)}
 
   app.post("/api/ai/run-hourly-moderation", rateLimiter(10, 60000), async (req, res) => {
     try {
-      await executeHourlyModeration();
+      const token = getBearerToken(req);
+      await executeHourlyModeration(token);
       res.json({
         success: true,
         message: 'Hourly AI moderation completed',
@@ -2302,17 +2321,6 @@ ${code.slice(0, 12000)}
               at: now
             }, token).catch(() => {})
           ]);
-        } else if (serverDb) {
-          await Promise.all([
-            serverSetDoc(serverDoc(serverDb, 'premiumCodes', hash), entry).catch(() => {}),
-            serverSetDoc(serverDoc(serverDb, 'audit', `pcode_${targetTier}_${Date.now()}`), {
-              type: 'premium_code_generated',
-              tier: targetTier,
-              codeHash: hash,
-              by: adminUid || 'admin',
-              at: now
-            }).catch(() => {})
-          ]);
         }
       }
 
@@ -2353,7 +2361,7 @@ ${code.slice(0, 12000)}
       let codeRecord = premiumCodesStore.get(hash);
       let matchedDocId = hash;
 
-      // Fallback lookup from Firestore (check hashed ID first, then legacy plaintext code ID)
+      // Fallback lookup from Firestore (only when caller provided an authenticated token)
       if (!codeRecord && token) {
         try {
           const restDoc = (await firestoreRestGet('premiumCodes', hash, token))
@@ -2367,25 +2375,6 @@ ${code.slice(0, 12000)}
               createdBy: restDoc.createdBy || 'system',
               usedBy: restDoc.usedBy,
               usedAt: restDoc.usedAt
-            };
-          }
-        } catch (_) {}
-      } else if (!codeRecord && serverDb) {
-        try {
-          let snap = await serverGetDoc(serverDoc(serverDb, 'premiumCodes', hash));
-          if (!snap.exists()) {
-            snap = await serverGetDoc(serverDoc(serverDb, 'premiumCodes', cleanCode));
-          }
-          if (snap.exists()) {
-            matchedDocId = snap.id;
-            const d = snap.data();
-            codeRecord = {
-              tier: (d.tier as PremiumTierCode) || inferTierFromCode(cleanCode),
-              used: !!d.used,
-              createdAt: d.createdAt || new Date().toISOString(),
-              createdBy: d.createdBy || 'system',
-              usedBy: d.usedBy,
-              usedAt: d.usedAt
             };
           }
         } catch (_) {}
@@ -2434,30 +2423,6 @@ ${code.slice(0, 12000)}
             at: now
           }, token).catch(() => {})
         ]);
-      } else if (serverDb) {
-        await Promise.all([
-          serverSetDoc(serverDoc(serverDb, 'users', userId), {
-            isPremium: true,
-            premiumTier: resolvedTier,
-            premiumExpiry: oneYearExpiry
-          }, { merge: true }).catch(() => {}),
-          serverSetDoc(serverDoc(serverDb, 'users_public', userId), {
-            premiumTier: resolvedTier
-          }, { merge: true }).catch(() => {}),
-          serverSetDoc(serverDoc(serverDb, 'premiumCodes', matchedDocId), {
-            used: true,
-            usedBy: userId,
-            usedAt: now,
-            tier: resolvedTier
-          }, { merge: true }).catch(() => {}),
-          serverSetDoc(serverDoc(serverDb, 'audit', `redeem_${userId}_${Date.now()}`), {
-            type: 'premium_redeemed',
-            tier: resolvedTier,
-            userId,
-            codeHash: hash,
-            at: now
-          }).catch(() => {})
-        ]);
       }
 
       return res.json({ success: true, isPremium: true, tier: resolvedTier, premiumExpiry: oneYearExpiry });
@@ -2497,11 +2462,9 @@ ${code.slice(0, 12000)}
       if (pruned.length > 30) pruned.splice(0, pruned.length - 30);
       extraTrollQueues.set(targetUid, pruned);
 
-      // Best-effort Firestore mirror (never fails the relay if token is absent)
+      // Best-effort Firestore mirror when caller supplies Firebase ID token
       if (token) {
         firestoreRestPatch('trollInbox', targetUid, normalizedEvent, token).catch(() => {});
-      } else if (serverDb) {
-        serverSetDoc(serverDoc(serverDb, 'trollInbox', targetUid), normalizedEvent, { merge: true }).catch(() => {});
       }
 
       return res.json({ success: true, eventId: normalizedEvent.eventId });
@@ -2537,12 +2500,10 @@ ${code.slice(0, 12000)}
       };
       extraRemoteSessions.set(targetUid, nextSession);
 
-      // Mirror core session object to Firestore cleanly
+      // Mirror core session object to Firestore cleanly when caller token is present
       const firestorePayload = { ...session, targetUid, updatedAt: nextSession.updatedAt };
       if (token) {
         firestoreRestPatch('remoteControlSessions', targetUid, firestorePayload, token).catch(() => {});
-      } else if (serverDb) {
-        serverSetDoc(serverDoc(serverDb, 'remoteControlSessions', targetUid), firestorePayload, { merge: true }).catch(() => {});
       }
 
       return res.json({ success: true, status: nextSession.status });
@@ -2635,53 +2596,60 @@ ${code.slice(0, 12000)}
         return res.status(400).json({ error: 'Invalid or oversized prompt' });
       }
 
+      const tryOpenRouterTextFallback = async (): Promise<string | null> => {
+        if (!OPENROUTER_API_KEY || Date.now() < openRouterQuotaCooldownUntil) return null;
+        const deadline = Date.now() + 8000;
+        for (const modelId of OPENROUTER_FALLBACK_MODELS) {
+          const remaining = deadline - Date.now();
+          if (remaining < 1200) break;
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), Math.min(6000, remaining));
+          try {
+            const orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+                "Content-Type": "application/json",
+                "HTTP-Referer": process.env.APP_URL || "https://epl-studio.local",
+                "X-Title": "EPL Studio Code Assistant"
+              },
+              body: JSON.stringify({
+                model: modelId,
+                messages: [
+                  ...(systemInstruction ? [{ role: "system", content: systemInstruction }] : []),
+                  { role: "user", content: prompt }
+                ],
+                temperature: 0.4,
+                max_tokens: 1400
+              }),
+              signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            if (orRes.status === 429 || orRes.status === 402) {
+              const resetHeader = Number(orRes.headers.get('x-ratelimit-reset') || 0);
+              markOpenRouterCooldown(`${orRes.status} on ${modelId}`, resetHeader);
+              break;
+            }
+            if (!orRes.ok) continue;
+            const data: any = await orRes.json();
+            const msg = data?.choices?.[0]?.message || {};
+            const textOut = (typeof msg.content === 'string' ? msg.content : '') || (typeof msg.reasoning === 'string' ? msg.reasoning : '');
+            if (textOut.trim()) {
+              return textOut.trim();
+            }
+          } catch {
+            clearTimeout(timeoutId);
+          }
+        }
+        return null;
+      };
+
       const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
       if (!geminiKey) {
-        // Fast OpenRouter text fallback when GEMINI_API_KEY is not configured
-        if (OPENROUTER_API_KEY && Date.now() >= openRouterQuotaCooldownUntil) {
-          const deadline = Date.now() + 8000;
-          for (const modelId of OPENROUTER_FALLBACK_MODELS) {
-            const remaining = deadline - Date.now();
-            if (remaining < 1200) break;
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), Math.min(6000, remaining));
-            try {
-              const orRes = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-                method: "POST",
-                headers: {
-                  "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-                  "Content-Type": "application/json",
-                  "HTTP-Referer": process.env.APP_URL || "https://epl-studio.local",
-                  "X-Title": "EPL Studio Code Assistant"
-                },
-                body: JSON.stringify({
-                  model: modelId,
-                  messages: [
-                    ...(systemInstruction ? [{ role: "system", content: systemInstruction }] : []),
-                    { role: "user", content: prompt }
-                  ],
-                  temperature: 0.4,
-                  max_tokens: 1400
-                }),
-                signal: controller.signal
-              });
-              clearTimeout(timeoutId);
-
-              if (orRes.status === 429 || orRes.status === 402) {
-                openRouterQuotaCooldownUntil = Date.now() + 15 * 60 * 1000;
-                break;
-              }
-              if (!orRes.ok) continue;
-              const data: any = await orRes.json();
-              const msg = data?.choices?.[0]?.message || {};
-              const textOut = (typeof msg.content === 'string' ? msg.content : '') || (typeof msg.reasoning === 'string' ? msg.reasoning : '');
-              if (textOut.trim()) {
-                return res.json({ text: textOut.trim() });
-              }
-            } catch {
-              clearTimeout(timeoutId);
-            }
-          }
+        const fallbackText = await tryOpenRouterTextFallback();
+        if (fallbackText) {
+          return res.json({ text: fallbackText });
         }
         return res.status(503).json({
           error: 'GEMINI_API_KEY is not configured in Settings > Secrets.'
@@ -2690,25 +2658,66 @@ ${code.slice(0, 12000)}
 
       const ai = getAI();
       const allowedModels = new Set(['gemini-4-hydrogen', 'gemini-3.1-flash-lite', 'gemini-4-neon', 'gemini-4-carbon']);
-      const targetModel = allowedModels.has(model) ? model : 'gemini-4-hydrogen';
+      const requestedModel = allowedModels.has(model) ? model : 'gemini-4-hydrogen';
+      const candidateModels = requestedModel === 'gemini-4-hydrogen'
+        ? ['gemini-4-hydrogen', 'gemini-3.1-flash-lite']
+        : [requestedModel, 'gemini-3.1-flash-lite'];
       const config: any = {};
       if (systemInstruction) {
         config.systemInstruction = systemInstruction;
       }
 
-      const response = await withTimeout(
-        ai.models.generateContent({
-          model: targetModel,
-          contents: prompt,
-          config: Object.keys(config).length > 0 ? config : undefined,
-        }),
-        25000,
-        'Gemini generation request timed out'
-      );
+      let lastErr: any = null;
+      let hitQuota = false;
+      for (const candidateModel of candidateModels) {
+        if (!isGeminiModelAvailable(candidateModel)) {
+          hitQuota = true;
+          continue;
+        }
+        try {
+          const response = await withTimeout(
+            ai.models.generateContent({
+              model: candidateModel,
+              contents: prompt,
+              config: Object.keys(config).length > 0 ? config : undefined,
+            }),
+            25000,
+            'Gemini generation request timed out'
+          );
+          return res.json({ text: response.text });
+        } catch (err: any) {
+          lastErr = err;
+          if (isQuotaOrRateLimitError(err)) {
+            hitQuota = true;
+            markGeminiModelCooldown(candidateModel, err);
+            continue;
+          }
+          break;
+        }
+      }
 
-      res.json({ text: response.text });
+      if (hitQuota) {
+        const openRouterText = await tryOpenRouterTextFallback();
+        if (openRouterText) {
+          return res.json({ text: openRouterText });
+        }
+        return res.status(429).json({
+          error: 'Daily Gemini API free-tier quota exceeded. You can select a billing-enabled API key in Settings > Secrets or try again later.',
+          code: 'RESOURCE_EXHAUSTED'
+        });
+      }
+
+      const errMsg = String(lastErr?.message || 'AI generation failed');
+      const errStatus = Number(lastErr?.status || 0);
+      if (errStatus === 403 || errMsg.includes('PERMISSION_DENIED') || errMsg.includes('API_KEY_INVALID')) {
+        return res.status(403).json({
+          error: 'Gemini API key is invalid or lacks permission. Please verify GEMINI_API_KEY in Settings > Secrets.'
+        });
+      }
+      console.warn('Gemini generation notice:', errMsg.slice(0, 200));
+      return res.status(500).json({ error: errMsg });
     } catch (err: any) {
-      console.error('Gemini error:', err.message);
+      console.warn('Gemini generation error:', String(err?.message || err).slice(0, 200));
       res.status(500).json({ error: err.message || 'AI generation failed' });
     }
   });
@@ -2734,7 +2743,7 @@ ${code.slice(0, 12000)}
     };
 
     const geminiKey = (process.env.GEMINI_API_KEY || '').trim();
-    if (!geminiKey) {
+    if (!geminiKey || !isGeminiModelAvailable('gemini-3.1-flash-lite-image')) {
       return res.json({
         imageBase64: buildSvgFallback(),
         mimeType: 'image/svg+xml',
@@ -2768,12 +2777,279 @@ ${code.slice(0, 12000)}
         isSvgFallback: true,
       });
     } catch (err: any) {
-      console.warn('Image gen fallback activated:', err.message);
+      if (isQuotaOrRateLimitError(err)) {
+        markGeminiModelCooldown('gemini-3.1-flash-lite-image', err);
+      } else {
+        console.info('Image gen fallback activated:', String(err?.message || err).slice(0, 160));
+      }
       return res.json({
         imageBase64: buildSvgFallback(),
         mimeType: 'image/svg+xml',
         isSvgFallback: true,
       });
+    }
+  });
+
+  // Whole-site automatic translation API (in-memory LRU cache + GTX + OpenRouter + Gemini fallback)
+  const translationCache = new Map<string, string>();
+  const setTranslationCache = (key: string, val: string) => {
+    if (translationCache.size >= 25000) {
+      const oldestKey = translationCache.keys().next().value;
+      if (oldestKey !== undefined) translationCache.delete(oldestKey);
+    }
+    translationCache.set(key, val);
+  };
+
+  let gtxCooldownUntil = 0;
+
+  async function translateViaGtxSingle(text: string, targetLang: string): Promise<string | null> {
+    if (Date.now() < gtxCooldownUntil) return null;
+    try {
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(
+        targetLang
+      )}&dt=t&q=${encodeURIComponent(text)}`;
+      const r = await fetch(url, {
+        signal: AbortSignal.timeout(2200),
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      });
+      if (r.status === 429 || r.status === 403) {
+        gtxCooldownUntil = Date.now() + 5 * 60 * 1000;
+        return null;
+      }
+      if (!r.ok) return null;
+      const data: any = await r.json();
+      if (!Array.isArray(data?.[0])) return null;
+      const joined = data[0].map((seg: any) => (typeof seg?.[0] === 'string' ? seg[0] : '')).join('');
+      return joined.trim() || null;
+    } catch {
+      return null;
+    }
+  }
+
+  const translateModelCooldowns = new Map<string, number>();
+  const TRANSLATE_MODELS = Array.from(
+    new Set([
+      'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+      'nvidia/nemotron-3.5-lightning:free',
+      'nvidia/nemotron-3.5-super-vl:free',
+      OPENROUTER_MODEL,
+    ])
+  );
+
+  async function callOpenRouterForTranslate(
+    messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>
+  ): Promise<any | null> {
+    if (!OPENROUTER_API_KEY || Date.now() < openRouterQuotaCooldownUntil) return null;
+    const overallDeadline = Date.now() + 26000;
+    for (const modelId of TRANSLATE_MODELS) {
+      const cooldownUntil = translateModelCooldowns.get(modelId) || 0;
+      if (Date.now() < cooldownUntil) continue;
+      const remaining = overallDeadline - Date.now();
+      if (remaining < 2000) break;
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), Math.min(13000, remaining));
+      try {
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${OPENROUTER_API_KEY}`,
+            'Content-Type': 'application/json',
+            'HTTP-Referer': process.env.APP_URL || 'https://epl-studio.local',
+            'X-Title': 'EPL Studio UI Translator',
+          },
+          body: JSON.stringify({
+            model: modelId,
+            messages,
+            temperature: 0.1,
+            max_tokens: 3400,
+            reasoning: { effort: 'low' },
+            response_format: { type: 'json_object' },
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timer);
+
+        if (response.status === 429 || response.status === 402) {
+          const resetHeader = Number(response.headers.get('x-ratelimit-reset') || 0);
+          translateModelCooldowns.set(modelId, Date.now() + 15 * 60 * 1000);
+          markOpenRouterCooldown(`${response.status} on ${modelId}`, resetHeader);
+          break;
+        }
+        if (!response.ok) {
+          continue;
+        }
+
+        const data: any = await response.json();
+        const msg = data?.choices?.[0]?.message || {};
+        const parsed =
+          extractJsonFromModelOutput(typeof msg.content === 'string' ? msg.content : '') ||
+          extractJsonFromModelOutput(typeof msg.reasoning === 'string' ? msg.reasoning : '');
+        if (parsed) return parsed;
+      } catch {
+        clearTimeout(timer);
+      }
+    }
+    return null;
+  }
+
+  async function translateChunkViaAI(texts: string[], targetLang: string): Promise<string[] | null> {
+    if (texts.length === 0) return [];
+    if (!OPENROUTER_API_KEY || Date.now() < openRouterQuotaCooldownUntil) {
+      // Do not consume Gemini free-tier daily quota for bulk UI translation chunks
+      return null;
+    }
+    const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+      {
+        role: 'system',
+        content: `You are a precise UI localizer for EPL Studio. Translate every string in the JSON array "texts" into the language with BCP-47 code "${targetLang}". Keep product/code identifiers (EPL, EPL Studio, DRPL, EPLCoins, AllBIOS, Frutiger Aero, 2D, 3D, WASD) intact when appropriate. Return ONLY valid JSON with exact same item count and order: {"translations": ["..."]}.`,
+      },
+      {
+        role: 'user',
+        content: JSON.stringify({ targetLang, count: texts.length, texts }),
+      },
+    ];
+
+    const parsed = await callOpenRouterForTranslate(messages);
+    if (parsed && Array.isArray(parsed.translations) && parsed.translations.length === texts.length) {
+      return parsed.translations.map((t: any, i: number) =>
+        typeof t === 'string' && t.trim() ? t.trim() : texts[i]
+      );
+    }
+    if (parsed && parsed.translations && typeof parsed.translations === 'object' && !Array.isArray(parsed.translations)) {
+      const mapped = texts.map((orig, i) => {
+        const val = parsed.translations[String(i)];
+        return typeof val === 'string' && val.trim() ? val.trim() : orig;
+      });
+      if (mapped.some((v, i) => v !== texts[i])) {
+        return mapped;
+      }
+    }
+
+    return null;
+  }
+
+  async function translateBatchWithBackends(
+    texts: string[],
+    targetLang: string
+  ): Promise<{ translations: string[]; backendSucceeded: boolean }> {
+    if (texts.length === 0) return { translations: [], backendSucceeded: true };
+    const results = [...texts];
+    const sep = '\n[[~^~]]\n';
+    const joined = texts.join(sep);
+
+    // 1) Try batched GTX translation when not rate-limited
+    if (Date.now() >= gtxCooldownUntil && joined.length <= 3600) {
+      const batchOut = await translateViaGtxSingle(joined, targetLang);
+      if (batchOut) {
+        const parts = batchOut.split(/\s*\[\[~\^~\]\]\s*/);
+        if (parts.length === texts.length) {
+          return {
+            translations: parts.map((p, i) => p.trim() || texts[i]),
+            backendSucceeded: true,
+          };
+        }
+      }
+    }
+
+    // 2) Sequential single-call AI translation (only when OpenRouter is available and not in cooldown)
+    if (OPENROUTER_API_KEY && Date.now() >= openRouterQuotaCooldownUntil) {
+      let aiSucceeded = false;
+      const chunkSize = 40;
+      for (let i = 0; i < texts.length; i += chunkSize) {
+        if (Date.now() < openRouterQuotaCooldownUntil) break;
+        const slice = texts.slice(i, i + chunkSize);
+        const translatedSlice = await translateChunkViaAI(slice, targetLang);
+        if (translatedSlice && translatedSlice.length === slice.length) {
+          aiSucceeded = true;
+          translatedSlice.forEach((tr, idx) => {
+            results[i + idx] = tr;
+          });
+        } else {
+          break;
+        }
+      }
+      if (aiSucceeded) {
+        return { translations: results, backendSucceeded: true };
+      }
+    }
+
+    // 3) Individual GTX fallback only if cooldown has expired
+    if (Date.now() >= gtxCooldownUntil) {
+      let gtxSucceeded = 0;
+      const gtxChunk = 8;
+      for (let i = 0; i < texts.length; i += gtxChunk) {
+        if (Date.now() < gtxCooldownUntil) break;
+        const slice = texts.slice(i, i + gtxChunk);
+        const translatedSlice = await Promise.all(slice.map((item) => translateViaGtxSingle(item, targetLang)));
+        translatedSlice.forEach((tr, idx) => {
+          if (tr) {
+            results[i + idx] = tr;
+            gtxSucceeded++;
+          }
+        });
+      }
+      if (gtxSucceeded > 0) {
+        return { translations: results, backendSucceeded: true };
+      }
+    }
+
+    return { translations: results, backendSucceeded: false };
+  }
+
+  app.post("/api/translate", rateLimiter(180, 60000), async (req, res) => {
+    try {
+      const targetLangRaw = String(req.body?.targetLang || 'en').trim();
+      if (!/^[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})?$/.test(targetLangRaw)) {
+        return res.status(400).json({ error: 'Invalid target language code' });
+      }
+      const rawTexts = req.body?.texts;
+      if (!Array.isArray(rawTexts)) {
+        return res.status(400).json({ error: 'texts must be an array' });
+      }
+
+      const cleaned = rawTexts
+        .slice(0, 80)
+        .map((t: any) => (typeof t === 'string' ? t.slice(0, 1000) : String(t ?? '').slice(0, 1000)));
+
+      const output = new Array<string>(cleaned.length);
+      const missingIndices: number[] = [];
+      const missingTexts: string[] = [];
+
+      cleaned.forEach((txt, idx) => {
+        const trimmed = txt.trim();
+        if (!trimmed) {
+          output[idx] = txt;
+          return;
+        }
+        const cacheKey = `${targetLangRaw}::${trimmed}`;
+        const cached = translationCache.get(cacheKey);
+        if (cached) {
+          output[idx] = cached;
+        } else {
+          missingIndices.push(idx);
+          missingTexts.push(trimmed);
+        }
+      });
+
+      let backendSucceeded = missingTexts.length === 0;
+      if (missingTexts.length > 0) {
+        const result = await translateBatchWithBackends(missingTexts, targetLangRaw);
+        backendSucceeded = result.backendSucceeded;
+        missingIndices.forEach((origIdx, mIdx) => {
+          const val = result.translations[mIdx] || missingTexts[mIdx];
+          output[origIdx] = val;
+          if (backendSucceeded && val.trim()) {
+            setTranslationCache(`${targetLangRaw}::${missingTexts[mIdx]}`, val);
+          }
+        });
+      }
+
+      res.json({ targetLang: targetLangRaw, translations: output, backendSucceeded });
+    } catch (err: any) {
+      console.warn('Translation route notice:', err?.message || err);
+      const fallback = Array.isArray(req.body?.texts) ? req.body.texts.slice(0, 80) : [];
+      res.json({ targetLang: String(req.body?.targetLang || 'en'), translations: fallback, backendSucceeded: false });
     }
   });
 

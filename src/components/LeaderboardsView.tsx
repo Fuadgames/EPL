@@ -273,11 +273,11 @@ export default function LeaderboardsView() {
             >
               {activeTab === 'popular' ? (
                 popularProjects.map((project, index) => (
-                  <div key={project.id} className="flex items-center gap-4 px-5 py-3.5">
-                    <div className="w-8 flex justify-center shrink-0">{getRankIcon(index)}</div>
+                  <div key={project.id} className="flex items-center gap-3 sm:gap-4 px-3.5 sm:px-5 py-3 sm:py-3.5">
+                    <div className="w-7 sm:w-8 flex justify-center shrink-0">{getRankIcon(index)}</div>
                     <div
                       className={clsx(
-                        'w-10 h-10 rounded-lg border flex items-center justify-center font-bold overflow-hidden shrink-0',
+                        'w-9 h-9 sm:w-10 sm:h-10 rounded-lg border flex items-center justify-center font-bold overflow-hidden shrink-0',
                         isLight
                           ? 'bg-[#F5F6F8] border-[#E2E5EA] text-[#059669]'
                           : 'bg-[#111315] border-[#262B33] text-[#10B981]'
@@ -296,10 +296,12 @@ export default function LeaderboardsView() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="font-semibold text-sm truncate">{project.title}</div>
-                      <div className="text-xs opacity-65 truncate">by {project.authorName}</div>
+                      <div className="text-xs opacity-65 truncate">
+                        {language === 'ru' ? 'автор:' : 'by'} {project.authorName}
+                      </div>
                     </div>
-                    <div className="font-mono-num font-semibold text-sm text-[#10B981] shrink-0">
-                      {project.visits || 0} runs
+                    <div className="font-mono-num font-semibold text-xs sm:text-sm text-[#10B981] shrink-0">
+                      {project.visits || 0} {language === 'ru' ? 'запусков' : 'runs'}
                     </div>
                   </div>
                 ))
@@ -308,15 +310,15 @@ export default function LeaderboardsView() {
                   <div
                     key={u.uid}
                     className={clsx(
-                      'flex items-center gap-4 px-5 py-3.5',
+                      'flex items-center gap-3 sm:gap-4 px-3.5 sm:px-5 py-3 sm:py-3.5',
                       u.uid === currentUser?.uid && (isLight ? 'bg-[#F5F6F8]' : 'bg-[#20242B]/50')
                     )}
                   >
-                    <div className="w-8 flex justify-center shrink-0">{getRankIcon(index)}</div>
+                    <div className="w-7 sm:w-8 flex justify-center shrink-0">{getRankIcon(index)}</div>
                     <img
                       src={u.avatarUrl || getDefaultAvatar(u.uid)}
                       alt="Avatar"
-                      className="w-10 h-10 rounded-lg object-cover border border-current/15 shrink-0"
+                      className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg object-cover border border-current/15 shrink-0"
                       referrerPolicy="no-referrer"
                     />
                     <div className="flex-1 min-w-0">
@@ -327,7 +329,7 @@ export default function LeaderboardsView() {
                       </div>
                       <div className="text-xs opacity-65">{u.region || 'Global'}</div>
                     </div>
-                    <div className="font-mono-num font-semibold text-sm text-[#10B981] shrink-0">
+                    <div className="font-mono-num font-semibold text-xs sm:text-sm text-[#10B981] shrink-0">
                       {u.eplCoins}
                     </div>
                   </div>
@@ -335,7 +337,9 @@ export default function LeaderboardsView() {
               )}
 
               {(activeTab === 'popular' ? popularProjects.length === 0 : users.length === 0) && (
-                <div className="p-8 text-center text-sm opacity-60">No entries found for this leaderboard.</div>
+                <div className="p-6 sm:p-8 text-center text-sm opacity-60">
+                  {language === 'ru' ? 'В этом рейтинге пока нет записей.' : 'No entries found for this leaderboard.'}
+                </div>
               )}
             </div>
           </div>

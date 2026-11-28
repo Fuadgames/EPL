@@ -1,4 +1,4 @@
-export const translations = {
+const rawTranslations = {
   en: {
     store: 'Store',
     installedApps: 'Installed Apps',
@@ -161,7 +161,7 @@ export const translations = {
     premium: 'Премиум',
     news: 'Новости',
     settings: 'Настройки',
-    downloadDesktopApp: 'Download Desktop App',
+    downloadDesktopApp: 'Скачать для ПК',
     desktopAppSubtitle: 'Версия для ПК',
     customizeTabs: 'Настроить вкладки',
     hideTab: 'Скрыть вкладку',
@@ -301,7 +301,26 @@ export const translations = {
   }
 };
 
-export const tutorialContent = {
+export type TranslationSet = typeof rawTranslations.en;
+
+export const translations: Record<string, TranslationSet> & typeof rawTranslations = new Proxy(
+  rawTranslations as any,
+  {
+    get(target, prop: string | symbol) {
+      if (typeof prop === 'symbol') return (target as any)[prop];
+      if (prop in target) return target[prop];
+      const base = prop.split('-')[0];
+      if (base in target) return target[base];
+      return target.en;
+    },
+  }
+);
+
+export function getTranslations(lang?: string): TranslationSet {
+  return translations[lang || 'en'] || rawTranslations.en;
+}
+
+const rawTutorialContent = {
   en: [
     {
       title: "Level 1: The Canvas",
@@ -1931,3 +1950,20 @@ export const tutorialContent = {
     }
   ]
 };
+
+export const tutorialContent: Record<string, typeof rawTutorialContent.en> & typeof rawTutorialContent = new Proxy(
+  rawTutorialContent as any,
+  {
+    get(target, prop: string | symbol) {
+      if (typeof prop === 'symbol') return (target as any)[prop];
+      if (prop in target) return target[prop];
+      const base = prop.split('-')[0];
+      if (base in target) return target[base];
+      return target.en;
+    },
+  }
+);
+
+export function getTutorialContent(lang?: string) {
+  return tutorialContent[lang || 'en'] || rawTutorialContent.en;
+}

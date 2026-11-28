@@ -4,6 +4,7 @@ import clsx from 'clsx';
 import { Trophy } from 'lucide-react';
 
 export const AchievementNotifications: React.FC = () => {
+  const language = useStore(state => state.language);
   const achievementQueue = useStore(state => state.achievementQueue);
   const popAchievement = useStore(state => state.popAchievement);
   const theme = useStore(state => state.theme);
@@ -48,7 +49,7 @@ export const AchievementNotifications: React.FC = () => {
   return (
     <div
       className={clsx(
-        'fixed bottom-6 right-6 z-50 transition-all duration-300 transform shadow-2xl flex flex-col overflow-hidden min-w-[300px]',
+        'fixed bottom-20 md:bottom-6 inset-x-3 sm:inset-x-auto sm:right-6 z-50 transition-all duration-300 transform shadow-2xl flex flex-col overflow-hidden sm:min-w-[300px] sm:max-w-sm',
         visible ? 'translate-y-0 opacity-100 scale-100' : 'translate-y-6 opacity-0 scale-95',
         isFrutigerAero
           ? 'bg-gradient-to-br from-blue-300 via-white to-blue-200 border-2 border-white rounded-[20px] shadow-[inset_0_2px_12px_rgba(255,255,255,0.8),0_8px_32px_rgba(0,0,0,0.15)]'
@@ -74,7 +75,7 @@ export const AchievementNotifications: React.FC = () => {
             isFrutigerAero ? 'text-blue-900' : 'text-[#9BA1A6]'
           )}
         >
-          Achievement Unlocked
+          {language === 'ru' ? 'Достижение получено' : 'Achievement Unlocked'}
         </span>
       </div>
 

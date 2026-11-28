@@ -156,3 +156,116 @@ export interface TrollInboxEvent {
   createdAt: string;
 }
 
+export interface EplCustomCategory {
+  id: string;
+  label: string;
+  color?: string;
+  icon?: string;
+}
+
+export interface EplCustomTab {
+  id: string;
+  label: string;
+  categoryId: string;
+  icon?: string;
+  color?: string;
+  badge?: string;
+  subtitle?: string;
+  eplCode: string;
+}
+
+export interface EplCustomWidget {
+  id: string;
+  kind: 'badge' | 'button' | 'card' | 'banner' | 'epl-mini-app' | 'sticker';
+  text: string;
+  subtext?: string;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  bgColor?: string;
+  textColor?: string;
+  borderColor?: string;
+  borderRadius?: number;
+  fontSize?: number;
+  targetView?: string;
+  eplCode?: string;
+  visibleOn?: 'all' | string;
+}
+
+export interface EplTabOverlay {
+  code: string;
+  position: 'top' | 'bottom' | 'replace' | 'floating';
+  height?: number;
+}
+
+export interface EplSiteThemeSpec {
+  canvasBg?: string;
+  canvasGradient?: string;
+  sidebarBg?: string;
+  cardBg?: string;
+  textColor?: string;
+  mutedColor?: string;
+  accentColor?: string;
+  secondaryColor?: string;
+  borderColor?: string;
+  borderRadius?: number;
+  fontFamily?: 'default' | 'mono' | 'space' | 'serif' | 'rounded';
+  fontScale?: number;
+  sidebarWidth?: number;
+  sidebarSide?: 'left' | 'right';
+  glassBlur?: number;
+  glowIntensity?: number;
+  bgEffect?: 'none' | 'grid' | 'dots' | 'scanlines' | 'stars' | 'aurora' | 'matrix';
+}
+
+export interface EplSiteCustomizationSpec {
+  brandTitle?: string;
+  brandSubtitle?: string;
+  brandBadge?: string;
+  brandIcon?: 'terminal' | 'sparkles' | 'crown' | 'rocket' | 'globe' | 'gamepad' | 'cpu';
+  theme: EplSiteThemeSpec;
+  labelOverrides: Record<string, string>;
+  domTextOverrides: Record<string, string>;
+  domStyleOverrides: Record<
+    string,
+    {
+      bg?: string;
+      color?: string;
+      borderColor?: string;
+      radius?: number;
+      fontSize?: number;
+      tx?: number;
+      ty?: number;
+      hidden?: boolean;
+    }
+  >;
+  categoryOrder?: string[];
+  categoryNames?: Record<string, string>;
+  categoryColors?: Record<string, string>;
+  tabOrders?: Record<string, string[]>;
+  hiddenTabIds?: string[];
+  customCategories: EplCustomCategory[];
+  customTabs: EplCustomTab[];
+  widgets: EplCustomWidget[];
+  tabEplOverlays: Record<string, EplTabOverlay>;
+  globalEplCode?: string;
+}
+
+export interface EplShopItem {
+  id: string;
+  title: string;
+  description: string;
+  coverUrl: string;
+  screenshotUrl: string;
+  price: number;
+  stock: number | 'infinite';
+  sales?: number;
+  authorId: string;
+  authorName: string;
+  spec: EplSiteCustomizationSpec;
+  status?: 'active' | 'archived';
+  createdAt: string;
+  updatedAt: string;
+}
+

@@ -49,7 +49,7 @@ export default function PremiumView() {
 
   // Subscribe to player's Message to Developer chat
   useEffect(() => {
-    if (!user?.uid || !isDevChatOpen) return;
+    if (!auth.currentUser || !user?.uid || !isDevChatOpen) return;
     const q = query(collection(db, 'premiumChats', user.uid, 'messages'), orderBy('createdAt', 'asc'));
     const unsub = onSnapshot(
       q,
@@ -93,6 +93,16 @@ export default function PremiumView() {
   };
 
   const handleUnlock = async () => {
+    if (hasAnyPremium) {
+      const msg =
+        language === 'ru'
+          ? 'У вас уже активен премиум. Сначала отмените текущую подписку, чтобы ввести новый код.'
+          : 'You already have an active Premium plan. Cancel your current subscription first to redeem a new code.';
+      setError(msg);
+      notify.error(msg);
+      return;
+    }
+
     if (!code.trim() || !user) {
       setError(language === 'ru' ? 'Войдите в аккаунт и введите код' : 'Please log in and enter a code');
       return;
@@ -483,25 +493,55 @@ export default function PremiumView() {
             <div>
               <h2 className="text-base font-bold">
                 {hasAnyPremium
-                  ? language === 'ru' ? 'Активировать другой код или повысить уровень' : 'Redeem Another Tier Code / Upgrade'
+                  ? language === 'ru'
+                    ? 'Ввод кода заблокирован на время активного Премиума'
+                    : 'Code Entry Locked While Premium Is Active'
                   : t.unlockPremium}
               </h2>
               <p className="text-xs text-[#9CA3AF]">
-                {language === 'ru'
-                  ? 'Введите ключ вида PLUS-XXXX-XXXX, PREM-XXXX-XXXX или ULTR-XXXX-XXXX'
-                  : 'Enter a tier key (PLUS-XXXX-XXXX, PREM-XXXX-XXXX, or ULTR-XXXX-XXXX)'}
+                {hasAnyPremium
+                  ? language === 'ru'
+                    ? 'У вас уже активна подписка (Plus, Premium или Ultra). Отмените текущую подписку выше, чтобы ввести другой ключ.'
+                    : 'An active Plus, Premium, or Ultra plan is enabled. Cancel it above before redeeming another code.'
+                  : language === 'ru'
+                    ? 'Введите ключ вида PLUS-XXXX-XXXX, PREM-XXXX-XXXX или ULTR-XXXX-XXXX'
+                    : 'Enter a tier key (PLUS-XXXX-XXXX, PREM-XXXX-XXXX, or ULTR-XXXX-XXXX)'}
               </p>
             </div>
           </div>
 
+          {hasAnyPremium && (
+            <div className="mb-3 px-3.5 py-2.5 rounded-xl border border-amber-500/35 bg-amber-500/10 text-amber-300 text-xs font-medium flex items-center justify-between gap-3">
+              <span>
+                {language === 'ru'
+                  ? `Активен тариф: ${activeTier.toUpperCase()}. Поле ввода кода отключено до отмены подписки.`
+                  : `Active plan: ${activeTier.toUpperCase()}. Code input is locked until you cancel.`}
+              </span>
+              <button
+                type="button"
+                onClick={handleCancelPremium}
+                className="px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500 hover:text-white text-red-200 border border-red-500/40 font-semibold transition-colors cursor-pointer shrink-0"
+              >
+                {t.cancelPremium}
+              </button>
+            </div>
+          )}
+
           <div className="flex flex-col sm:flex-row gap-2.5">
             <input
               type="text"
-              value={code}
-              onChange={(e) => setCode(e.target.value)}
-              placeholder="PLUS-XXXX-XXXX / PREM-XXXX-XXXX / ULTR-XXXX-XXXX"
+              value={hasAnyPremium ? '' : code}
+              disabled={hasAnyPremium}
+              onChange={(e) => !hasAnyPremium && setCode(e.target.value)}
+              placeholder={
+                hasAnyPremium
+                  ? language === 'ru'
+                    ? 'Сначала отмените текущий Премиум...'
+                    : 'Cancel current Premium to enter a code...'
+                  : 'PLUS-XXXX-XXXX / PREM-XXXX-XXXX / ULTR-XXXX-XXXX'
+              }
               className={clsx(
-                'flex-1 px-4 py-2.5 rounded-xl border font-mono text-sm placeholder:text-[#6B7280] focus:outline-none',
+                'flex-1 px-4 py-2.5 rounded-xl border font-mono text-sm placeholder:text-[#6B7280] focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed',
                 isFrutigerAero
                   ? 'bg-white/60 border-white/40 text-blue-900'
                   : isLight
@@ -511,10 +551,10 @@ export default function PremiumView() {
             />
             <button
               type="button"
-              disabled={redeeming}
+              disabled={redeeming || hasAnyPremium}
               onClick={handleUnlock}
               className={clsx(
-                'py-2.5 px-6 rounded-xl text-sm font-bold transition-colors cursor-pointer disabled:opacity-50 whitespace-nowrap',
+                'py-2.5 px-6 rounded-xl text-sm font-bold transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap',
                 isFrutigerAero ? 'frutiger-aero-button' : 'bg-[#10B981] hover:bg-[#059669] text-[#0A0C0E]'
               )}
             >
@@ -523,8 +563,8 @@ export default function PremiumView() {
             <button
               type="button"
               onClick={handleCheckout}
-              disabled={isProcessingStripe}
-              className="py-2.5 px-5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 cursor-pointer whitespace-nowrap font-mono-num"
+              disabled={isProcessingStripe || hasAnyPremium}
+              className="py-2.5 px-5 bg-[#2563EB] hover:bg-[#1D4ED8] text-white rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer whitespace-nowrap font-mono-num"
             >
               {isProcessingStripe
                 ? language === 'ru' ? 'Загрузка...' : 'Loading...'

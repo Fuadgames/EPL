@@ -63,7 +63,7 @@ function TierLockPill({
 }: {
   requiredTier: Exclude<PremiumTier, 'none'>;
   unlocked: boolean;
-  language: 'en' | 'ru';
+  language: string;
 }) {
   const styles =
     requiredTier === 'ultra'
@@ -281,6 +281,14 @@ export default function ExtraPremiumView() {
     return headers;
   };
 
+  const hasFirestoreCallerPremium = Boolean(
+    auth.currentUser &&
+      (userData?.role === 'developer' ||
+        (auth.currentUser.email === 'fufazada@gmail.com' && auth.currentUser.emailVerified) ||
+        userData?.isPremium === true ||
+        (userData?.premiumTier && userData.premiumTier !== 'none'))
+  );
+
   const dispatchTrollEvent = async (destUid: string, eventPayload: Record<string, any>) => {
     let firestoreOk = false;
     let relayOk = false;
@@ -292,8 +300,14 @@ export default function ExtraPremiumView() {
       createdAt: eventPayload.createdAt || new Date().toISOString(),
     };
 
+    const canWriteFs = Boolean(
+      auth.currentUser &&
+        (destUid === auth.currentUser.uid ||
+          (hasFirestoreCallerPremium && cleanEvent.senderUid === auth.currentUser.uid))
+    );
+
     const [fsRes, relayRes] = await Promise.allSettled([
-      auth.currentUser
+      canWriteFs
         ? setDoc(doc(db, 'trollInbox', destUid), cleanEvent).then(() => { firestoreOk = true; })
         : Promise.resolve(),
       (async () => {
@@ -324,8 +338,12 @@ export default function ExtraPremiumView() {
       updatedAt: sessionPayload.updatedAt || new Date().toISOString(),
     };
 
+    const canWriteFs = Boolean(
+      auth.currentUser && hasFirestoreCallerPremium && cleanSession.controllerUid === auth.currentUser.uid
+    );
+
     await Promise.allSettled([
-      auth.currentUser
+      canWriteFs
         ? setDoc(doc(db, 'remoteControlSessions', destUid), cleanSession).then(() => { firestoreOk = true; })
         : Promise.resolve(),
       (async () => {
